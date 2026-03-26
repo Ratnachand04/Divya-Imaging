@@ -1,0 +1,26 @@
+/* =====================================================
+   SuperAdmin Dashboard - Tailwind Bento Grid Design
+   ===================================================== */
+
+/* Hide shared header/navbar/footer from includes/header.php and includes/footer.php to allow full page takeover */
+body.role-superadmin .main-header,
+body.role-superadmin .main-navbar,
+body.role-superadmin .main-footer { display: none !important; }
+body.role-superadmin { background-color: #fdf4f7 !important; }
+
+/* Custom Font adjustments for Material Icons */
+.material-symbols-outlined {
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+/* Bento Grid */
+.bento-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 1.5rem;
+}
+
+/* Responsive Grid adjustment */
+@media (max-width: 768px) {
+    .bento-grid > div[class*="col-span"] { grid-column: span 12 !important; }
+}
