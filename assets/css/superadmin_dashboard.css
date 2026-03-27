@@ -20,7 +20,139 @@ body.role-superadmin { background-color: #fdf4f7 !important; }
     gap: 1.5rem;
 }
 
-/* Responsive Grid adjustment */
+/* Responsive Grid adjustment - target both div and a tags */
 @media (max-width: 768px) {
-    .bento-grid > div[class*="col-span"] { grid-column: span 12 !important; }
+    .bento-grid > [class*="col-span"] { grid-column: span 12 !important; }
 }
+
+/* =====================================================
+   CRITICAL: Override superadmin.css broad selectors
+   that break Tailwind color utilities on dashboard cards.
+   superadmin.css applies colors to ALL p, span, a, h1-h4
+   which conflicts with Tailwind's text-white etc.
+   ===================================================== */
+
+/* Reset text colors inside the bento-grid to inherit from Tailwind */
+.bento-grid h1,
+.bento-grid h2,
+.bento-grid h3,
+.bento-grid h4,
+.bento-grid p,
+.bento-grid span,
+.bento-grid a,
+.bento-grid label,
+.bento-grid th,
+.bento-grid td,
+.bento-grid div {
+    color: inherit !important;
+}
+
+/* Reset link styles inside bento-grid */
+.bento-grid a {
+    text-decoration: none !important;
+}
+.bento-grid a:hover {
+    text-decoration: none !important;
+}
+
+/* Ensure white text on dark/colored card backgrounds */
+.bento-grid .text-white,
+.bento-grid .text-white h1,
+.bento-grid .text-white h2,
+.bento-grid .text-white h3,
+.bento-grid .text-white h4,
+.bento-grid .text-white p,
+.bento-grid .text-white span,
+.bento-grid .text-white a,
+.bento-grid .text-white div {
+    color: white !important;
+}
+
+/* Cards with gradient/dark backgrounds need white text */
+.bento-grid [class*="bg-gradient"],
+.bento-grid [class*="bg-[#2c3e50]"],
+.bento-grid [class*="bg-[#95a5a6]"],
+.bento-grid [class*="bg-secondary"],
+.bento-grid [class*="bg-tertiary"] {
+    color: white !important;
+}
+
+.bento-grid [class*="bg-gradient"] *,
+.bento-grid [class*="bg-[#2c3e50]"] *,
+.bento-grid [class*="bg-[#95a5a6]"] *,
+.bento-grid [class*="bg-secondary"] *,
+.bento-grid [class*="bg-tertiary"] * {
+    color: inherit !important;
+}
+
+/* Specific opacity overrides - some elements need reduced opacity */
+.bento-grid [class*="opacity-"] {
+    color: inherit !important;
+}
+
+/* Restore specific Tailwind text color utilities that get overridden */
+.bento-grid .text-primary {
+    color: #e91e63 !important;
+}
+.bento-grid .text-slate-800 {
+    color: #1e293b !important;
+}
+.bento-grid .text-slate-700 {
+    color: #334155 !important;
+}
+.bento-grid .text-slate-600 {
+    color: #475569 !important;
+}
+.bento-grid .text-slate-500 {
+    color: #64748b !important;
+}
+.bento-grid .text-slate-400 {
+    color: #94a3b8 !important;
+}
+
+/* White card (Doctors card) needs dark text */
+.bento-grid > a.bg-white,
+.bento-grid > div.bg-white {
+    color: #191c1e !important;
+}
+.bento-grid > a.bg-white h3,
+.bento-grid > a.bg-white p,
+.bento-grid > a.bg-white span,
+.bento-grid > a.bg-white div {
+    color: inherit !important;
+}
+.bento-grid > a.bg-white .text-slate-800 { color: #1e293b !important; }
+.bento-grid > a.bg-white .text-slate-700 { color: #334155 !important; }
+.bento-grid > a.bg-white .text-slate-500 { color: #64748b !important; }
+.bento-grid > a.bg-white .text-slate-400 { color: #94a3b8 !important; }
+.bento-grid > a.bg-white .text-primary { color: #e91e63 !important; }
+
+/* Fix the header section above bento grid */
+.role-superadmin .font-headline.text-slate-800 { color: #1e293b !important; }
+.role-superadmin .font-body.text-slate-500 { color: #64748b !important; }
+
+/* Top nav overrides */
+header.fixed .text-primary { color: #e91e63 !important; }
+header.fixed .text-slate-500 { color: #64748b !important; }
+header.fixed .text-slate-400 { color: #94a3b8 !important; }
+header.fixed a { color: inherit !important; text-decoration: none !important; }
+header.fixed a:hover { text-decoration: none !important; }
+
+/* Sidebar overrides */
+aside.fixed a { text-decoration: none !important; }
+aside.fixed .text-slate-600 { color: #475569 !important; }
+aside.fixed .text-slate-400 { color: #94a3b8 !important; }
+aside.fixed .text-primary { color: #e91e63 !important; }
+aside.fixed .bg-primary { color: white !important; }
+aside.fixed .bg-primary span { color: white !important; }
+
+/* Footer overrides */
+footer .text-slate-400 { color: #94a3b8 !important; }
+footer .text-tertiary { color: #10b981 !important; }
+footer a { color: inherit !important; text-decoration: none !important; }
+footer a:hover { color: #e91e63 !important; }
+
+/* Mobile nav overrides */
+nav.fixed a { text-decoration: none !important; }
+nav.fixed .text-primary { color: #e91e63 !important; }
+nav.fixed .text-slate-400 { color: #94a3b8 !important; }

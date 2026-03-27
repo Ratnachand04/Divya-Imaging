@@ -1,33 +1,4 @@
-// Tailwind configuration
-window.tailwind = window.tailwind || {};
-window.tailwind.config = {
-  darkMode: "class",
-  theme: {
-    extend: {
-      colors: {
-        "primary": "#e91e63", // Vibrant Pink
-        "on-primary": "#ffffff",
-        "secondary": "#5c47e5", // Deep Purple/Blue from reference
-        "tertiary": "#10b981", // Emerald/Teal from reference
-        "surface-container-lowest": "#ffffff",
-        "surface-bright": "#fdf4f7", // Slight pinkish tint for background
-        "background": "#fdf4f7",
-        "outline": "#70787d",
-        "surface-container": "#fce4ec", // Very light pink
-        "on-surface": "#191c1e",
-        "on-surface-variant": "#40484c"
-      },
-      fontFamily: {
-        "headline": ["Manrope"],
-        "body": ["Inter"],
-        "label": ["Inter"]
-      },
-      borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
-    },
-  },
-};
-
-// Dynamic clock update for the new Tailwind based HTML
+// Dynamic clock update for the SuperAdmin Dashboard
 function updateDashboardClock() {
     const timeEl = document.getElementById('sa-dash-time');
     const dateEl = document.getElementById('sa-dash-date');
@@ -41,7 +12,7 @@ function updateDashboardClock() {
     const minutes = now.getMinutes().toString().padStart(2, '0');
     const ampm = hours >= 12 ? 'PM' : 'AM';
     hours = hours % 12;
-    hours = hours ? hours : 12; // the hour '0' should be '12'
+    hours = hours ? hours : 12;
     const timeString = `${hours.toString().padStart(2, '0')}:${minutes} ${ampm}`;
     
     // Format Date: THU, 26 MAR, 2026

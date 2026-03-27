@@ -309,7 +309,7 @@ $total_month_discounts = ($month_discount_doctor + $month_discount_center);
 
 $revenue_trend_class = $revenue_growth_amount >= 0 ? 'revenue-positive' : 'revenue-negative';
 $revenue_class_attr = 'class="revenue-figure ' . $revenue_trend_class . '"';
-$revenue_growth_display = ($revenue_growth_amount >= 0 ? '+' : '-') . 'Ã¢â€šÂ¹' . number_format(abs($revenue_growth_amount), 2);
+$revenue_growth_display = ($revenue_growth_amount >= 0 ? '+' : '-') . '₹' . number_format(abs($revenue_growth_amount), 2);
 
 ?>
 
@@ -318,9 +318,36 @@ $revenue_growth_display = ($revenue_growth_amount >= 0 ? '+' : '-') . 'Ã¢â€
 <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
-<!-- Tailwind & Custom JS -->
+<!-- Tailwind CDN -->
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-<script src="<?php echo $base_url; ?>/assets/js/superadmin_dashboard.js?v=<?php echo time(); ?>"></script>
+<script>
+tailwind.config = {
+    darkMode: "class",
+    theme: {
+        extend: {
+            colors: {
+                "primary": "#e91e63",
+                "on-primary": "#ffffff",
+                "secondary": "#5c47e5",
+                "tertiary": "#10b981",
+                "surface-container-lowest": "#ffffff",
+                "surface-bright": "#fdf4f7",
+                "background": "#fdf4f7",
+                "outline": "#70787d",
+                "surface-container": "#fce4ec",
+                "on-surface": "#191c1e",
+                "on-surface-variant": "#40484c"
+            },
+            fontFamily: {
+                "headline": ["Manrope"],
+                "body": ["Inter"],
+                "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+        },
+    },
+};
+</script>
 <!-- Dashboard CSS -->
 <link rel="stylesheet" href="<?php echo $base_url; ?>/assets/css/superadmin_dashboard.css?v=<?php echo time(); ?>">
 
@@ -355,7 +382,7 @@ $role_short_labels = [
 ];
 ?>
 
-<div class="bg-[var(--tw-colors-surface-bright)] font-body text-on-surface min-h-screen relative w-full overflow-x-hidden pt-16 md:pl-64">
+<div class="bg-surface-bright font-body text-on-surface min-h-screen relative w-full overflow-x-hidden pt-16 md:pl-64">
 
 <!-- Top Navigation Shell -->
 <header class="bg-white/90 backdrop-blur-xl flex justify-between items-center px-4 md:px-8 h-16 w-full fixed top-0 left-0 z-50 border-b border-primary/10">
@@ -595,7 +622,7 @@ $role_short_labels = [
                 <div>
                     <p class="text-[10px] font-bold opacity-60 uppercase mb-1">Revenue Growth</p>
                     <div class="flex items-center gap-2">
-                        <span class="text-3xl font-black"><?php echo str_replace('â‚¹', '₹', $revenue_growth_display); ?></span>
+                        <span class="text-3xl font-black"><?php echo $revenue_growth_display; ?></span>
                         <div class="px-2 py-0.5 bg-primary/20 text-primary rounded text-[9px] font-bold"><?php echo $growth_badge_label; ?></div>
                     </div>
                 </div>
@@ -710,6 +737,9 @@ $role_short_labels = [
 </nav>
 
 </div> <!-- End of bg-surface-bright wrapper -->
+
+<!-- Dashboard JS -->
+<script src="<?php echo $base_url; ?>/assets/js/superadmin_dashboard.js?v=<?php echo time(); ?>"></script>
 
 <!-- Close the standard body and html tags from header.php if necessary -->
 <?php require_once '../includes/footer.php'; ?>
