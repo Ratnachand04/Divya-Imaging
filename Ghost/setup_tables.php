@@ -69,7 +69,29 @@ if ($conn->query($sql) === TRUE) {
     echo "Error creating 'developer_settings': " . $conn->error . "<br>";
 }
 
-// 4. Ensure default platform admin user exists
+// 4. Create flexible app_settings table
+$sql = "CREATE TABLE IF NOT EXISTS app_settings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    setting_scope VARCHAR(50) NOT NULL DEFAULT 'global',
+    scope_id INT NOT NULL DEFAULT 0,
+    setting_key VARCHAR(120) NOT NULL,
+    setting_value LONGTEXT DEFAULT NULL,
+    value_type VARCHAR(20) NOT NULL DEFAULT 'string',
+    category VARCHAR(80) DEFAULT NULL,
+    metadata_json JSON DEFAULT NULL,
+    updated_by INT DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_scope_key (setting_scope, scope_id, setting_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci";
+
+if ($conn->query($sql) === TRUE) {
+    echo "Table 'app_settings' created or already exists.<br>";
+} else {
+    echo "Error creating 'app_settings': " . $conn->error . "<br>";
+}
+
+// 5. Ensure default platform admin user exists
 $dev_username = 'platform';
 $dev_pass = 'password123';
 $hashed = password_hash($dev_pass, PASSWORD_DEFAULT);

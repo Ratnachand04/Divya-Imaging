@@ -46,7 +46,6 @@ services:
     volumes:
       - db_data:/var/lib/mysql
       - ./diagnostic_center_db_.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./docker/mysql/init/02-platform-admin-migration.sql:/docker-entrypoint-initdb.d/02-platform-admin-migration.sql:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASS:-root_password}"]
       interval: 10s

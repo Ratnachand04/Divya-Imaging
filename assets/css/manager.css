@@ -364,6 +364,131 @@ body.role-manager.manager-nav-colliding .main-navbar {
 .chart-container h3 { margin: 0 0 1rem; font-size: 1rem; font-weight: 700; color: var(--text-primary); }
 .chart-container canvas { flex: 1; }
 
+.role-manager .manager-settings-widget {
+    position: fixed;
+    right: clamp(1rem, 2vw, 1.8rem);
+    bottom: clamp(1rem, 2vw, 1.8rem);
+    z-index: 1100;
+}
+
+.role-manager .manager-settings-fab {
+    width: 54px;
+    height: 54px;
+    border: none;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--brand-pink), #b739ff);
+    color: #ffffff;
+    box-shadow: 0 14px 28px rgba(183, 57, 255, 0.28);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    text-decoration: none;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.role-manager .manager-settings-fab:hover {
+    transform: translateY(-2px) scale(1.03);
+    box-shadow: 0 16px 30px rgba(183, 57, 255, 0.34);
+}
+
+.role-manager .manager-settings-fab:focus-visible {
+    outline: 3px solid var(--brand-pink-soft);
+    outline-offset: 3px;
+}
+
+.role-manager .settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1rem;
+}
+
+.role-manager .settings-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-light);
+    border-radius: 14px;
+    box-shadow: var(--shadow-sm);
+    padding: 1rem 1.05rem;
+}
+
+.role-manager .settings-card h3 {
+    margin: 0 0 0.6rem;
+    font-size: 1.02rem;
+    display: inline-flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.role-manager .settings-card p {
+    margin: 0 0 0.6rem;
+    color: var(--text-muted);
+}
+
+.role-manager .settings-card ul {
+    margin: 0;
+    padding-left: 1.05rem;
+}
+
+.role-manager .settings-card li {
+    margin-bottom: 0.35rem;
+}
+
+.role-manager .settings-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.role-manager .settings-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-bottom: 0.8rem;
+}
+
+.role-manager .settings-field label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.role-manager .settings-field select,
+.role-manager .settings-field input[type='number'] {
+    border-radius: 10px;
+    border: 1px solid var(--border-light);
+    padding: 0.55rem 0.75rem;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.role-manager .settings-field select:focus,
+.role-manager .settings-field input[type='number']:focus {
+    outline: none;
+    border-color: var(--brand-pink);
+    box-shadow: 0 0 0 3px var(--brand-pink-soft);
+}
+
+.role-manager .settings-toggle {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    margin-bottom: 0.7rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.role-manager .settings-toggle input[type='checkbox'] {
+    margin-top: 0.2rem;
+    accent-color: var(--brand-pink);
+}
+
+.role-manager .settings-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
 @media (max-width: 1024px) {
     .role-manager .page-container,
     .role-manager .table-container,
@@ -414,6 +539,25 @@ body.role-manager.manager-nav-colliding .main-navbar {
     .role-manager .filter-actions .btn-submit {
         width: 100%;
     }
+
+    .role-manager .manager-settings-widget {
+        right: 0.75rem;
+        bottom: 0.75rem;
+    }
+
+    .role-manager .manager-settings-fab {
+        width: 50px;
+        height: 50px;
+    }
+
+    .role-manager .settings-actions {
+        justify-content: stretch;
+    }
+
+    .role-manager .settings-actions .btn-submit {
+        width: 100%;
+    }
+
 }
 
 /* ===== Manager: Manage Doctors (migrated from manage_doctors.php) ===== */

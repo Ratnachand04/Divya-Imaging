@@ -178,6 +178,7 @@ $home_link = ($role === 'manager') ? $base_url . '/manager/dashboard.php' : $bas
                 <li><a href="lists.php" class="<?php echo in_array($current_page, ['lists.php', 'view_tests.php', 'view_doctors.php']) ? 'active' : ''; ?>"><i class="fas fa-list-alt"></i><span>Lists</span></a></li>
                 <li><a href="detailed_report.php" class="<?php echo ($current_page == 'detailed_report.php') ? 'active' : ''; ?>"><i class="fas fa-file-alt"></i><span>Reports</span></a></li>
                 <li><a href="manage_calendar.php" class="<?php echo ($current_page == 'manage_calendar.php') ? 'active' : ''; ?>"><i class="fas fa-calendar-alt"></i><span>Calendar</span></a></li>
+                <li><a href="global_settings.php" class="<?php echo ($current_page == 'global_settings.php') ? 'active' : ''; ?>"><i class="fas fa-cogs"></i><span>Global Settings</span></a></li>
             <?php elseif ($role === 'manager'): ?>
                 <li><a href="dashboard.php" class="<?php echo ($current_page == 'dashboard.php') ? 'active' : ''; ?>"><i class="fas fa-tachometer-alt"></i><span>Dashboard</span></a></li>
                 <li><a href="analytics.php" class="<?php echo ($current_page == 'analytics.php') ? 'active' : ''; ?>"><i class="fas fa-chart-pie"></i><span>Analytics</span></a></li>

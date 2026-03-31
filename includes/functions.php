@@ -38,6 +38,217 @@ function log_system_action($conn, $action_type, $target_id = null, $details = ''
 }
 
 /**
+ * Ensures flexible app settings storage exists and is migration-friendly.
+ *
+ * @param mysqli $conn The database connection object.
+ * @throws Exception When schema operations fail.
+ */
+function app_settings_ensure_schema(mysqli $conn) {
+    $create_sql = "CREATE TABLE IF NOT EXISTS app_settings (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        setting_scope VARCHAR(50) NOT NULL DEFAULT 'global',
+        scope_id INT NOT NULL DEFAULT 0,
+        setting_key VARCHAR(120) NOT NULL,
+        setting_value LONGTEXT DEFAULT NULL,
+        value_type VARCHAR(20) NOT NULL DEFAULT 'string',
+        category VARCHAR(80) DEFAULT NULL,
+        metadata_json JSON DEFAULT NULL,
+        updated_by INT DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_scope_key (setting_scope, scope_id, setting_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci";
+
+    if (!$conn->query($create_sql)) {
+        throw new Exception('Unable to ensure app_settings table: ' . $conn->error);
+    }
+
+    $columns = [
+        'setting_scope' => "VARCHAR(50) NOT NULL DEFAULT 'global' AFTER id",
+        'scope_id' => "INT NOT NULL DEFAULT 0 AFTER setting_scope",
+        'setting_key' => "VARCHAR(120) NOT NULL AFTER scope_id",
+        'setting_value' => "LONGTEXT NULL AFTER setting_key",
+        'value_type' => "VARCHAR(20) NOT NULL DEFAULT 'string' AFTER setting_value",
+        'category' => "VARCHAR(80) NULL AFTER value_type",
+        'metadata_json' => "JSON NULL AFTER category",
+        'updated_by' => "INT NULL AFTER metadata_json",
+        'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP AFTER updated_by",
+        'updated_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at"
+    ];
+
+    foreach ($columns as $name => $definition) {
+        $check = $conn->query("SHOW COLUMNS FROM app_settings LIKE '{$name}'");
+        if ($check && $check->num_rows === 0) {
+            if (!$conn->query("ALTER TABLE app_settings ADD COLUMN {$name} {$definition}")) {
+                throw new Exception('Unable to add app_settings.' . $name . ': ' . $conn->error);
+            }
+        }
+        if ($check instanceof mysqli_result) {
+            $check->free();
+        }
+    }
+
+    $idx = $conn->query("SHOW INDEX FROM app_settings WHERE Key_name = 'idx_scope_key'");
+    if ($idx && $idx->num_rows === 0) {
+        if (!$conn->query("ALTER TABLE app_settings ADD INDEX idx_scope_key (setting_scope, scope_id, setting_key)")) {
+            throw new Exception('Unable to add app_settings index idx_scope_key: ' . $conn->error);
+        }
+    }
+    if ($idx instanceof mysqli_result) {
+        $idx->free();
+    }
+}
+
+/**
+ * Casts a stored settings value by explicit type or fallback default type.
+ *
+ * @param string|null $value Raw value from DB.
+ * @param string|null $value_type Stored type hint.
+ * @param mixed $default Fallback default value.
+ * @return mixed Typed value.
+ */
+function app_settings_cast_value($value, $value_type, $default) {
+    $type = is_string($value_type) ? strtolower($value_type) : '';
+    if ($type === '') {
+        if (is_bool($default)) {
+            $type = 'bool';
+        } elseif (is_int($default)) {
+            $type = 'int';
+        } elseif (is_float($default)) {
+            $type = 'float';
+        } else {
+            $type = 'string';
+        }
+    }
+
+    if ($type === 'bool') {
+        return $value === '1' || $value === 1 || $value === true;
+    }
+    if ($type === 'int') {
+        return (int)($value ?? 0);
+    }
+    if ($type === 'float') {
+        return (float)($value ?? 0);
+    }
+
+    return (string)($value ?? '');
+}
+
+/**
+ * Retrieves settings for a scope and merges with provided defaults.
+ *
+ * @param mysqli $conn The database connection object.
+ * @param string $scope Logical scope identifier (e.g. manager_user).
+ * @param int $scope_id Scope target id (e.g. user id, role id, 0 for global).
+ * @param array $defaults Key-value defaults to merge with.
+ * @return array Settings merged with defaults.
+ */
+function app_settings_get_many(mysqli $conn, string $scope, int $scope_id, array $defaults = []): array {
+    $settings = $defaults;
+
+    $stmt = $conn->prepare("SELECT setting_key, setting_value, value_type FROM app_settings WHERE setting_scope = ? AND scope_id = ?");
+    if (!$stmt) {
+        return $settings;
+    }
+
+    $stmt->bind_param('si', $scope, $scope_id);
+    if ($stmt->execute()) {
+        $result = $stmt->get_result();
+        while ($row = $result->fetch_assoc()) {
+            $key = $row['setting_key'];
+            $default_value = array_key_exists($key, $settings) ? $settings[$key] : '';
+            $settings[$key] = app_settings_cast_value($row['setting_value'] ?? null, $row['value_type'] ?? null, $default_value);
+        }
+    }
+    $stmt->close();
+
+    return $settings;
+}
+
+/**
+ * Resolves settings across multiple scopes in precedence order.
+ *
+ * @param mysqli $conn The database connection object.
+ * @param array $defaults Base defaults.
+ * @param array $layers Ordered scope layers, low-to-high precedence.
+ * @return array Fully merged settings.
+ */
+function app_settings_resolve(mysqli $conn, array $defaults, array $layers): array {
+    $resolved = $defaults;
+
+    foreach ($layers as $layer) {
+        if (!is_array($layer) || !isset($layer['scope']) || !isset($layer['scope_id'])) {
+            continue;
+        }
+
+        $scope = (string)$layer['scope'];
+        $scope_id = (int)$layer['scope_id'];
+        $resolved = app_settings_get_many($conn, $scope, $scope_id, $resolved);
+    }
+
+    return $resolved;
+}
+
+/**
+ * Saves one setting with update-then-insert behavior.
+ *
+ * @param mysqli $conn The database connection object.
+ * @param string $scope Logical scope identifier (e.g. manager_user).
+ * @param int $scope_id Scope target id (e.g. user id, role id, 0 for global).
+ * @param string $key Setting key.
+ * @param string $value Serialized setting value.
+ * @param string $value_type Type hint such as string|bool|int|float.
+ * @param string|null $category Optional grouping category.
+ * @param int|null $updated_by Optional actor user id.
+ * @param string|null $metadata_json Optional JSON metadata.
+ * @return bool True when persisted.
+ */
+function app_settings_set(
+    mysqli $conn,
+    string $scope,
+    int $scope_id,
+    string $key,
+    string $value,
+    string $value_type = 'string',
+    $category = null,
+    $updated_by = null,
+    $metadata_json = null
+): bool {
+    $category_val = is_string($category) ? $category : null;
+    $updated_by_val = is_int($updated_by) ? $updated_by : null;
+    $metadata_val = is_string($metadata_json) ? $metadata_json : null;
+
+    $update = $conn->prepare("UPDATE app_settings SET setting_value = ?, value_type = ?, category = ?, metadata_json = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE setting_scope = ? AND scope_id = ? AND setting_key = ?");
+    if (!$update) {
+        return false;
+    }
+
+    $update->bind_param('ssssisis', $value, $value_type, $category_val, $metadata_val, $updated_by_val, $scope, $scope_id, $key);
+    $ok = $update->execute();
+    $affected = $update->affected_rows;
+    $update->close();
+
+    if (!$ok) {
+        return false;
+    }
+
+    if ($affected > 0) {
+        return true;
+    }
+
+    $insert = $conn->prepare("INSERT INTO app_settings (setting_scope, scope_id, setting_key, setting_value, value_type, category, metadata_json, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    if (!$insert) {
+        return false;
+    }
+
+    $insert->bind_param('sisssssi', $scope, $scope_id, $key, $value, $value_type, $category_val, $metadata_val, $updated_by_val);
+    $insert_ok = $insert->execute();
+    $insert->close();
+
+    return $insert_ok;
+}
+
+/**
  * Ensures patient uid schema exists and is enforced.
  *
  * @param mysqli $conn The database connection object.

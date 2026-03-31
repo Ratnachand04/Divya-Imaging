@@ -79,6 +79,12 @@ require_once '../includes/header.php';
         <div class="chart-container"><h3>Top 5 Referring Doctors (by Patients)</h3><canvas id="topDoctorsChart"></canvas></div>
         <div class="chart-container"><h3>Revenue by Payment Method</h3><canvas id="paymentModeChart"></canvas></div>
     </div>
+
+    <div class="manager-settings-widget" aria-label="Dashboard Settings">
+        <a href="settings.php" id="manager-settings-fab" class="manager-settings-fab" aria-label="Open manager settings">
+            <i class="fas fa-cog" aria-hidden="true"></i>
+        </a>
+    </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -331,7 +337,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const todayStr = new Date().toISOString().slice(0, 10);
         window.location.href = `view_due_bills.php?all_dates=1&start_date=2000-01-01&end_date=${todayStr}&status=pending`;
     });
-    
+
     document.querySelector('.quick-date-pills .btn-action[data-range="today"]').click();
 });
 </script>

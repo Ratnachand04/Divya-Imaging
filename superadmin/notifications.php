@@ -3,6 +3,7 @@ $page_title = "Notifications";
 $required_role = "superadmin";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
 require_once '../includes/header.php';
 
 // Ensure the notification_queue table has necessary columns
@@ -55,6 +56,46 @@ $templates = [
 ];
 
 $message_status = '';
+$notification_pref_defaults = [
+    'notifications_default_recipient_type' => 'group_patients',
+    'notifications_default_channel_email' => true,
+    'notifications_default_channel_whatsapp' => true
+];
+$allowed_recipient_types = ['group_patients', 'group_doctors', 'individual_doctor', 'individual_employee', 'custom'];
+
+try {
+    app_settings_ensure_schema($conn);
+} catch (Exception $e) {
+    $message_status .= "<div class='error-banner'>Could not initialize preferences storage: " . htmlspecialchars($e->getMessage()) . "</div>";
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_notification_preferences'])) {
+    $default_recipient_type = in_array($_POST['default_recipient_type'] ?? '', $allowed_recipient_types, true)
+        ? $_POST['default_recipient_type']
+        : $notification_pref_defaults['notifications_default_recipient_type'];
+    $default_channel_email = isset($_POST['default_channel_email']) ? '1' : '0';
+    $default_channel_whatsapp = isset($_POST['default_channel_whatsapp']) ? '1' : '0';
+    $user_id = (int)$_SESSION['user_id'];
+    $scope = 'superadmin_user';
+
+    $conn->begin_transaction();
+    $ok = true;
+    $ok = $ok && app_settings_set($conn, $scope, $user_id, 'notifications_default_recipient_type', $default_recipient_type, 'string', 'notifications', $user_id);
+    $ok = $ok && app_settings_set($conn, $scope, $user_id, 'notifications_default_channel_email', $default_channel_email, 'bool', 'notifications', $user_id);
+    $ok = $ok && app_settings_set($conn, $scope, $user_id, 'notifications_default_channel_whatsapp', $default_channel_whatsapp, 'bool', 'notifications', $user_id);
+
+    if ($ok) {
+        $conn->commit();
+        log_system_action($conn, 'SUPERADMIN_NOTIFICATION_PREFS_UPDATED', $user_id, 'Superadmin notification preferences updated');
+        $_SESSION['feedback'] = "<div class='success-banner'>Notification preferences saved.</div>";
+    } else {
+        $conn->rollback();
+        $_SESSION['feedback'] = "<div class='error-banner'>Could not save notification preferences.</div>";
+    }
+
+    header('Location: notifications.php');
+    exit();
+}
 
 // Handle Delete Item
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_item'])) {
@@ -133,6 +174,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['recipient_type'])) {
     $stmt->close();
 }
 
+if (isset($_SESSION['feedback'])) {
+    $message_status .= $_SESSION['feedback'];
+    unset($_SESSION['feedback']);
+}
+
+$notification_prefs = app_settings_resolve($conn, $notification_pref_defaults, [
+    ['scope' => 'global', 'scope_id' => 0],
+    ['scope' => 'superadmin_role', 'scope_id' => 0],
+    ['scope' => 'superadmin_user', 'scope_id' => (int)$_SESSION['user_id']]
+]);
+
 // Fetch Notification History
 $history_sql = "SELECT * FROM notification_queue ORDER BY created_at DESC LIMIT 20";
 $history_result = $conn->query($history_sql);
@@ -146,6 +198,39 @@ $history_result = $conn->query($history_sql);
 
     <?php echo $message_status; ?>
 
+    <div class="card" style="background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px;">
+        <h2 style="margin-top: 0; font-size: 1.1rem; color: #2d3748;">Notification Preferences</h2>
+        <form method="POST" action="notifications.php" style="display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); align-items: end;">
+            <input type="hidden" name="save_notification_preferences" value="1">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="default_recipient_type">Default Recipient Type</label>
+                <select name="default_recipient_type" id="default_recipient_type" class="form-control">
+                    <option value="group_patients" <?php echo ($notification_prefs['notifications_default_recipient_type'] === 'group_patients') ? 'selected' : ''; ?>>All Patients (Bulk)</option>
+                    <option value="group_doctors" <?php echo ($notification_prefs['notifications_default_recipient_type'] === 'group_doctors') ? 'selected' : ''; ?>>All Doctors (Bulk)</option>
+                    <option value="individual_doctor" <?php echo ($notification_prefs['notifications_default_recipient_type'] === 'individual_doctor') ? 'selected' : ''; ?>>Specific Doctor</option>
+                    <option value="individual_employee" <?php echo ($notification_prefs['notifications_default_recipient_type'] === 'individual_employee') ? 'selected' : ''; ?>>Specific Employee</option>
+                    <option value="custom" <?php echo ($notification_prefs['notifications_default_recipient_type'] === 'custom') ? 'selected' : ''; ?>>Custom Email / Phone</option>
+                </select>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+                <label style="display: block; margin-bottom: 8px;">Default Channels</label>
+                <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 16px;">
+                    <input type="checkbox" name="default_channel_email" value="1" <?php echo !empty($notification_prefs['notifications_default_channel_email']) ? 'checked' : ''; ?>>
+                    Email
+                </label>
+                <label style="display: inline-flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" name="default_channel_whatsapp" value="1" <?php echo !empty($notification_prefs['notifications_default_channel_whatsapp']) ? 'checked' : ''; ?>>
+                    WhatsApp
+                </label>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+                <button type="submit" class="btn-action" style="justify-content: center; width: 100%;">Save Preferences</button>
+            </div>
+        </form>
+    </div>
+
     <div style="display: grid; grid-template-columns: 1fr 1.5fr; gap: 30px;">
         <!-- Sending Form -->
         <div class="card" style="background: #fff; padding: 25px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); height: fit-content;">
@@ -157,11 +242,11 @@ $history_result = $conn->query($history_sql);
                 <div class="form-group form-section">
                     <label>Recipient Type</label>
                     <select name="recipient_type" id="recipientType" required class="form-control" onchange="toggleRecipientFields()">
-                        <option value="group_patients">All Patients (Bulk)</option>
-                        <option value="group_doctors">All Doctors (Bulk)</option>
-                        <option value="individual_doctor">Specific Doctor</option>
-                        <option value="individual_employee">Specific Employee</option>
-                        <option value="custom">Custom Email / Phone</option>
+                        <option value="group_patients" <?php echo ($notification_prefs['notifications_default_recipient_type'] === 'group_patients') ? 'selected' : ''; ?>>All Patients (Bulk)</option>
+                        <option value="group_doctors" <?php echo ($notification_prefs['notifications_default_recipient_type'] === 'group_doctors') ? 'selected' : ''; ?>>All Doctors (Bulk)</option>
+                        <option value="individual_doctor" <?php echo ($notification_prefs['notifications_default_recipient_type'] === 'individual_doctor') ? 'selected' : ''; ?>>Specific Doctor</option>
+                        <option value="individual_employee" <?php echo ($notification_prefs['notifications_default_recipient_type'] === 'individual_employee') ? 'selected' : ''; ?>>Specific Employee</option>
+                        <option value="custom" <?php echo ($notification_prefs['notifications_default_recipient_type'] === 'custom') ? 'selected' : ''; ?>>Custom Email / Phone</option>
                     </select>
                 </div>
 
@@ -215,11 +300,11 @@ $history_result = $conn->query($history_sql);
                     <label>Channels</label>
                     <div style="display: flex; gap: 20px; margin-top: 5px;">
                         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                            <input type="checkbox" name="channel[]" value="email" checked> 
+                            <input type="checkbox" name="channel[]" value="email" <?php echo !empty($notification_prefs['notifications_default_channel_email']) ? 'checked' : ''; ?>> 
                             <i class="fas fa-envelope" style="color: #4e73df;"></i> Email
                         </label>
                         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                            <input type="checkbox" name="channel[]" value="whatsapp" checked> 
+                            <input type="checkbox" name="channel[]" value="whatsapp" <?php echo !empty($notification_prefs['notifications_default_channel_whatsapp']) ? 'checked' : ''; ?>> 
                             <i class="fab fa-whatsapp" style="color: #25D366;"></i> WhatsApp
                         </label>
                     </div>
@@ -366,6 +451,10 @@ document.getElementById('btnProcessQueue').addEventListener('click', function() 
             btn.innerHTML = originalText;
             btn.disabled = false;
         });
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+    toggleRecipientFields();
 });
 </script>
 
