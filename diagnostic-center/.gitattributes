@@ -1,9 +1,0 @@
-# Force LF line endings for shell scripts (required for Docker/Linux)
-*.sh text eol=lf
-docker/entrypoint.sh text eol=lf
-
-# Keep Windows line endings for batch files
-*.bat text eol=crlf
-
-# Auto-detect for everything else
-* text=auto
