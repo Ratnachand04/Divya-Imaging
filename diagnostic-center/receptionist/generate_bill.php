@@ -662,6 +662,8 @@ require_once '../includes/header.php';
         const existingPatientRow = document.getElementById('existing-patient-row');
         const newPatientIdWrap = document.getElementById('new-patient-id-wrap');
         const generatedPatientId = document.getElementById('generated-patient-id');
+        let autoFetchTimer = null;
+        let lastAutoFetchedPatientId = '';
         const patientFields = ['patient_name', 'patient_age', 'patient_sex', 'patient_address', 'patient_city', 'patient_mobile', 'emergency_contact_person']
             .map(id => document.getElementById(id))
             .filter(Boolean);
@@ -690,6 +692,10 @@ require_once '../includes/header.php';
             messageBox.style.display = text ? 'block' : 'none';
             messageBox.textContent = text || '';
             messageBox.className = isError ? 'error-banner' : 'success-banner';
+        }
+
+        function valueOrEmpty(value) {
+            return value === null || value === undefined ? '' : value;
         }
 
         function normalizePatientIdInput(value) {
@@ -751,6 +757,7 @@ require_once '../includes/header.php';
                     emergencyContact.required = false;
                 }
                 showMessage('Use patient unique ID and click Fetch.', false);
+                lastAutoFetchedPatientId = '';
             }
         }
 
@@ -787,15 +794,22 @@ require_once '../includes/header.php';
                 const patientMobile = document.getElementById('patient_mobile');
                 const emergencyContact = document.getElementById('emergency_contact_person');
 
-                if (patientName) patientName.value = p.name || '';
-                if (patientAge) patientAge.value = p.age || '';
-                if (patientSex) patientSex.value = p.sex || 'Male';
-                if (patientAddress) patientAddress.value = p.address || '';
-                if (patientCity) patientCity.value = p.city || '';
-                if (patientMobile) patientMobile.value = p.mobile_number || '';
-                if (emergencyContact) emergencyContact.value = p.emergency_contact_person || '';
+                // Temporarily unlock fields so values can be set (disabled elements ignore .value assignment)
+                setPatientFieldsReadonly(false);
 
-                showMessage(`Loaded patient: ${p.name} (${p.patient_unique_id})`, false);
+                if (patientName) patientName.value = valueOrEmpty(p.name);
+                if (patientAge) patientAge.value = valueOrEmpty(p.age);
+                if (patientSex) patientSex.value = p.sex || 'Male';
+                if (patientAddress) patientAddress.value = valueOrEmpty(p.address);
+                if (patientCity) patientCity.value = valueOrEmpty(p.city);
+                if (patientMobile) patientMobile.value = valueOrEmpty(p.mobile_number || p.mobile);
+                if (emergencyContact) emergencyContact.value = valueOrEmpty(p.emergency_contact_person || p.contact_person);
+                if (uniqueIdInput) uniqueIdInput.value = valueOrEmpty(p.patient_unique_id || p.uid || patientId);
+
+                // Re-lock fields after filling
+                setPatientFieldsReadonly(true);
+
+                showMessage(`Loaded patient: ${valueOrEmpty(p.name)} (${valueOrEmpty(p.patient_unique_id || p.uid || patientId)})`, false);
             } catch (err) {
                 clearPatientFields();
                 showMessage(err.message || 'Failed to fetch patient details.', true);
@@ -809,6 +823,28 @@ require_once '../includes/header.php';
             fetchBtn.addEventListener('click', fetchPatient);
         }
         if (uniqueIdInput) {
+            uniqueIdInput.addEventListener('input', function () {
+                if (isNewPatientCheckbox && isNewPatientCheckbox.checked) {
+                    return;
+                }
+
+                const normalized = normalizePatientIdInput(uniqueIdInput.value);
+                if (!isValidPatientIdFormat(normalized)) {
+                    return;
+                }
+                if (normalized === lastAutoFetchedPatientId) {
+                    return;
+                }
+
+                if (autoFetchTimer) {
+                    clearTimeout(autoFetchTimer);
+                }
+                autoFetchTimer = setTimeout(function () {
+                    lastAutoFetchedPatientId = normalized;
+                    fetchPatient();
+                }, 280);
+            });
+
             uniqueIdInput.addEventListener('keydown', function (event) {
                 if (event.key === 'Enter' && !(isNewPatientCheckbox && isNewPatientCheckbox.checked)) {
                     event.preventDefault();
