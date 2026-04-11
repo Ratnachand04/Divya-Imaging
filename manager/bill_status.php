@@ -52,7 +52,7 @@ $total_pages = ceil($total_records / $records_per_page);
 $stmt_count->close();
 
 // --- 5. GET PAGINATED DATA FOR THE TABLE ---
-$data_query = "SELECT b.id, b.invoice_number, p.name as patient_name, b.net_amount, b.payment_status, b.payment_mode, b.created_at
+$data_query = "SELECT b.id, b.invoice_number, p.uid as patient_uid, p.name as patient_name, b.net_amount, b.payment_status, b.payment_mode, b.created_at
                FROM bills b
                JOIN patients p ON b.patient_id = p.id" . $where_sql . "
                ORDER BY b.created_at DESC
@@ -111,6 +111,7 @@ require_once '../includes/header.php';
         <thead>
             <tr>
                 <th>Bill No.</th>
+                <th>Patient ID</th>
                 <th>Patient Name</th>
                 <th>Net Amount</th>
                 <th>Payment Status</th>
@@ -123,7 +124,7 @@ require_once '../includes/header.php';
                 <?php foreach($bills_data as $bill): ?>
                 <tr>
                     <td><?php echo htmlspecialchars($bill['invoice_number']); ?></td>
-                    
+                    <td><span style="font-size:0.82rem;color:#666;"><?php echo htmlspecialchars($bill['patient_uid'] ?? ''); ?></span></td>
                     <td><?php echo htmlspecialchars($bill['patient_name']); ?></td>
                     <td>₹ <?php echo number_format($bill['net_amount'], 2); ?></td>
                     <td><span class="status-<?php echo strtolower(str_replace(' ', '', $bill['payment_status'])); ?>"><?php echo htmlspecialchars($bill['payment_status']); ?></span></td>

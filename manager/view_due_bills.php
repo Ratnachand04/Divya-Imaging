@@ -17,7 +17,7 @@ $status_filter = isset($_GET['status']) ? $_GET['status'] : 'pending';
 
 // --- Build Query ---
 $query = "SELECT 
-            b.id, p.name as patient_name, b.net_amount, b.amount_paid, b.balance_amount, 
+            b.id, p.uid as patient_uid, p.name as patient_name, b.net_amount, b.amount_paid, b.balance_amount, 
             b.payment_status, b.created_at, b.updated_at, u.username as receptionist_name
           FROM bills b
           JOIN patients p ON b.patient_id = p.id
@@ -94,6 +94,7 @@ require_once '../includes/header.php';
         <thead>
             <tr>
                 <th>Bill No</th>
+                <th>Patient ID</th>
                 <th>Patient Name</th>
                 <th>Bill Date</th>
                 <th>Net Amount</th>
@@ -110,6 +111,7 @@ require_once '../includes/header.php';
                 <?php while($bill = $bills->fetch_assoc()): ?>
                 <tr>
                     <td><?php echo $bill['id']; ?></td>
+                    <td><span style="font-size:0.82rem;color:#666;"><?php echo htmlspecialchars($bill['patient_uid'] ?? ''); ?></span></td>
                     <td><?php echo htmlspecialchars($bill['patient_name']); ?></td>
                     <td><?php echo date('d-m-Y', strtotime($bill['created_at'])); ?></td>
                     <td><?php echo number_format($bill['net_amount'], 2); ?></td>

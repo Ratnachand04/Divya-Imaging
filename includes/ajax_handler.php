@@ -11,17 +11,17 @@ $output = '';
 if (!empty($search_term)) {
     $search_query = "%" . $search_term . "%";
     $stmt = $conn->prepare(
-        "SELECT b.id, p.name as patient_name, b.net_amount, b.created_at, b.payment_status
+        "SELECT b.id, p.uid as patient_uid, p.name as patient_name, b.net_amount, b.created_at, b.payment_status
          FROM bills b JOIN patients p ON b.patient_id = p.id
-         WHERE b.receptionist_id = ? AND (b.id LIKE ? OR p.name LIKE ?)
+         WHERE b.receptionist_id = ? AND (b.id LIKE ? OR p.uid LIKE ? OR p.name LIKE ?)
          ORDER BY b.id DESC"
     );
-    $stmt->bind_param("iss", $receptionist_id, $search_query, $search_query);
+    $stmt->bind_param("isss", $receptionist_id, $search_query, $search_query, $search_query);
 } else {
     // If search is empty, return the first page of results (or handle as needed)
     $limit = 15;
     $stmt = $conn->prepare(
-        "SELECT b.id, p.name as patient_name, b.net_amount, b.created_at, b.payment_status
+        "SELECT b.id, p.uid as patient_uid, p.name as patient_name, b.net_amount, b.created_at, b.payment_status
          FROM bills b JOIN patients p ON b.patient_id = p.id
          WHERE b.receptionist_id = ? ORDER BY b.id DESC LIMIT ?"
     );
@@ -46,6 +46,7 @@ if ($result->num_rows > 0) {
 
         $output .= '<tr>';
         $output .= '<td>' . $bill['id'] . '</td>';
+        $output .= '<td><span style="font-size:0.82rem;color:#666;">' . htmlspecialchars($bill['patient_uid'] ?? '') . '</span></td>';
         $output .= '<td>' . htmlspecialchars($bill['patient_name']) . '</td>';
         $output .= '<td>' . date('d-m-Y', strtotime($bill['created_at'])) . '</td>';
         $output .= '<td>' . number_format($bill['net_amount'], 2) . '</td>';
@@ -54,7 +55,7 @@ if ($result->num_rows > 0) {
         $output .= '</tr>';
     }
 } else {
-    $output = '<tr><td colspan="6" style="text-align:center;">No results found.</td></tr>';
+    $output = '<tr><td colspan="7" style="text-align:center;">No results found.</td></tr>';
 }
 
 $stmt->close();

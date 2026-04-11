@@ -19,11 +19,12 @@ $receptionists = $receptionists_result->fetch_all(MYSQLI_ASSOC);
 $sql = "SELECT
             r.id, r.bill_id, r.reason_for_change, r.created_at, r.status,
             u.username AS receptionist,
-            p.name as patient_name -- This might be NULL if bill/patient deleted
+            p.name as patient_name,
+            p.uid as patient_uid
         FROM bill_edit_requests r
         JOIN users u ON r.receptionist_id = u.id
-        LEFT JOIN bills b ON r.bill_id = b.id -- Changed to LEFT JOIN
-        LEFT JOIN patients p ON b.patient_id = p.id -- Changed to LEFT JOIN
+        LEFT JOIN bills b ON r.bill_id = b.id
+        LEFT JOIN patients p ON b.patient_id = p.id
         "; // Base query joining necessary tables
 
 $where_clauses = ["DATE(r.created_at) BETWEEN ? AND ?"];
@@ -106,6 +107,7 @@ require_once '../includes/header.php'; //
             <tr>
                 <th>Request ID</th>
                 <th>Bill ID</th>
+                <th>Patient ID</th>
                 <th>Patient Name</th>
                 <th>Receptionist</th>
                 <th>Reason</th>
@@ -119,6 +121,7 @@ require_once '../includes/header.php'; //
             <tr>
                 <td><?php echo $req['id']; ?></td>
                 <td><?php echo $req['bill_id']; ?></td>
+                <td><span style="font-size:0.82rem;color:#666;"><?php echo $req['patient_uid'] ? htmlspecialchars($req['patient_uid']) : '—'; ?></span></td>
                 <td><?php echo $req['patient_name'] ? htmlspecialchars($req['patient_name']) : '<em style="color:red;">[Bill Deleted]</em>'; ?></td>
                 <td><?php echo htmlspecialchars($req['receptionist']); ?></td>
                 <td><?php echo htmlspecialchars($req['reason_for_change']); ?></td>
