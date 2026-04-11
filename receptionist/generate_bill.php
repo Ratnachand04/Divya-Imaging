@@ -600,7 +600,7 @@ require_once '../includes/header.php';
     </form>
 </div>
 <script>
-    const testsData = <?php echo json_encode($tests_by_category); ?>;
+    const testsData = <?php echo json_encode($tests_by_category, JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE) ?: '{}'; ?>;
 
     // --- UID Check / Generate logic ---
     (function() {
@@ -609,6 +609,23 @@ require_once '../includes/header.php';
         const btnGenerate = document.getElementById('btn-generate-uid');
         const statusDiv = document.getElementById('uid-status');
         const hiddenPatientId = document.getElementById('existing_patient_id');
+
+        if (!uidInput || !btnCheck || !btnGenerate || !statusDiv || !hiddenPatientId) {
+            return;
+        }
+
+        function parseJsonResponse(response) {
+            if (!response.ok) {
+                throw new Error('Request failed with status ' + response.status + '.');
+            }
+            return response.text().then(function(body) {
+                try {
+                    return JSON.parse(body);
+                } catch (e) {
+                    throw new Error('Server returned an invalid response.');
+                }
+            });
+        }
 
         function showStatus(msg, isSuccess) {
             statusDiv.style.display = 'block';
@@ -650,7 +667,7 @@ require_once '../includes/header.php';
             statusDiv.style.color = '#856404';
 
             fetch('../api/check_patient_uid.php?uid=' + encodeURIComponent(uid))
-                .then(function(r) { return r.json(); })
+                .then(parseJsonResponse)
                 .then(function(data) {
                     if (data.success) {
                         var p = data.patient;
@@ -669,8 +686,8 @@ require_once '../includes/header.php';
                         showStatus(data.message + ' You can fill in the details for a new patient or click "Generate New".', false);
                     }
                 })
-                .catch(function() {
-                    showStatus('Network error. Please try again.', false);
+                .catch(function(error) {
+                    showStatus(error && error.message ? error.message : 'Network error. Please try again.', false);
                 });
         });
 
@@ -681,7 +698,7 @@ require_once '../includes/header.php';
             statusDiv.style.color = '#856404';
 
             fetch('../api/generate_patient_uid.php')
-                .then(function(r) { return r.json(); })
+                .then(parseJsonResponse)
                 .then(function(data) {
                     if (data.success) {
                         uidInput.value = data.uid;
@@ -691,8 +708,8 @@ require_once '../includes/header.php';
                         showStatus('Error generating UID: ' + data.message, false);
                     }
                 })
-                .catch(function() {
-                    showStatus('Network error. Please try again.', false);
+                .catch(function(error) {
+                    showStatus(error && error.message ? error.message : 'Network error. Please try again.', false);
                 });
         });
     })();
