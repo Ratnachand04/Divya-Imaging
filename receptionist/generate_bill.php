@@ -161,32 +161,28 @@ $success_message = '';
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $conn->begin_transaction();
     try {
+        ensure_patient_registration_schema($conn);
+
+        $is_new_patient = isset($_POST['is_new_patient']) && $_POST['is_new_patient'] === '1';
+        $submitted_uid = strtoupper(trim($_POST['patient_uid'] ?? ''));
         $patient_name = trim($_POST['patient_name'] ?? '');
         $patient_age = isset($_POST['patient_age']) ? (int)$_POST['patient_age'] : 0;
         $patient_sex = trim($_POST['patient_sex'] ?? '');
         $patient_address = trim($_POST['patient_address'] ?? '');
         $patient_city = trim($_POST['patient_city'] ?? '');
         $patient_mobile = trim($_POST['patient_mobile'] ?? '');
-
-        if ($patient_name === '' || $patient_age < 0 || $patient_sex === '' || $patient_mobile === '') {
-            throw new Exception("Patient name, age, gender, and mobile number are required.");
-        }
-        if (!preg_match('/^\d{10}$/', $patient_mobile)) {
-            throw new Exception("Mobile number must be exactly 10 digits.");
-        }
-
-        // Check if an existing patient was selected
-        $existing_patient_id = isset($_POST['existing_patient_id']) ? (int)$_POST['existing_patient_id'] : 0;
         $patient_id = 0;
 
-        if ($existing_patient_id > 0) {
-            // Use the existing patient
-            $patient_id = $existing_patient_id;
-        } else {
-            // New patient - use the submitted uid or generate one
-            $submitted_uid = trim($_POST['patient_uid'] ?? '');
+        if ($is_new_patient) {
+            if ($patient_name === '' || $patient_age < 0 || $patient_sex === '' || $patient_mobile === '') {
+                throw new Exception("Patient name, age, gender, and mobile number are required for new patient registration.");
+            }
+            if (!preg_match('/^\d{10}$/', $patient_mobile)) {
+                throw new Exception("Mobile number must be exactly 10 digits.");
+            }
+
             for ($attempt = 0; $attempt < 5; $attempt++) {
-                $uid = ($attempt === 0 && $submitted_uid !== '') ? $submitted_uid : generate_patient_uid($conn);
+                $uid = ($attempt === 0 && preg_match('/^DC\d{8}$/', $submitted_uid)) ? $submitted_uid : generate_patient_uid($conn);
                 $stmt_patient = $conn->prepare("INSERT INTO patients (uid, name, age, sex, address, city, mobile_number) VALUES (?, ?, ?, ?, ?, ?, ?)");
                 if (!$stmt_patient) {
                     throw new Exception("Patient preparation failed: " . $conn->error);
@@ -207,6 +203,34 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     throw new Exception("Patient insertion failed: " . $insert_error);
                 }
             }
+        } else {
+            if ($submitted_uid === '') {
+                throw new Exception("Patient ID is required for existing patient.");
+            }
+            if (!preg_match('/^DC\d{8}$/', $submitted_uid)) {
+                throw new Exception("Patient ID must be in DCYYYYNNNN format.");
+            }
+
+            $stmt_existing = $conn->prepare("SELECT id, uid, name, age, sex, address, city, mobile_number FROM patients WHERE uid = ? LIMIT 1");
+            if (!$stmt_existing) {
+                throw new Exception("Failed to prepare patient lookup: " . $conn->error);
+            }
+            $stmt_existing->bind_param("s", $submitted_uid);
+            $stmt_existing->execute();
+            $existing_patient = $stmt_existing->get_result()->fetch_assoc();
+            $stmt_existing->close();
+
+            if (!$existing_patient) {
+                throw new Exception("Patient not found for ID {$submitted_uid}.");
+            }
+
+            $patient_id = (int)$existing_patient['id'];
+            $patient_name = (string)$existing_patient['name'];
+            $patient_age = (int)$existing_patient['age'];
+            $patient_sex = (string)$existing_patient['sex'];
+            $patient_address = (string)($existing_patient['address'] ?? '');
+            $patient_city = (string)($existing_patient['city'] ?? '');
+            $patient_mobile = (string)($existing_patient['mobile_number'] ?? '');
         }
 
         if ($patient_id <= 0) {
@@ -429,32 +453,56 @@ require_once '../includes/header.php';
     <?php if ($error_message): ?><div class="error-banner"><?php echo htmlspecialchars($error_message); ?></div><?php endif; ?>
 
     <form action="generate_bill.php" method="POST" id="bill-form">
-        <input type="hidden" id="existing_patient_id" name="existing_patient_id" value="0">
-        <fieldset>
+        <input type="hidden" id="is_new_patient" name="is_new_patient" value="0">
+        <input type="hidden" id="patient_uid" name="patient_uid" value="">
+        <fieldset class="patient-fieldset">
             <legend>Patient Information</legend>
-            <div class="form-row" style="align-items:flex-end; margin-bottom:15px;">
-                <div class="form-group" style="flex:2;">
-                    <label for="patient_uid">Patient UID</label>
-                    <input type="text" id="patient_uid" name="patient_uid" placeholder="e.g. DC20260001" style="text-transform:uppercase;">
+
+            <div class="patient-info-card">
+                <div class="patient-card-head">
+                    <div>
+                        <h3 class="patient-card-title">Patient Mode</h3>
+                        <p class="patient-card-subtitle">Choose existing patient for quick fetch or register a new patient.</p>
+                    </div>
+                    <div class="patient-mode-switch" role="radiogroup" aria-label="Patient mode">
+                        <label class="mode-pill" for="patient_mode_existing">
+                            <input type="radio" name="patient_mode" id="patient_mode_existing" value="existing" checked>
+                            <span>Existing Patient</span>
+                        </label>
+                        <label class="mode-pill" for="patient_mode_new">
+                            <input type="radio" name="patient_mode" id="patient_mode_new" value="new">
+                            <span>New Patient</span>
+                        </label>
+                    </div>
                 </div>
-                <div class="form-group" style="flex:0 0 auto;">
-                    <button type="button" id="btn-check-uid" class="btn-submit" style="margin-top:0;">Check</button>
+
+                <div class="form-row patient-id-row">
+                    <div class="form-group patient-id-group">
+                        <label for="patient_uid_suffix">Patient ID</label>
+                        <div class="uid-input-wrap">
+                            <span class="uid-prefix">DC</span>
+                            <input type="text" id="patient_uid_suffix" placeholder="YYYYNNNN" maxlength="8" pattern="\d{8}" inputmode="numeric">
+                        </div>
+                    </div>
+                    <div class="form-group patient-id-action-group" id="generate-id-group" style="display:none;">
+                        <button type="button" id="btn-generate-uid" class="btn-submit btn-generate-id">Generate New</button>
+                    </div>
                 </div>
-                <div class="form-group" style="flex:0 0 auto;">
-                    <button type="button" id="btn-generate-uid" class="btn-submit" style="margin-top:0; background:#28a745;">Generate New</button>
-                </div>
-            </div>
-            <div id="uid-status" style="margin-bottom:10px; padding:8px; border-radius:4px; display:none;"></div>
-             <div class="form-row">
-                <div class="form-group">
+
+                <small class="uid-hint">Format: DCYYYYNNNN (example: DC20260001)</small>
+
+                <div id="uid-status" class="uid-status" style="display:none;"></div>
+
+                <div class="form-row patient-details-row">
+                    <div class="form-group patient-name-col">
                     <label for="patient_name">Patient Name</label>
                     <input type="text" id="patient_name" name="patient_name" required>
                 </div>
-                <div class="form-group">
+                <div class="form-group patient-age-col">
                     <label for="patient_age">Age</label>
                     <input type="number" id="patient_age" name="patient_age" required min="0">
                 </div>
-                 <div class="form-group">
+                 <div class="form-group patient-gender-col">
                     <label for="patient_sex">Gender</label>
                     <select id="patient_sex" name="patient_sex" required>
                         <option value="Male">Male</option>
@@ -463,18 +511,19 @@ require_once '../includes/header.php';
                     </select>
                 </div>
             </div>
-            <div class="form-group">
-                <label for="patient_address">Address</label>
-                <textarea id="patient_address" name="patient_address" rows="2"></textarea>
-            </div>
-            <div class="form-row">
                 <div class="form-group">
-                    <label for="patient_city">City</label>
-                    <input type="text" id="patient_city" name="patient_city">
+                    <label for="patient_address">Address</label>
+                    <textarea id="patient_address" name="patient_address" rows="2"></textarea>
                 </div>
-                <div class="form-group">
-                    <label for="patient_mobile">Mobile Number</label>
-                        <input type="tel" id="patient_mobile" name="patient_mobile" required pattern="\d{10}" maxlength="10" minlength="10" inputmode="numeric" placeholder="10-digit mobile number">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="patient_city">City</label>
+                        <input type="text" id="patient_city" name="patient_city">
+                    </div>
+                    <div class="form-group">
+                        <label for="patient_mobile">Mobile Number</label>
+                            <input type="tel" id="patient_mobile" name="patient_mobile" required pattern="\d{10}" maxlength="10" minlength="10" inputmode="numeric" placeholder="10-digit mobile number">
+                    </div>
                 </div>
             </div>
         </fieldset>
@@ -604,17 +653,38 @@ require_once '../includes/header.php';
 
     // --- UID Check / Generate logic ---
     (function() {
-        const uidInput = document.getElementById('patient_uid');
-        const btnCheck = document.getElementById('btn-check-uid');
+        const uidSuffixInput = document.getElementById('patient_uid_suffix');
+        const fullUidInput = document.getElementById('patient_uid');
+        const isNewPatientInput = document.getElementById('is_new_patient');
+        const existingPatientRadio = document.getElementById('patient_mode_existing');
+        const newPatientRadio = document.getElementById('patient_mode_new');
         const btnGenerate = document.getElementById('btn-generate-uid');
         const statusDiv = document.getElementById('uid-status');
-        const hiddenPatientId = document.getElementById('existing_patient_id');
+        const generateIdGroup = document.getElementById('generate-id-group');
+        var lastAutoFetchedUid = '';
+
+        const patientFieldIds = ['patient_name', 'patient_age', 'patient_sex', 'patient_address', 'patient_city', 'patient_mobile'];
+
+        function getFullUidFromInput() {
+            var suffix = (uidSuffixInput.value || '').replace(/\D/g, '');
+            uidSuffixInput.value = suffix;
+            if (suffix.length === 0) return '';
+            return 'DC' + suffix;
+        }
+
+        function syncUidHiddenInput() {
+            fullUidInput.value = getFullUidFromInput();
+        }
 
         function showStatus(msg, isSuccess) {
             statusDiv.style.display = 'block';
             statusDiv.textContent = msg;
             statusDiv.style.background = isSuccess ? '#d4edda' : '#f8d7da';
             statusDiv.style.color = isSuccess ? '#155724' : '#721c24';
+        }
+
+        function valueOrEmpty(value) {
+            return value === null || value === undefined ? '' : value;
         }
 
         function clearPatientFields() {
@@ -624,12 +694,10 @@ require_once '../includes/header.php';
             document.getElementById('patient_address').value = '';
             document.getElementById('patient_city').value = '';
             document.getElementById('patient_mobile').value = '';
-            hiddenPatientId.value = '0';
-            setPatientFieldsReadonly(false);
         }
 
         function setPatientFieldsReadonly(isReadonly) {
-            ['patient_name', 'patient_age', 'patient_sex', 'patient_address', 'patient_city', 'patient_mobile'].forEach(function(id) {
+            patientFieldIds.forEach(function(id) {
                 var el = document.getElementById(id);
                 if (el) {
                     if (el.tagName === 'SELECT') {
@@ -641,11 +709,39 @@ require_once '../includes/header.php';
             });
         }
 
-        btnCheck.addEventListener('click', function() {
-            var uid = uidInput.value.trim().toUpperCase();
-            if (uid === '') { showStatus('Please enter a UID to check.', false); return; }
+        function setPatientFieldsRequired(isRequired) {
+            ['patient_name', 'patient_age', 'patient_sex', 'patient_mobile'].forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el) el.required = isRequired;
+            });
+        }
+
+        function requestNewUid(autoTriggered) {
             statusDiv.style.display = 'block';
-            statusDiv.textContent = 'Checking...';
+            statusDiv.textContent = autoTriggered ? 'Preparing new patient ID...' : 'Generating...';
+            statusDiv.style.background = '#fff3cd';
+            statusDiv.style.color = '#856404';
+
+            fetch('../api/generate_patient_uid.php')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        uidSuffixInput.value = (data.uid || '').replace(/^DC/, '');
+                        syncUidHiddenInput();
+                        setPatientFieldsReadonly(false);
+                        showStatus('New patient ID generated: ' + data.uid, true);
+                    } else {
+                        showStatus('Error generating UID: ' + data.message, false);
+                    }
+                })
+                .catch(function() {
+                    showStatus('Network error. Please try again.', false);
+                });
+        }
+
+        function fetchPatientByUid(uid) {
+            statusDiv.style.display = 'block';
+            statusDiv.textContent = 'Looking up patient...';
             statusDiv.style.background = '#fff3cd';
             statusDiv.style.color = '#856404';
 
@@ -654,47 +750,106 @@ require_once '../includes/header.php';
                 .then(function(data) {
                     if (data.success) {
                         var p = data.patient;
-                        document.getElementById('patient_name').value = p.name || '';
-                        document.getElementById('patient_age').value = p.age || '';
+                        setPatientFieldsReadonly(false);
+                        document.getElementById('patient_name').value = valueOrEmpty(p.name);
+                        document.getElementById('patient_age').value = valueOrEmpty(p.age);
                         document.getElementById('patient_sex').value = p.sex || 'Male';
-                        document.getElementById('patient_address').value = p.address || '';
-                        document.getElementById('patient_city').value = p.city || '';
-                        document.getElementById('patient_mobile').value = p.mobile_number || '';
-                        hiddenPatientId.value = p.id;
-                        uidInput.value = p.uid;
+                        document.getElementById('patient_address').value = valueOrEmpty(p.address);
+                        document.getElementById('patient_city').value = valueOrEmpty(p.city);
+                        document.getElementById('patient_mobile').value = valueOrEmpty(p.mobile_number || p.mobile);
+                        uidSuffixInput.value = valueOrEmpty(p.uid || uid).replace(/^DC/, '');
+                        syncUidHiddenInput();
                         setPatientFieldsReadonly(true);
-                        showStatus('Patient found! Info auto-filled. (Existing patient will be reused)', true);
+                        showStatus('Patient found: ' + valueOrEmpty(p.name), true);
                     } else {
                         clearPatientFields();
-                        showStatus(data.message + ' You can fill in the details for a new patient or click "Generate New".', false);
+                        setPatientFieldsReadonly(false);
+                        showStatus(data.message || 'No patient found with this ID.', false);
                     }
                 })
                 .catch(function() {
                     showStatus('Network error. Please try again.', false);
                 });
+        }
+
+        function togglePatientMode() {
+            var isNew = newPatientRadio.checked;
+            isNewPatientInput.value = isNew ? '1' : '0';
+            generateIdGroup.style.display = isNew ? 'block' : 'none';
+            statusDiv.style.display = 'none';
+
+            if (isNew) {
+                clearPatientFields();
+                setPatientFieldsReadonly(false);
+                setPatientFieldsRequired(true);
+                requestNewUid(true);
+            } else {
+                clearPatientFields();
+                setPatientFieldsReadonly(false);
+                setPatientFieldsRequired(false);
+                lastAutoFetchedUid = '';
+            }
+            syncUidHiddenInput();
+        }
+
+        uidSuffixInput.addEventListener('input', function() {
+            uidSuffixInput.value = uidSuffixInput.value.replace(/\D/g, '').slice(0, 8);
+            syncUidHiddenInput();
+
+            if (!existingPatientRadio.checked) return;
+
+            var uid = getFullUidFromInput();
+
+            // Clear status and fields if input is incomplete
+            if (!/^DC\d{8}$/.test(uid)) {
+                statusDiv.style.display = 'none';
+                clearPatientFields();
+                setPatientFieldsReadonly(false);
+                lastAutoFetchedUid = '';
+                return;
+            }
+
+            if (uid === lastAutoFetchedUid) return;
+
+            lastAutoFetchedUid = uid;
+            fetchPatientByUid(uid);
         });
+
+        uidSuffixInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && existingPatientRadio.checked) {
+                e.preventDefault();
+                var uid = getFullUidFromInput();
+                if (/^DC\d{8}$/.test(uid)) {
+                    lastAutoFetchedUid = uid;
+                    fetchPatientByUid(uid);
+                }
+            }
+        });
+
+        existingPatientRadio.addEventListener('change', togglePatientMode);
+        newPatientRadio.addEventListener('change', togglePatientMode);
 
         btnGenerate.addEventListener('click', function() {
-            statusDiv.style.display = 'block';
-            statusDiv.textContent = 'Generating...';
-            statusDiv.style.background = '#fff3cd';
-            statusDiv.style.color = '#856404';
-
-            fetch('../api/generate_patient_uid.php')
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
-                    if (data.success) {
-                        uidInput.value = data.uid;
-                        clearPatientFields();
-                        showStatus('New UID generated: ' + data.uid + '. Please fill in the patient details below.', true);
-                    } else {
-                        showStatus('Error generating UID: ' + data.message, false);
-                    }
-                })
-                .catch(function() {
-                    showStatus('Network error. Please try again.', false);
-                });
+            clearPatientFields();
+            requestNewUid(false);
         });
+
+        document.getElementById('bill-form').addEventListener('submit', function(e) {
+            var uid = getFullUidFromInput();
+            fullUidInput.value = uid;
+
+            if (uid.length !== 10 || !/^DC\d{8}$/.test(uid)) {
+                e.preventDefault();
+                showStatus('Patient ID must be in DCYYYYNNNN format.', false);
+                return;
+            }
+
+            if (!newPatientRadio.checked) {
+                setPatientFieldsReadonly(false);
+            }
+        });
+
+        togglePatientMode();
     })();
 </script>
 <?php require_once '../includes/footer.php'; ?>

@@ -38,6 +38,7 @@ if (!$doctor_info) {
 $sql = "SELECT 
             b.id as bill_id,
             b.created_at,
+            p.uid as patient_uid,
             p.name as patient_name,
             p.mobile_number,
             b.net_amount as bill_amount,
@@ -117,6 +118,7 @@ while ($row = $result->fetch_assoc()) {
                 <tr>
                     <th>Date</th>
                     <th>Bill ID</th>
+                    <th>Patient ID</th>
                     <th>Patient Name</th>
                     <th>Mobile</th>
                     <th>Bill Amount</th>
@@ -130,6 +132,7 @@ while ($row = $result->fetch_assoc()) {
                         <tr>
                             <td><?php echo date('d M Y', strtotime($row['created_at'])); ?></td>
                             <td>#<?php echo $row['bill_id']; ?></td>
+                            <td><span style="font-size:0.82rem;color:#666;"><?php echo htmlspecialchars($row['patient_uid'] ?? ''); ?></span></td>
                             <td><?php echo htmlspecialchars($row['patient_name']); ?></td>
                             <td><?php echo htmlspecialchars($row['mobile_number']); ?></td>
                             <td>₹<?php echo number_format($row['bill_amount'], 2); ?></td>

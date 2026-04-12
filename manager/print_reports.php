@@ -13,6 +13,7 @@ $status_filter = isset($_GET['status']) && $_GET['status'] !== 'all' ? $_GET['st
 $sql = "SELECT
             bi.id as bill_item_id,
             b.id as bill_id,
+            p.uid as patient_uid,
             p.name as patient_name,
             p.age as patient_age,
             p.sex as patient_sex,
@@ -85,6 +86,7 @@ require_once '../includes/header.php';
             <thead>
                 <tr>
                     <th>Bill ID</th>
+                    <th>Patient ID</th>
                     <th>Patient Details</th>
                     <th>Test</th>
                     <th>Report Status</th>
@@ -105,6 +107,7 @@ require_once '../includes/header.php';
                         ?>
                         <tr>
                             <td><?php echo $item['bill_id']; ?></td>
+                            <td><span style="font-size:0.82rem;color:#666;"><?php echo htmlspecialchars($item['patient_uid'] ?? ''); ?></span></td>
                             <td>
                                 <?php echo htmlspecialchars($item['patient_name']); ?> /
                                 <?php echo htmlspecialchars($item['patient_age']); ?> /

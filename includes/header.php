@@ -205,6 +205,7 @@ $home_link = ($role === 'manager') ? $base_url . '/manager/dashboard.php' : $bas
             <?php elseif ($role === 'receptionist'): ?>
                 <li><a href="dashboard.php" class="<?php echo ($current_page == 'dashboard.php') ? 'active' : ''; ?>"><i class="fas fa-tachometer-alt"></i><span>Dashboard</span></a></li>
                 <li><a href="generate_bill.php" class="<?php echo in_array($current_page, ['generate_bill.php', 'edit_bill.php']) ? 'active' : ''; ?>"><i class="fas fa-file-medical"></i><span>Generate Bill</span></a></li>
+                <li><a href="existing_patients.php" class="<?php echo in_array($current_page, ['existing_patients.php', 'edit_patient.php']) ? 'active' : ''; ?>"><i class="fas fa-users"></i><span>Patients</span></a></li>
                 <li><a href="bill_history.php" class="<?php echo ($current_page == 'bill_history.php') ? 'active' : ''; ?>"><i class="fas fa-history"></i><span>Bill History</span></a></li>
             <?php endif; ?>
         </ul>

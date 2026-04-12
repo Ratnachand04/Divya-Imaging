@@ -32,6 +32,7 @@ if (!$test_info) {
 $sql = "SELECT 
             b.id as bill_id,
             b.created_at,
+            p.uid as patient_uid,
             p.name as patient_name,
             p.age,
             p.sex,
@@ -87,6 +88,7 @@ $result = $stmt->get_result();
                 <tr>
                     <th>Date</th>
                     <th>Bill ID</th>
+                    <th>Patient ID</th>
                     <th>Patient Name</th>
                     <th>Age/Gender</th>
                     <th>Referred By</th>
@@ -100,6 +102,7 @@ $result = $stmt->get_result();
                         <tr>
                             <td><?php echo date('d M Y', strtotime($row['created_at'])); ?></td>
                             <td>#<?php echo $row['bill_id']; ?></td>
+                            <td><span style="font-size:0.82rem;color:#666;"><?php echo htmlspecialchars($row['patient_uid'] ?? ''); ?></span></td>
                             <td>
                                 <?php echo htmlspecialchars($row['patient_name']); ?>
                                 <br><small class="text-muted"><?php echo htmlspecialchars($row['mobile_number']); ?></small>

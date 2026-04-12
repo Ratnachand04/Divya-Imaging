@@ -9,6 +9,10 @@ require_once '../includes/header.php';
     <h1>Receptionist Dashboard</h1>
     <p>From here you can manage patient billing and view history.</p>
     <div class="dashboard-actions">
+        <a href="existing_patients.php" class="action-card">
+            <h2>Existing Patients</h2>
+            <p>Search patients, edit details, and view visit history.</p>
+        </a>
         <a href="generate_bill.php" class="action-card">
             <h2>Generate New Bill</h2>
             <p>Create a new bill for an incoming patient.</p>
