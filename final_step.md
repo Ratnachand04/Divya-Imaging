@@ -2,7 +2,7 @@
 
 ## Prerequisites
 - Docker Desktop installed and running
-- The `diagnostic_center_db_.sql` file in the project root
+- SQL init files in `dump/init/` (schema + per-table data files)
 
 ## Quick Deploy (Any Machine)
 
@@ -77,7 +77,7 @@ backup-db.bat
 # Linux/Mac
 chmod +x backup-db.sh && ./backup-db.sh
 ```
-Backups are saved to the `backups/` folder with timestamps.
+Backups are saved to the `dump/backup/` folder with timestamps.
 
 ## Build & Push (Development)
 ```bash

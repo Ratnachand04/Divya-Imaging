@@ -23,6 +23,8 @@ docker-compose up -d --build
 **Access the website:** http://localhost:8081  
 **Access phpMyAdmin:** http://localhost:8082
 
+Security default: database and phpMyAdmin host ports are bound to localhost only via `DB_BIND_IP=127.0.0.1` and `PMA_BIND_IP=127.0.0.1`.
+
 ---
 
 ## What's Inside
@@ -30,8 +32,8 @@ docker-compose up -d --build
 | Service | Container | Port | Description |
 |---------|-----------|------|-------------|
 | Web Server | diagnostic-center-web | 8081 (HTTP), 8443 (HTTPS) | Apache 2.4 + PHP 8.2 |
-| Database | diagnostic-center-db | 3301 | MariaDB 10.4 |
-| phpMyAdmin | diagnostic-center-pma | 8082 | Database management UI |
+| Database | diagnostic-center-db | 127.0.0.1:3301 (default) | MariaDB 10.4 |
+| phpMyAdmin | diagnostic-center-pma | 127.0.0.1:8082 (default) | Database management UI |
 
 ---
 
@@ -43,6 +45,9 @@ APP_PORT=8081
 DB_PASS=root_password
 APACHE_SERVER_NAME=localhost
 ENABLE_SSL=false
+DB_BIND_IP=127.0.0.1
+PMA_BIND_IP=127.0.0.1
+INIT_BUNDLE_GUARD=true
 ```
 
 ### Local Network Access (Other computers on your network)
@@ -103,7 +108,7 @@ docker-compose up -d --build
 
 ### Step 4: Restore database (if needed)
 ```bash
-# The SQL file auto-imports on first run.
+# SQL init bundle in dump/init/ auto-imports on first run.
 # To restore a backup on an existing setup:
 docker exec -i diagnostic-center-db mysql -u root -proot_password diagnostic_center_db < backup.sql
 ```
@@ -242,7 +247,8 @@ docker exec -it diagnostic-center-db mysql -u root -proot_password  # Test conne
 ```
 
 ### Port already in use
-Edit `.env` and change `APP_PORT`, `SSL_PORT`, or `DB_PORT` to an available port.
+Edit `.env` and change `APP_PORT`, `SSL_PORT`, `DB_PORT`, or `PMA_PORT` to an available port.
+If needed, also adjust `DB_BIND_IP` / `PMA_BIND_IP` (keep `127.0.0.1` for intruder-safe default).
 
 ### Permission errors on uploads
 ```bash
@@ -270,7 +276,14 @@ diagnostic-center/
 ├── .dockerignore              # Files excluded from Docker build
 ├── setup-ssl.bat/.sh          # SSL setup helper script
 ├── backup-db.bat/.sh          # Database backup script
-├── diagnostic_center_db_.sql  # Database schema + data (auto-imported)
+├── dump/
+│   ├── diagnostic_center_db_.sql            # Key schema source SQL
+│   ├── init/                                # Auto-imported SQL bundle
+│   │   ├── 001-main-schema.sql              # Table structure
+│   │   ├── 500-data-flow-tunnel.sql         # Main data router (sources per-table files)
+│   │   ├── tables/100-data-*.sql            # One file per table data
+│   │   └── 900-post-schema.sql              # Indexes/constraints/final updates
+│   └── backup/                              # Runtime SQL backups + backup_index.json
 ├── docker/
 │   ├── apache/
 │   │   ├── vhost.conf         # HTTP virtual host config

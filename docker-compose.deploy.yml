@@ -20,11 +20,13 @@ services:
       - DB_NAME=${DB_NAME:-diagnostic_center_db}
       - APACHE_SERVER_NAME=${APACHE_SERVER_NAME:-localhost}
       - ENABLE_SSL=${ENABLE_SSL:-false}
+      - INIT_BUNDLE_GUARD=${INIT_BUNDLE_GUARD:-true}
     volumes:
       - uploads_data:/var/www/html/uploads
       - saved_bills_data:/var/www/html/saved_bills
       - final_reports_data:/var/www/html/final_reports
       - manager_uploads_data:/var/www/html/manager/uploads
+      - dump_backup_data:/var/www/html/dump/backup
       - ssl_certs:/etc/apache2/ssl
     depends_on:
       db:
@@ -42,10 +44,10 @@ services:
       - MYSQL_USER=${DB_EXTRA_USER:-diagnostic_user}
       - MYSQL_PASSWORD=${DB_EXTRA_PASS:-diagnostic_pass}
     ports:
-      - "${DB_PORT:-3301}:3306"
+      - "${DB_BIND_IP:-127.0.0.1}:${DB_PORT:-3301}:3306"
     volumes:
       - db_data:/var/lib/mysql
-      - ./diagnostic_center_db_.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./dump/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASS:-root_password}"]
       interval: 10s
@@ -60,7 +62,7 @@ services:
     container_name: diagnostic-center-pma
     restart: always
     ports:
-      - "${PMA_PORT:-8082}:80"
+      - "${PMA_BIND_IP:-127.0.0.1}:${PMA_PORT:-8082}:80"
     environment:
       - PMA_HOST=db
       - PMA_USER=root
@@ -78,6 +80,7 @@ volumes:
   saved_bills_data:
   final_reports_data:
   manager_uploads_data:
+  dump_backup_data:
   ssl_certs:
 
 networks:

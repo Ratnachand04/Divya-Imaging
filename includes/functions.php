@@ -38,64 +38,22 @@ function log_system_action($conn, $action_type, $target_id = null, $details = ''
 }
 
 /**
- * Ensures flexible app settings storage exists and is migration-friendly.
+ * Validates that app_settings schema exists from SQL init files.
  *
  * @param mysqli $conn The database connection object.
- * @throws Exception When schema operations fail.
+ * @throws Exception When app_settings table is missing.
  */
 function app_settings_ensure_schema(mysqli $conn) {
-    $create_sql = "CREATE TABLE IF NOT EXISTS app_settings (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        setting_scope VARCHAR(50) NOT NULL DEFAULT 'global',
-        scope_id INT NOT NULL DEFAULT 0,
-        setting_key VARCHAR(120) NOT NULL,
-        setting_value LONGTEXT DEFAULT NULL,
-        value_type VARCHAR(20) NOT NULL DEFAULT 'string',
-        category VARCHAR(80) DEFAULT NULL,
-        metadata_json JSON DEFAULT NULL,
-        updated_by INT DEFAULT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_scope_key (setting_scope, scope_id, setting_key)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci";
-
-    if (!$conn->query($create_sql)) {
-        throw new Exception('Unable to ensure app_settings table: ' . $conn->error);
-    }
-
-    $columns = [
-        'setting_scope' => "VARCHAR(50) NOT NULL DEFAULT 'global' AFTER id",
-        'scope_id' => "INT NOT NULL DEFAULT 0 AFTER setting_scope",
-        'setting_key' => "VARCHAR(120) NOT NULL AFTER scope_id",
-        'setting_value' => "LONGTEXT NULL AFTER setting_key",
-        'value_type' => "VARCHAR(20) NOT NULL DEFAULT 'string' AFTER setting_value",
-        'category' => "VARCHAR(80) NULL AFTER value_type",
-        'metadata_json' => "JSON NULL AFTER category",
-        'updated_by' => "INT NULL AFTER metadata_json",
-        'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP AFTER updated_by",
-        'updated_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at"
-    ];
-
-    foreach ($columns as $name => $definition) {
-        $check = $conn->query("SHOW COLUMNS FROM app_settings LIKE '{$name}'");
-        if ($check && $check->num_rows === 0) {
-            if (!$conn->query("ALTER TABLE app_settings ADD COLUMN {$name} {$definition}")) {
-                throw new Exception('Unable to add app_settings.' . $name . ': ' . $conn->error);
-            }
-        }
+    $check = $conn->query("SHOW TABLES LIKE 'app_settings'");
+    if (!$check || $check->num_rows === 0) {
         if ($check instanceof mysqli_result) {
             $check->free();
         }
+        throw new Exception('Missing app_settings table. Run SQL init bundle (001-main-schema.sql -> 500-data-flow-tunnel.sql -> 900-post-schema.sql).');
     }
 
-    $idx = $conn->query("SHOW INDEX FROM app_settings WHERE Key_name = 'idx_scope_key'");
-    if ($idx && $idx->num_rows === 0) {
-        if (!$conn->query("ALTER TABLE app_settings ADD INDEX idx_scope_key (setting_scope, scope_id, setting_key)")) {
-            throw new Exception('Unable to add app_settings index idx_scope_key: ' . $conn->error);
-        }
-    }
-    if ($idx instanceof mysqli_result) {
-        $idx->free();
+    if ($check instanceof mysqli_result) {
+        $check->free();
     }
 }
 

@@ -23,6 +23,78 @@ DATABASE_PORT="${DB_PORT:-3301}"
 echo "[CONFIG] Database: ${DB_HOST} / ${DB_NAME} (user: ${DB_USER})"
 echo "[CONFIG] Ports: HTTP=${HTTP_PORT}  HTTPS=${HTTPS_PORT}  DB=${DATABASE_PORT}"
 
+# ---- 1.5 SQL bundle intrusion guard ----
+INIT_SQL_ROOT="/var/www/html/dump/init"
+INIT_TUNNEL_FILE="${INIT_SQL_ROOT}/500-data-flow-tunnel.sql"
+INIT_TABLES_DIR="${INIT_SQL_ROOT}/tables"
+INIT_BUNDLE_GUARD="${INIT_BUNDLE_GUARD:-true}"
+
+validate_sql_data_tunnel() {
+    echo "[SECURITY] Validating SQL tunnel integrity..."
+
+    local required_file
+    for required_file in \
+        "${INIT_SQL_ROOT}/001-main-schema.sql" \
+        "${INIT_TUNNEL_FILE}" \
+        "${INIT_SQL_ROOT}/900-post-schema.sql"; do
+        if [ ! -f "${required_file}" ]; then
+            echo "[SECURITY] ERROR: Missing required SQL file: ${required_file}"
+            return 1
+        fi
+    done
+
+    if [ ! -d "${INIT_TABLES_DIR}" ]; then
+        echo "[SECURITY] ERROR: Missing tables directory: ${INIT_TABLES_DIR}"
+        return 1
+    fi
+
+    local table_count
+    table_count=$(find "${INIT_TABLES_DIR}" -maxdepth 1 -type f -name '*-data-*.sql' | wc -l | tr -d '[:space:]')
+    if [ -z "${table_count}" ] || [ "${table_count}" -eq 0 ]; then
+        echo "[SECURITY] ERROR: No per-table data SQL files found in ${INIT_TABLES_DIR}"
+        return 1
+    fi
+
+    local source_count
+    source_count=0
+
+    local source_line
+    local table_file
+    while IFS= read -r source_line; do
+        if echo "${source_line}" | grep -Eq '^[[:space:]]*SOURCE[[:space:]]+'; then
+            if ! echo "${source_line}" | grep -Eq '^[[:space:]]*SOURCE[[:space:]]+/docker-entrypoint-initdb\.d/tables/[A-Za-z0-9_.-]+[[:space:]]*;[[:space:]]*$'; then
+                echo "[SECURITY] ERROR: Invalid SOURCE link in tunnel: ${source_line}"
+                return 1
+            fi
+
+            table_file=$(echo "${source_line}" | sed -E 's|^[[:space:]]*SOURCE[[:space:]]+/docker-entrypoint-initdb\.d/tables/([A-Za-z0-9_.-]+)[[:space:]]*;[[:space:]]*$|\1|')
+            if [ ! -f "${INIT_TABLES_DIR}/${table_file}" ]; then
+                echo "[SECURITY] ERROR: Tunnel points to missing table file: ${table_file}"
+                return 1
+            fi
+
+            source_count=$((source_count + 1))
+        fi
+    done < "${INIT_TUNNEL_FILE}"
+
+    if [ "${source_count}" -ne "${table_count}" ]; then
+        echo "[SECURITY] ERROR: Tunnel link count mismatch (links=${source_count}, files=${table_count})"
+        return 1
+    fi
+
+    echo "[SECURITY] SQL tunnel integrity passed (${source_count} secured links)."
+    return 0
+}
+
+if [ "${INIT_BUNDLE_GUARD}" = "true" ]; then
+    if ! validate_sql_data_tunnel; then
+        echo "[SECURITY] Startup blocked to prevent SQL bundle intrusion."
+        exit 1
+    fi
+else
+    echo "[SECURITY] WARNING: SQL tunnel guard disabled (INIT_BUNDLE_GUARD=false)."
+fi
+
 # ---- 2. Wait for Database to be ready ----
 echo "[DB] Waiting for database at ${DB_HOST}..."
 MAX_RETRIES=30
@@ -38,72 +110,14 @@ until mysqladmin ping -h "${DB_HOST}" -u "${DB_USER}" -p"${DB_PASS}" --skip-ssl 
 done
 echo "[DB] Database is ready."
 
-# ---- 3. Ensure required tables exist ----
-echo "[DB] Ensuring required tables exist..."
+# ---- 3. Apply compatibility updates (SQL schema is init-driven) ----
+echo "[DB] Applying compatibility updates..."
 mysql -h "${DB_HOST}" -u "${DB_USER}" -p"${DB_PASS}" --skip-ssl "${DB_NAME}" <<'EOSQL' 2>/dev/null || true
-CREATE TABLE IF NOT EXISTS `site_messages` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `title` varchar(255) NOT NULL,
-  `message` text NOT NULL,
-  `type` enum('info','warning','maintenance','success','danger') DEFAULT 'info',
-  `show_as_popup` tinyint(1) DEFAULT 0,
-  `is_active` tinyint(1) DEFAULT 1,
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
-CREATE TABLE IF NOT EXISTS `error_logs` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `error_level` int(11) DEFAULT NULL,
-  `error_message` text DEFAULT NULL,
-  `file_path` varchar(500) DEFAULT NULL,
-  `line_number` int(11) DEFAULT NULL,
-  `request_url` varchar(500) DEFAULT NULL,
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  PRIMARY KEY (`id`),
-  KEY `idx_error_created` (`created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
-CREATE TABLE IF NOT EXISTS `developer_settings` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `setting_key` varchar(100) NOT NULL UNIQUE,
-  `setting_value` text DEFAULT NULL,
-  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
-CREATE TABLE IF NOT EXISTS `ip_diagnostics` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `check_type` varchar(50) NOT NULL,
-  `ip_address` varchar(45) DEFAULT NULL,
-  `port` int(11) DEFAULT NULL,
-  `status` enum('ok','error','warning') NOT NULL DEFAULT 'ok',
-  `message` text DEFAULT NULL,
-  `details` text DEFAULT NULL,
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  PRIMARY KEY (`id`),
-  KEY `idx_diag_created` (`created_at`),
-  KEY `idx_diag_type` (`check_type`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- Insert default developer settings if not present
-INSERT IGNORE INTO `developer_settings` (`setting_key`, `setting_value`) VALUES
-  ('public_ip', ''),
-  ('local_ip', ''),
-  ('last_ip_check', ''),
-  ('ip_check_interval', '300'),
-  ('last_reload_time', ''),
-  ('ip_last_error', ''),
-  ('ip_change_log', ''),
-  ('port_scan_results', ''),
-  ('last_port_scan', ''),
-  ('public_ip_diagnostics', '');
-
 -- Ensure users role enum supports platform_admin and migrate any legacy developer rows
 ALTER TABLE `users` MODIFY `role` enum('manager','receptionist','accountant','writer','superadmin','platform_admin') NOT NULL;
 UPDATE `users` SET `role` = 'platform_admin' WHERE `role` = 'developer';
 EOSQL
-echo "[DB] Table check complete."
+echo "[DB] Compatibility updates complete."
 
 # ---- 3.5 Enforce platform admin credentials ----
 PLATFORM_USERNAME="platform"
@@ -433,7 +447,7 @@ fi
 
 # ---- 10. Set correct permissions ----
 echo "[PERMS] Setting file permissions..."
-for dir in uploads saved_bills final_reports manager/uploads data_backup; do
+for dir in uploads saved_bills final_reports manager/uploads dump/backup; do
     if [ -d "/var/www/html/$dir" ]; then
         chown -R www-data:www-data "/var/www/html/$dir" 2>/dev/null || true
         chmod -R 775 "/var/www/html/$dir" 2>/dev/null || true
@@ -442,7 +456,7 @@ done
 
 # ---- 10.5 Monthly Database Backup (auto) ----
 echo "[BACKUP] Checking monthly backup..."
-BACKUP_DIR="/var/www/html/data_backup"
+BACKUP_DIR="/var/www/html/dump/backup"
 mkdir -p "${BACKUP_DIR}"
 chown -R www-data:www-data "${BACKUP_DIR}" 2>/dev/null || true
 chmod -R 775 "${BACKUP_DIR}" 2>/dev/null || true

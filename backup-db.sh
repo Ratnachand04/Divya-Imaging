@@ -10,10 +10,10 @@ echo ""
 echo "=== Database Backup ==="
 echo ""
 
-mkdir -p backups
+mkdir -p dump/backup
 
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
-BACKUP_FILE="backups/diagnostic_center_db_${TIMESTAMP}.sql"
+BACKUP_FILE="dump/backup/diagnostic_center_db_${TIMESTAMP}.sql"
 
 # Load env vars
 if [ -f .env ]; then

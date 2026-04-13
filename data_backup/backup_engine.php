@@ -1,9 +1,9 @@
-<?php
+Bring stack up again and verify app boot normally.<?php
 /**
  * =============================================================
  * Database Backup Engine - Diagnostic Center
  * =============================================================
- * Creates monthly SQL backups in: data_backup/YEAR/MONTH/
+ * Creates monthly SQL backups in: dump/backup/YEAR/MONTH/
  * Maintains a lightweight JSON index for fast searching.
  * Memory-efficient: streams large tables in batches.
  * =============================================================
@@ -20,7 +20,7 @@ if (php_sapi_name() === 'cli') {
 
 /**
  * Run a monthly backup of the entire database.
- * Saves to: data_backup/YEAR/MONTH/backup_YYYY-MM-DD_HHiiss.sql
+ * Saves to: dump/backup/YEAR/MONTH/backup_YYYY-MM-DD_HHiiss.sql
  * Uses streaming to avoid high memory usage on large tables.
  *
  * @param mysqli $conn  Active database connection
@@ -30,9 +30,13 @@ if (php_sapi_name() === 'cli') {
 function run_monthly_backup($conn, $force = false) {
     $year  = date('Y');
     $month = date('m');
-    $base  = __DIR__;
+    $base  = __DIR__ . '/../dump/backup';
 
-    // Create folder: data_backup/YEAR/MONTH/
+    if (!is_dir($base)) {
+        mkdir($base, 0775, true);
+    }
+
+    // Create folder: dump/backup/YEAR/MONTH/
     $dir = "{$base}/{$year}/{$month}";
     if (!is_dir($dir)) {
         mkdir($dir, 0775, true);
@@ -180,7 +184,11 @@ function run_monthly_backup($conn, $force = false) {
  * The index allows fast searching without scanning SQL files.
  */
 function update_backup_index($filepath, $db_name, $year, $month, $timestamp, $tables, $total_rows, $file_size, $table_info) {
-    $index_file = __DIR__ . '/backup_index.json';
+    $storage_base = __DIR__ . '/../dump/backup';
+    if (!is_dir($storage_base)) {
+        mkdir($storage_base, 0775, true);
+    }
+    $index_file = $storage_base . '/backup_index.json';
 
     // Load existing index
     $index = [];
@@ -190,8 +198,8 @@ function update_backup_index($filepath, $db_name, $year, $month, $timestamp, $ta
     }
 
     // Build relative path for portability
-    $rel_path = str_replace(__DIR__ . '/', '', $filepath);
-    $rel_path = str_replace(__DIR__ . '\\', '', $rel_path);
+    $rel_path = str_replace($storage_base . '/', '', $filepath);
+    $rel_path = str_replace($storage_base . '\\', '', $rel_path);
 
     // Add entry
     $entry = [

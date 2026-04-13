@@ -2,7 +2,7 @@
 REM ============================================================
 REM Monthly Database Backup - Diagnostic Center
 REM ============================================================
-REM Saves SQL backup to: data_backup\YEAR\MONTH\
+REM Saves SQL backup to: dump\backup\YEAR\MONTH\
 REM Usage: Run from the project root folder
 REM ============================================================
 
@@ -16,8 +16,8 @@ for /f "tokens=1-3 delims=/ " %%a in ('date /t') do (
     set MONTH=%%a
 )
 
-REM Create folder structure: data_backup\YEAR\MONTH
-set BACKUP_DIR=data_backup\%YEAR%\%MONTH%
+REM Create folder structure: dump\backup\YEAR\MONTH
+set BACKUP_DIR=dump\backup\%YEAR%\%MONTH%
 if not exist "%BACKUP_DIR%" mkdir "%BACKUP_DIR%"
 
 REM Generate timestamp for filename
@@ -60,11 +60,7 @@ if %errorlevel% equ 0 (
     for %%A in ("%BACKUP_FILE%") do echo Size: %%~zA bytes
     echo.
 
-    REM Update the index via PHP if available
-    where php >nul 2>&1
-    if %errorlevel% equ 0 (
-        php data_backup\update_index_cli.php "%BACKUP_FILE%" "%DB_NAME%" "%YEAR%" "%MONTH%"
-    )
+    echo Stored in dump\backup automatically.
 ) else (
     echo.
     echo ERROR: Backup failed!

@@ -10,7 +10,7 @@ docker-compose.yml
 docker-compose.override.yml
 .env
 .env.example
-diagnostic_center_db_.sql
+dump/
 backup-db.bat
 backup-db.sh
 setup-ssl.bat
