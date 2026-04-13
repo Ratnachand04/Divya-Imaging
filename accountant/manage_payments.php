@@ -30,7 +30,7 @@ $search_term = isset($_GET['search']) ? trim($_GET['search']) : '';
 $limit = 20;
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 
-$query_select = "SELECT b.id, p.name as patient_name, b.net_amount, b.created_at, b.payment_status, b.payment_mode FROM bills b JOIN patients p ON b.patient_id = p.id";
+$query_select = "SELECT b.id, p.uid as patient_uid, p.name as patient_name, b.net_amount, b.created_at, b.payment_status, b.payment_mode FROM bills b JOIN patients p ON b.patient_id = p.id";
 $count_select = "SELECT COUNT(b.id) FROM bills b JOIN patients p ON b.patient_id = p.id";
 $params = [];
 $types = '';
@@ -93,11 +93,12 @@ require_once '../includes/header.php';
             <h3 style="margin-bottom: 1rem;">Payment Records</h3>
             <div class="table-responsive">
             <table class="data-table">
-                <thead><tr><th>Bill No.</th><th>Patient Name</th><th>Date</th><th>Amount</th><th>Payment Mode</th><th>Status</th><th>Action</th></tr></thead>
+                <thead><tr><th>Bill No.</th><th>Patient ID</th><th>Patient Name</th><th>Date</th><th>Amount</th><th>Payment Mode</th><th>Status</th><th>Action</th></tr></thead>
                 <tbody>
                     <?php if ($bills_result->num_rows > 0): while($bill = $bills_result->fetch_assoc()): ?>
                     <tr>
                         <td><strong>#<?php echo $bill['id']; ?></strong></td>
+                        <td><span style="font-size:0.82rem;color:#666;"><?php echo htmlspecialchars($bill['patient_uid'] ?? ''); ?></span></td>
                         <td><?php echo htmlspecialchars($bill['patient_name']); ?></td>
                         <td><?php echo date('d M Y', strtotime($bill['created_at'])); ?></td>
                         <td style="font-weight:600;">₹ <?php echo number_format($bill['net_amount'], 2); ?></td>

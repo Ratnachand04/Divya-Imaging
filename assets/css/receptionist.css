@@ -217,6 +217,205 @@ body.role-receptionist .main-content {
 
 .role-receptionist .form-group { flex: 1 1 220px; }
 
+.role-receptionist .patient-fieldset {
+	display: grid;
+	gap: 0.9rem;
+}
+
+.role-receptionist .patient-info-card {
+	background: linear-gradient(180deg, #ffffff 0%, #fff8fb 100%);
+	border: 1px solid #f5d9e5;
+	border-radius: 14px;
+	padding: 1rem;
+	box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+	display: grid;
+	gap: 0.9rem;
+}
+
+.role-receptionist .patient-card-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	padding-bottom: 0.65rem;
+	border-bottom: 1px solid #f2e5eb;
+}
+
+.role-receptionist .patient-card-title {
+	margin: 0;
+	font-size: 1rem;
+	font-weight: 700;
+	color: var(--text-primary);
+}
+
+
+.role-receptionist .patient-card-subtitle {
+	margin: 0;
+	font-size: 0.85rem;
+	color: var(--text-muted);
+}
+
+.role-receptionist .patient-mode-switch {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+	background: #f8edf3;
+	border: 1px solid #efd2de;
+	border-radius: 999px;
+	padding: 0.25rem;
+}
+
+.role-receptionist .mode-pill {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0.4rem 0.8rem;
+	border-radius: 999px;
+	font-size: 0.82rem;
+	font-weight: 700;
+	color: #7a3d56;
+	cursor: pointer;
+	transition: all 0.2s ease;
+}
+
+.role-receptionist .mode-pill input {
+	position: absolute;
+	opacity: 0;
+	pointer-events: none;
+}
+
+.role-receptionist .mode-pill input:checked + span {
+	background: #ffffff;
+	color: var(--brand-pink);
+	box-shadow: var(--shadow-sm);
+	border-radius: 999px;
+	padding: 0.2rem 0.5rem;
+}
+
+.role-receptionist .patient-id-row {
+	align-items: center;
+	gap: 0.9rem;
+	margin-bottom: 0.2rem;
+}
+
+.role-receptionist .patient-id-group {
+	flex: 1 1 360px;
+	max-width: 620px;
+}
+
+.role-receptionist .uid-input-wrap {
+	display: flex;
+	align-items: center;
+	position: relative;
+	border: 1px solid var(--border-light);
+	border-radius: 10px;
+	background: var(--bg-primary);
+	overflow: hidden;
+	box-shadow: var(--shadow-sm);
+}
+
+.role-receptionist .uid-prefix {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	height: 42px;
+	padding: 0 0.85rem;
+	background: var(--bg-secondary);
+	border-right: 1px solid var(--border-light);
+	font-weight: 700;
+	color: var(--text-primary);
+	letter-spacing: 0.03em;
+}
+
+.role-receptionist #patient_uid_suffix {
+	border: none;
+	border-radius: 0;
+	box-shadow: none;
+	height: 42px;
+	padding: 0 0.85rem;
+	background: transparent;
+	flex: 1 1 auto;
+	min-width: 0;
+	position: relative;
+	z-index: 1;
+}
+
+.role-receptionist #patient_uid_suffix:focus {
+	box-shadow: none;
+	border: none;
+}
+
+.role-receptionist .uid-hint {
+	display: block;
+	margin-top: 0.35rem;
+	font-size: 0.8rem;
+	color: var(--text-muted);
+	pointer-events: none;
+}
+
+.role-receptionist .patient-id-action-group {
+	flex: 0 0 auto;
+	min-width: 130px;
+	align-self: end;
+	padding-top: 1.45rem;
+}
+
+.role-receptionist .patient-id-action-group .btn-submit {
+	margin: 0;
+	min-width: 130px;
+	padding-inline: 1.1rem;
+	white-space: nowrap;
+}
+
+.role-receptionist .btn-fetch-inline {
+	border-radius: 0;
+	height: 42px;
+	min-width: 110px;
+	flex: 0 0 auto;
+	padding-inline: 1rem;
+	box-shadow: none;
+	border-left: 1px solid var(--border-light);
+	position: relative;
+	z-index: 5;
+	pointer-events: auto;
+	cursor: pointer;
+}
+
+.role-receptionist .btn-generate-id {
+	background: #1f9d55;
+}
+
+.role-receptionist .btn-generate-id:hover {
+	background: #187a42;
+}
+
+.role-receptionist .uid-status {
+	margin-bottom: 0.25rem;
+	padding: 0.6rem 0.75rem;
+	border-radius: 8px;
+	font-weight: 500;
+	background: #f8fafc;
+	color: #334155;
+	border: 1px solid #e2e8f0;
+}
+
+.role-receptionist .patient-details-row {
+	gap: 0.75rem;
+}
+
+.role-receptionist .patient-name-col {
+	flex: 2 1 320px;
+}
+
+.role-receptionist .patient-age-col {
+	flex: 0.8 1 120px;
+}
+
+.role-receptionist .patient-gender-col {
+	flex: 1 1 180px;
+}
+
 .role-receptionist .error-banner {
 	background: var(--error-soft);
 	color: var(--error);
@@ -451,5 +650,329 @@ body.role-receptionist .main-content {
 	}
 
 	.role-receptionist .form-row { gap: 1rem; }
+
+	.role-receptionist .patient-id-group {
+		max-width: 100%;
+	}
+
+	.role-receptionist .btn-fetch-inline {
+		min-width: 96px;
+	}
+
+	.role-receptionist .patient-id-action-group {
+		min-width: 100%;
+		padding-top: 0;
+	}
+
+	.role-receptionist .patient-id-action-group .btn-submit {
+		width: 100%;
+	}
+
+	.role-receptionist .patient-card-head {
+		flex-direction: column;
+		align-items: flex-start;
+	}
+
+	.role-receptionist .patient-mode-switch {
+		width: 100%;
+		justify-content: space-between;
+	}
 }
 
+
+/* ── Existing Patients Page ─────────────────────────────────────── */
+.role-receptionist .ep-search-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 0;
+}
+
+.role-receptionist .ep-search-bar input {
+    flex: 1;
+    padding: 0.65rem 1rem;
+    border: 1px solid var(--border-light);
+    border-radius: 10px;
+    font-size: 1rem;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    transition: border 0.2s, box-shadow 0.2s;
+}
+
+.role-receptionist .ep-search-bar input:focus {
+    outline: none;
+    border-color: var(--brand-pink);
+    box-shadow: 0 0 0 3px var(--brand-pink-soft);
+}
+
+.role-receptionist #ep-search-status {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.role-receptionist .visit-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #e0f2fe;
+    color: #0369a1;
+    border-radius: 999px;
+    padding: 3px 12px;
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+/* ── Modal Overlay ───────────────────────────────────────────────── */
+.role-receptionist .modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(15, 23, 42, 0.55);
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    backdrop-filter: blur(2px);
+    animation: ep-fade-in 0.18s ease;
+}
+
+.role-receptionist .modal[style*="display:none"],
+.role-receptionist .modal[style*="display: none"] {
+    display: none !important;
+}
+
+@keyframes ep-fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.role-receptionist .modal-content {
+    background: var(--bg-primary);
+    border-radius: 18px;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    animation: ep-slide-up 0.22s ease;
+    display: flex;
+    flex-direction: column;
+}
+
+@keyframes ep-slide-up {
+    from { transform: translateY(24px); opacity: 0; }
+    to   { transform: translateY(0);    opacity: 1; }
+}
+
+.role-receptionist .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--border-light);
+    position: sticky;
+    top: 0;
+    background: var(--bg-primary);
+    z-index: 2;
+    border-radius: 18px 18px 0 0;
+}
+
+.role-receptionist .modal-header h2 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.role-receptionist .close-modal {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+    font-size: 1.2rem;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.role-receptionist .close-modal:hover {
+    background: var(--error-soft);
+    color: var(--error);
+}
+
+.role-receptionist .modal-body {
+    padding: 1.5rem;
+    flex: 1;
+}
+
+/* Edit modal form tweaks */
+.role-receptionist #editModal .modal-content { max-width: 560px; }
+.role-receptionist #historyModal .modal-content { max-width: 860px; }
+
+.role-receptionist .history-summary {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 14px;
+    padding: 12px 16px;
+    background: var(--bg-secondary);
+    border-radius: 10px;
+    font-size: 0.95rem;
+}
+
+.role-receptionist .history-summary strong {
+    color: var(--brand-pink);
+}
+
+.role-receptionist #visitsDetail > div {
+    margin-bottom: 10px;
+    padding: 12px 14px;
+    border: 1px solid var(--border-light);
+    border-radius: 10px;
+    background: var(--bg-secondary);
+}
+
+.role-receptionist #visitsDetail ul {
+    margin: 8px 0 0 0;
+    padding-left: 18px;
+}
+
+.role-receptionist #visitsDetail li {
+    padding: 2px 0;
+    font-size: 0.9rem;
+}
+
+.role-receptionist #historyLoader {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-muted);
+}
+
+.role-receptionist .success-banner {
+    background: #f0fdf4;
+    color: #166534;
+    border: 1px solid #bbf7d0;
+    padding: 0.75rem 1rem;
+    border-radius: 10px;
+    margin-bottom: 1rem;
+    font-weight: 600;
+}
+
+/* ── History Modal – Visit Cards ────────────────────────────────── */
+.role-receptionist .scan-tag {
+    display: inline-block;
+    margin: 3px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: var(--brand-pink-soft);
+    color: var(--brand-pink);
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+.role-receptionist .visit-card {
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    margin-bottom: 14px;
+    overflow: hidden;
+    background: var(--bg-primary);
+}
+
+.role-receptionist .visit-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-light);
+}
+
+.role-receptionist .visit-num {
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--text-primary);
+    margin-right: 10px;
+}
+
+.role-receptionist .visit-date {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.role-receptionist .visit-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 20px;
+    padding: 8px 14px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-light);
+}
+
+.role-receptionist .visit-meta strong { color: var(--text-secondary); }
+
+.role-receptionist .visit-tests-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+}
+
+.role-receptionist .visit-tests-table th {
+    background: var(--bg-secondary);
+    padding: 7px 14px;
+    text-align: left;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-light);
+}
+
+.role-receptionist .visit-tests-table td {
+    padding: 7px 14px;
+    border-bottom: 1px solid var(--border-light);
+    color: var(--text-secondary);
+}
+
+.role-receptionist .visit-tests-table tbody tr:last-child td { border-bottom: none; }
+
+.role-receptionist .rs-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+.role-receptionist .rs-done    { background: #dcfce7; color: #166534; }
+.role-receptionist .rs-wip     { background: #fef9c3; color: #854d0e; }
+.role-receptionist .rs-pending { background: #f1f5f9; color: #64748b; }
+
+.role-receptionist .visit-amounts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 20px;
+    padding: 10px 14px;
+    font-size: 0.88rem;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-light);
+    color: var(--text-muted);
+}
+
+.role-receptionist .visit-amounts strong { color: var(--text-secondary); }
+.role-receptionist .net-amt  strong { color: #166534; }
+.role-receptionist .bal-amt  strong { color: var(--error); }
+
+.role-receptionist .ps-badge {
+    display: inline-block;
+    padding: 3px 12px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+.role-receptionist .ps-paid { background: #dcfce7; color: #166534; }
+.role-receptionist .ps-due  { background: #fee2e2; color: #991b1b; }
+.role-receptionist .ps-half { background: #fef9c3; color: #854d0e; }

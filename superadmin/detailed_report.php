@@ -24,7 +24,7 @@ $end_date = $_SESSION[$filter_key]['end_date'] ?? (isset($_GET['end_date']) ? $_
 $sql = "SELECT
             bi.id as bill_item_id,
             b.id as bill_id,
-            p.id as patient_id,
+            p.uid as patient_uid,
             p.name as patient_name,
             p.sex as patient_sex,
             t.sub_test_name,
@@ -109,7 +109,7 @@ require_once '../includes/header.php';
                             $status_class = $is_completed ? 'status-paid' : 'status-pending'; // Using paid/pending classes for consistency
                         ?>
                         <tr>
-                            <td><?php echo htmlspecialchars($row['patient_id']); ?></td>
+                            <td><?php echo htmlspecialchars($row['patient_uid']); ?></td>
                             <td><?php echo htmlspecialchars($row['patient_name']); ?></td>
                             <td><?php echo htmlspecialchars($row['patient_sex']); ?></td>
                             <td><?php echo htmlspecialchars($row['sub_test_name']); ?></td>

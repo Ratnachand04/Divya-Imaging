@@ -63,6 +63,7 @@ $conn->query("ALTER TABLE bill_items ADD COLUMN IF NOT EXISTS reporting_doctor V
 $selectColumns = "SELECT
     bi.id AS bill_item_id,
     b.id AS bill_id,
+    p.uid AS patient_uid,
     p.name AS patient_name,
     p.age AS patient_age,
     p.sex AS patient_sex,
@@ -246,6 +247,7 @@ require_once '../includes/header.php';
                     <thead>
                         <tr>
                             <th>Bill #</th>
+                            <th>Patient ID</th>
                             <th>Patient Name</th>
                             <th>Test Name</th>
                             <th>Age / Gender</th>
@@ -256,6 +258,7 @@ require_once '../includes/header.php';
                         <?php foreach ($pending_uploads as $row): ?>
                             <tr>
                                 <td><?php echo (int) $row['bill_id']; ?></td>
+                                <td><span style="font-size:0.82rem;color:#666;"><?php echo htmlspecialchars($row['patient_uid'] ?? ''); ?></span></td>
                                 <td><?php echo htmlspecialchars($row['patient_name']); ?></td>
                                 <td><?php echo htmlspecialchars($row['test_name']); ?></td>
                                 <td><?php echo htmlspecialchars($row['age_gender']); ?></td>

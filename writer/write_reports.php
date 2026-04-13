@@ -119,6 +119,7 @@ $sql = "SELECT
             bi.id AS bill_item_id,
             b.id AS bill_id,
             b.created_at AS bill_date,
+            p.uid AS patient_uid,
             p.name AS patient_name,
             p.age AS patient_age,
             p.sex AS patient_sex,
@@ -153,6 +154,7 @@ if ($stmt) {
         $report_rows[] = [
             'bill_item_id' => $row['bill_item_id'],
             'bill_no' => $row['bill_id'],
+            'patient_uid' => $row['patient_uid'],
             'patient_name' => $row['patient_name'],
             'age_gender' => $age_gender,
             'main_test' => $row['main_test_name'],
@@ -215,6 +217,7 @@ if ($stmt) {
                     <tr>
                         <th>S.No</th>
                         <th>Bill No</th>
+                        <th>Patient ID</th>
                         <th>Patient Name</th>
                         <th>Age / Gender</th>
                         <?php if ($show_main_test_column): ?><th>Main Test</th><?php endif; ?>
@@ -228,6 +231,7 @@ if ($stmt) {
                             <tr>
                                 <td><?php echo $serial++; ?></td>
                                 <td><?php echo htmlspecialchars($row['bill_no']); ?></td>
+                                <td><span style="font-size:0.82rem;color:#666;"><?php echo htmlspecialchars($row['patient_uid'] ?? ''); ?></span></td>
                                 <td><?php echo htmlspecialchars($row['patient_name']); ?></td>
                                 <td><?php echo htmlspecialchars($row['age_gender']); ?></td>
                                 <?php if ($show_main_test_column): ?><td><?php echo htmlspecialchars($row['main_test']); ?></td><?php endif; ?>

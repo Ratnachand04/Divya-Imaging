@@ -39,6 +39,7 @@ if ($finalReportTableExists) {
     $sql = "SELECT
                 bi.id AS bill_item_id,
                 b.id AS bill_id,
+                p.uid AS patient_uid,
                 p.name AS patient_name,
                 p.age AS patient_age,
                 p.sex AS patient_sex,
@@ -95,6 +96,7 @@ if ($finalReportTableExists) {
 
             $reports[] = [
                 'bill_item_id' => (int)$row['bill_item_id'],
+                'patient_uid' => $row['patient_uid'],
                 'patient_name' => $row['patient_name'],
                 'test_name' => trim(($row['main_test_name'] ?? '') !== ''
                     ? ($row['main_test_name'] . ' • ' . $row['test_name'])
@@ -150,6 +152,7 @@ require_once '../includes/header.php';
                 <table class="report-table">
                     <thead>
                         <tr>
+                            <th>Patient ID</th>
                             <th>Patient Name</th>
                             <th>Test Name</th>
                             <th>Age / Gender</th>
@@ -160,6 +163,7 @@ require_once '../includes/header.php';
                     <tbody>
                         <?php foreach ($reports as $report): ?>
                             <tr>
+                                <td><span style="font-size:0.82rem;color:#666;"><?php echo htmlspecialchars($report['patient_uid'] ?? ''); ?></span></td>
                                 <td><?php echo htmlspecialchars($report['patient_name']); ?></td>
                                 <td><?php echo htmlspecialchars($report['test_name']); ?></td>
                                 <td><?php echo htmlspecialchars($report['age_gender']); ?></td>

@@ -172,6 +172,7 @@ $doctor_stmt->close();
                     <tr>
                         <th>Date</th>
                         <th>Bill No</th>
+                        <th>Patient ID</th>
                         <th>Patient Name</th>
                         <th>Test Name</th>
                         <th>Bill Paid (₹)</th>
@@ -222,7 +223,7 @@ $doctor_stmt->close();
                     $data_params[] = $rows_per_page;
                     $data_params[] = $offset;
 
-                    $discount_stmt = $conn->prepare("SELECT b.id, b.created_at, b.patient_id, b.net_amount, b.discount, b.discount_by, p.name as patient_name FROM bills b JOIN patients p ON b.patient_id = p.id WHERE $where_clause ORDER BY b.created_at DESC LIMIT ? OFFSET ?");
+                    $discount_stmt = $conn->prepare("SELECT b.id, b.created_at, b.patient_id, b.net_amount, b.discount, b.discount_by, p.uid as patient_uid, p.name as patient_name FROM bills b JOIN patients p ON b.patient_id = p.id WHERE $where_clause ORDER BY b.created_at DESC LIMIT ? OFFSET ?");
                     
                     $discount_stmt->bind_param($data_param_types, ...$data_params);
                     $discount_stmt->execute();
@@ -243,6 +244,7 @@ $doctor_stmt->close();
                     <tr>
                         <td><?php echo date('d-m-Y', strtotime($bill['created_at'])); ?></td>
                         <td><a href="../templates/print_bill.php?bill_id=<?php echo $bill['id']; ?>" target="_blank" class="bill-link">#<?php echo $bill['id']; ?></a></td>
+                        <td><span style="font-size:0.82rem;color:#666;"><?php echo htmlspecialchars($bill['patient_uid'] ?? ''); ?></span></td>
                         <td><?php echo htmlspecialchars($bill['patient_name']); ?></td>
                         <td><span class="test-name"><?php echo htmlspecialchars($test_names); ?></span></td>
                         <td class="amount">₹ <?php echo number_format($bill_paid, 2); ?></td>
@@ -252,7 +254,7 @@ $doctor_stmt->close();
                     <?php endwhile;
                     else: ?>
                     <tr>
-                        <td colspan="7" class="no-data">No discount records found for the selected criteria.</td>
+                        <td colspan="8" class="no-data">No discount records found for the selected criteria.</td>
                     </tr>
                     <?php endif; $discount_stmt->close(); ?>
                 </tbody>
