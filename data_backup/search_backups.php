@@ -18,7 +18,7 @@
  * @return array  Matching backup entries from the index
  */
 function search_backup_index($filters = []) {
-    $index_file = __DIR__ . '/backup_index.json';
+    $index_file = __DIR__ . '/../dump/backup/backup_index.json';
     if (!file_exists($index_file)) {
         return [];
     }
@@ -93,7 +93,7 @@ function deep_search_backups($search_term, $filters = [], $max_results = 50, $co
     $results = [];
     $total_matches = 0;
     $files_searched = 0;
-    $base = __DIR__;
+    $base = __DIR__ . '/../dump/backup';
 
     foreach ($entries as $entry) {
         $file = $base . '/' . $entry['file'];
@@ -206,7 +206,7 @@ function stream_search_file($filepath, $search_term, $max_matches = 50, $context
  * @return array
  */
 function get_backup_stats() {
-    $index_file = __DIR__ . '/backup_index.json';
+    $index_file = __DIR__ . '/../dump/backup/backup_index.json';
     if (!file_exists($index_file)) {
         return [
             'total_backups' => 0,
@@ -252,7 +252,7 @@ function get_backup_stats() {
  * Falls back to directory scan if index is missing.
  */
 function list_backups($year = null, $month = null) {
-    $base = __DIR__;
+    $base = __DIR__ . '/../dump/backup';
 
     // Try index first (fast)
     $index_file = $base . '/backup_index.json';
@@ -285,14 +285,14 @@ function list_backups($year = null, $month = null) {
  * Delete a specific backup file and remove it from the index.
  */
 function delete_backup($rel_path) {
-    $base = __DIR__;
+    $base = __DIR__ . '/../dump/backup';
     $full_path = $base . '/' . $rel_path;
 
     if (!file_exists($full_path)) {
         return ['success' => false, 'message' => 'File not found'];
     }
 
-    // Security: ensure path is within data_backup
+    // Security: ensure path is within dump/backup
     $real = realpath($full_path);
     $base_real = realpath($base);
     if (strpos($real, $base_real) !== 0) {

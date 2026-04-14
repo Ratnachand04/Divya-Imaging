@@ -2,7 +2,7 @@
 # ============================================================
 # Monthly Database Backup - Diagnostic Center
 # ============================================================
-# Saves SQL backup to: data_backup/YEAR/MONTH/
+# Saves SQL backup to: dump/backup/YEAR/MONTH/
 # Usage: chmod +x monthly-backup.sh && ./monthly-backup.sh
 # Supports: Direct MySQL, Docker exec, or PHP-based backup
 # ============================================================
@@ -25,7 +25,7 @@ YEAR=$(date +"%Y")
 MONTH=$(date +"%m")
 TIMESTAMP=$(date +"%Y-%m-%d_%H%M%S")
 
-BACKUP_DIR="data_backup/${YEAR}/${MONTH}"
+BACKUP_DIR="dump/backup/${YEAR}/${MONTH}"
 BACKUP_FILE="${BACKUP_DIR}/backup_${TIMESTAMP}.sql"
 
 echo "Backup folder: ${BACKUP_DIR}"
@@ -52,12 +52,8 @@ elif command -v mysqldump &>/dev/null; then
         --triggers \
         -h "${DB_HOST}" \
         -u "${DB_USER}" -p"${DB_PASS}" "${DB_NAME}" > "${BACKUP_FILE}"
-elif command -v php &>/dev/null; then
-    echo "Using PHP backup engine..."
-    php data_backup/backup_engine.php
-    exit $?
 else
-    echo "ERROR: No backup tool available (docker, mysqldump, or php)"
+    echo "ERROR: No backup tool available (docker or mysqldump)"
     exit 1
 fi
 
@@ -68,10 +64,7 @@ if [ $? -eq 0 ] && [ -s "${BACKUP_FILE}" ]; then
     echo "File: ${BACKUP_FILE}"
     echo "Size: ${FILE_SIZE}"
     
-    # Update JSON index if PHP is available
-    if command -v php &>/dev/null; then
-        php data_backup/update_index_cli.php "${BACKUP_FILE}" "${DB_NAME}" "${YEAR}" "${MONTH}"
-    fi
+    echo "Stored in dump/backup automatically."
 else
     echo ""
     echo "ERROR: Backup failed or produced empty file."

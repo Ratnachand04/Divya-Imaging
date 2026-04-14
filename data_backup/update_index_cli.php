@@ -19,7 +19,12 @@ if (!file_exists($backup_file)) {
     exit(1);
 }
 
-$index_file = __DIR__ . '/backup_index.json';
+$storage_base = __DIR__ . '/../dump/backup';
+if (!is_dir($storage_base)) {
+    mkdir($storage_base, 0775, true);
+}
+
+$index_file = $storage_base . '/backup_index.json';
 $index = [];
 if (file_exists($index_file)) {
     $index = json_decode(file_get_contents($index_file), true) ?: [];
@@ -56,8 +61,9 @@ function fmt_size($bytes) {
 }
 
 // Build relative path
-$rel_path = str_replace(__DIR__ . '/', '', realpath($backup_file));
-$rel_path = str_replace(__DIR__ . '\\', '', $rel_path);
+$real_backup_file = realpath($backup_file);
+$rel_path = str_replace($storage_base . '/', '', $real_backup_file);
+$rel_path = str_replace($storage_base . '\\', '', $rel_path);
 
 $entry = [
     'file'       => $rel_path,

@@ -32,6 +32,7 @@ services:
       - LOCAL_IP=${LOCAL_IP:-}
       - DUAL_IP_BIND=${DUAL_IP_BIND:-true}
       - IP_CHECK_INTERVAL=${IP_CHECK_INTERVAL:-300}
+      - INIT_BUNDLE_GUARD=${INIT_BUNDLE_GUARD:-true}
       - APP_PORT=${APP_PORT:-8081}
       - SSL_PORT=${SSL_PORT:-8443}
       - DB_PORT=${DB_PORT:-3301}
@@ -47,7 +48,7 @@ services:
       - saved_bills_data:/var/www/html/saved_bills
       - final_reports_data:/var/www/html/final_reports
       - manager_uploads_data:/var/www/html/manager/uploads
-      - data_backup_data:/var/www/html/data_backup
+      - dump_backup_data:/var/www/html/dump/backup
       # SSL certificates (mount your certs here)
       - ssl_certs:/etc/apache2/ssl
     depends_on:
@@ -67,13 +68,12 @@ services:
       - MYSQL_USER=${DB_EXTRA_USER:-diagnostic_user}
       - MYSQL_PASSWORD=${DB_EXTRA_PASS:-diagnostic_pass}
     ports:
-      - "${DB_PORT:-3301}:3306"
+      - "${DB_BIND_IP:-127.0.0.1}:${DB_PORT:-3301}:3306"
     volumes:
       # Persist database data
       - db_data:/var/lib/mysql
-      # Auto-import SQL on first run (bind mount the actual file)
-      - ./diagnostic_center_db_.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./docker/mysql/init/02-platform-admin-migration.sql:/docker-entrypoint-initdb.d/02-platform-admin-migration.sql:ro
+      # Auto-import SQL bundle on first run
+      - ./dump/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASS:-root_password}"]
       interval: 10s
@@ -89,7 +89,7 @@ services:
     container_name: diagnostic-center-pma
     restart: always
     ports:
-      - "${PMA_PORT:-8082}:80"
+      - "${PMA_BIND_IP:-127.0.0.1}:${PMA_PORT:-8082}:80"
     environment:
       - PMA_HOST=db
       - PMA_USER=root
@@ -113,7 +113,7 @@ volumes:
     driver: local
   manager_uploads_data:
     driver: local
-  data_backup_data:
+  dump_backup_data:
     driver: local
   ssl_certs:
     driver: local

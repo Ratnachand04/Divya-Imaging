@@ -4,7 +4,7 @@
  * Data Backup Management - Ghost Developer Console
  * =============================================================
  * UI for creating, searching, browsing, and downloading backups.
- * Structure: data_backup/YEAR/MONTH/backup_*.sql
+ * Structure: dump/backup/YEAR/MONTH/backup_*.sql
  * =============================================================
  */
 require_once 'includes/header.php';
@@ -72,14 +72,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         // ---- Download backup ----
         case 'download_backup':
             $file = $_POST['file'] ?? '';
-            $base = realpath(__DIR__ . '/../data_backup');
+            $base = realpath(__DIR__ . '/../dump/backup');
+            if (!$base) {
+                echo json_encode(['success' => false, 'error' => 'Backup storage is not initialized']);
+                exit;
+            }
             $full = realpath($base . '/' . $file);
             if (!$full || strpos($full, $base) !== 0 || !file_exists($full)) {
                 echo json_encode(['success' => false, 'error' => 'File not found']);
                 exit;
             }
             // Return path for download
-            echo json_encode(['success' => true, 'download_url' => '../data_backup/' . $file]);
+            echo json_encode(['success' => true, 'download_url' => '../dump/backup/' . $file]);
             exit;
 
         default:
@@ -101,7 +105,7 @@ $month_names = ['01'=>'January','02'=>'February','03'=>'March','04'=>'April','05
         <div>
             <h2 style="margin:0;"><i class="fas fa-database"></i> Data Backup Manager</h2>
             <p style="margin:0.25rem 0 0; color:var(--text-muted); font-size:0.9rem;">
-                Monthly SQL backups &bull; Folder: <code>data_backup/YEAR/MONTH/</code>
+                Monthly SQL backups &bull; Folder: <code>dump/backup/YEAR/MONTH/</code>
             </p>
         </div>
         <div style="display:flex; gap:8px;">
@@ -392,7 +396,7 @@ function deepSearch() {
 function downloadBackup(file) {
     // Direct download via link
     const a = document.createElement('a');
-    a.href = '../data_backup/' + file;
+    a.href = '../dump/backup/' + file;
     a.download = file.split('/').pop();
     document.body.appendChild(a);
     a.click();

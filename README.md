@@ -168,13 +168,16 @@ Key files:
 |- superadmin/               Admin analytics + settings + notifications
 |- Ghost/                    Platform admin console
 |- data_backup/              Backup engine, index, search
-|- docker/                   Entrypoint, apache, mysql init, ssl scripts
+|- dump/                     DB schema source, split init SQL, backup storage
+|- docker/                   Entrypoint, apache, php, ssl scripts
 |- uploads/                  Persistent uploads
 |- saved_bills/              Generated bill PDFs
 |- final_reports/            Uploaded final reports
 |- docker-compose.yml        Dev/full compose
 |- docker-compose.deploy.yml Deploy/pull-image compose
-|- diagnostic_center_db_.sql Main SQL seed/schema dump
+|- dump/diagnostic_center_db_.sql Key schema source file
+|- dump/init/*.sql           Split SQL orchestrators (schema + tunnel + post schema)
+|- dump/init/tables/*.sql    Per-table data SQL files sourced by tunnel
 ```
 
 ## Quick Start (Docker Recommended)
@@ -243,6 +246,8 @@ Defined in `.env.example`:
 - `SSL_PORT` (default `8443`)
 - `PMA_PORT` (default `8082`)
 - `DB_PORT` (default `3301`)
+- `PMA_BIND_IP` (default `127.0.0.1`)
+- `DB_BIND_IP` (default `127.0.0.1`)
 - `DB_HOST` (default `db`)
 - `DB_USER` (default `root`)
 - `DB_PASS` (default `root_password`)
@@ -251,6 +256,7 @@ Defined in `.env.example`:
 - `APACHE_SERVER_NAME`
 - `ENABLE_SSL` (`true` or `false`)
 - `PUBLIC_IP`, `LOCAL_IP`, `DUAL_IP_BIND`, `IP_CHECK_INTERVAL`
+- `INIT_BUNDLE_GUARD` (`true` by default)
 
 ## Access and Credentials
 
@@ -270,14 +276,18 @@ For production, change these hardcoded values before deployment.
 
 ### Seeded users in SQL dump
 
-`diagnostic_center_db_.sql` contains sample users with hashed passwords for existing roles.
+User seed data is stored in the per-table data SQL file for `users` inside `dump/init/tables/`.
 
 ## Database and Schema
 
 ### Initial load
 
-- Main schema/data comes from `diagnostic_center_db_.sql`
-- Docker init also runs `docker/mysql/init/02-platform-admin-migration.sql`
+- Key schema source file: `dump/diagnostic_center_db_.sql`
+- Docker DB init loads SQL files from `dump/init/` in order:
+  - `001-main-schema.sql` (table structure)
+  - `500-data-flow-tunnel.sql` (main data router; no inline table data)
+  - `tables/100-data-*.sql` (one data file per table, sourced via tunnel)
+  - `900-post-schema.sql` (indexes, auto-increment, constraints, final updates)
 
 ### Core tables (high-level)
 
@@ -289,12 +299,16 @@ For production, change these hardcoded values before deployment.
 
 ### Runtime schema safeguards
 
-- `docker/entrypoint.sh` ensures support tables exist:
+- Support tables are SQL-source-driven from init bundle:
   - `site_messages`
   - `error_logs`
   - `developer_settings`
   - `ip_diagnostics`
-- `includes/functions.php` auto-manages `app_settings` and patient UID schema
+  - `app_settings`
+- `docker/entrypoint.sh` validates SQL tunnel links and blocks startup on tampering:
+  - Requires `001-main-schema.sql`, `500-data-flow-tunnel.sql`, and `900-post-schema.sql`
+  - Verifies all `SOURCE` links target expected files under `dump/init/tables/`
+- `includes/functions.php` validates `app_settings` presence and continues patient UID schema checks
 
 ## Backups and Restore
 
@@ -321,9 +335,11 @@ monthly-backup.bat
 ### In-app backup engine
 
 - Engine: `data_backup/backup_engine.php`
-- Index: `data_backup/backup_index.json`
+- Index: `dump/backup/backup_index.json`
 - Search utilities: `data_backup/search_backups.php`
 - Admin UI: `Ghost/data_backup.php`
+
+Backup files are stored in: `dump/backup/YEAR/MONTH/backup_*.sql`
 
 ### Automatic monthly backup
 
@@ -393,12 +409,14 @@ If SMTP config is missing, processor runs in simulation mode and logs to `upload
 - Sensitive file access blocked in root `.htaccess` (e.g. `.env`, SQL, shell scripts, compose files)
 - DB credentials read from environment in `includes/db_connect.php`
 - Errors can be logged into `error_logs` table
+- DB and phpMyAdmin host ports are localhost-bound by default via `DB_BIND_IP` and `PMA_BIND_IP`
+- SQL data-flow tunnel is guarded at startup to detect intruder tampering in file links
 
 Important security risks to address before production:
 
 - Hardcoded platform credential enforcement in `login.php` and `docker/entrypoint.sh`
 - Plaintext SMTP credentials currently present in `includes/mail_config.php`
-- Demo/legacy data exists in `diagnostic_center_db_.sql`
+- Demo/legacy data exists in split SQL files under `dump/init/tables/`
 
 ## Operations Commands
 

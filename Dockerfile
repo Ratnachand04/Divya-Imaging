@@ -19,7 +19,8 @@ ENV DB_PASS=root_password
 ENV DB_NAME=diagnostic_center_db
 
 # ---- Install system dependencies ----
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true \
+    && apt-get update && apt-get install -y --no-install-recommends \
     libpng-dev \
     libjpeg62-turbo-dev \
     libfreetype6-dev \
