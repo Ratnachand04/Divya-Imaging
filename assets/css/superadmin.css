@@ -1,5 +1,56 @@
 /* Superadmin Role Specific CSS - Aligned with Global Theme */
 
+.role-superadmin .sa-global-header-icons {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.role-superadmin .sa-global-header-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.7rem;
+}
+
+.role-superadmin .sa-global-header-icons a {
+    width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-primary);
+    text-decoration: none;
+}
+
+.role-superadmin .sa-global-header-icons a:hover {
+    background: rgba(30, 64, 175, 0.1);
+    color: #1e3a8a;
+}
+
+.role-superadmin .sa-global-logout-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    text-decoration: none;
+    border-radius: 999px;
+    background: #dc2626;
+    color: #fff;
+    font-size: 0.82rem;
+    font-weight: 700;
+    padding: 0.35rem 0.75rem;
+}
+
+.role-superadmin .sa-global-logout-btn:hover {
+    background: #b91c1c;
+    color: #fff;
+    text-decoration: none;
+}
+
+.role-superadmin .main-navbar ul .sa-settings-link {
+    margin-left: auto;
+}
+
 /* --- Base Layout --- */
 body.role-superadmin {
     background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-muted) 100%);
