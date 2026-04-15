@@ -6,6 +6,8 @@ require_once '../includes/db_connect.php';
 require_once '../includes/functions.php';
 require_once '../includes/header.php';
 
+$sa_active_page = 'global_settings.php';
+
 // Ensure the notification_queue table has necessary columns
 $conn->query("CREATE TABLE IF NOT EXISTS notification_queue (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -189,6 +191,10 @@ $notification_prefs = app_settings_resolve($conn, $notification_pref_defaults, [
 $history_sql = "SELECT * FROM notification_queue ORDER BY created_at DESC LIMIT 20";
 $history_result = $conn->query($history_sql);
 ?>
+
+<link rel="stylesheet" href="<?php echo $base_url; ?>/assets/css/superadmin_shell.css?v=<?php echo time(); ?>">
+
+<?php require_once __DIR__ . '/components/shell_start.php'; ?>
 
 <div class="main-content page-container">
     <div class="dashboard-header">
@@ -458,4 +464,5 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 
+<?php require_once __DIR__ . '/components/shell_end.php'; ?>
 <?php require_once '../includes/footer.php'; ?>
