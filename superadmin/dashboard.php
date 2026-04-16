@@ -529,6 +529,27 @@ $revenue_growth_display = ($revenue_growth_amount >= 0 ? '+' : '-') . '₹' . nu
     gap: 0.35rem;
 }
 
+.sa-employee-actions {
+    margin-top: 0.7rem;
+    display: flex;
+    gap: 0.45rem;
+}
+
+.sa-employee-btn {
+    border: 1px solid #bfdbfe;
+    background: #eff6ff;
+    color: #1e3a8a;
+    text-decoration: none;
+    border-radius: 999px;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.sa-employee-btn:hover {
+    background: #dbeafe;
+}
+
 .sa-slim-item {
     display: flex;
     justify-content: space-between;
@@ -732,7 +753,7 @@ $role_short_labels = [
             </div>
         </a>
 
-        <a href="employees.php" class="sa-panel" style="text-decoration:none;color:inherit;">
+        <article class="sa-panel" style="text-decoration:none;color:inherit;">
             <h2 class="sa-panel-title">Employee Strength</h2>
             <div style="margin:.4rem 0 .2rem;color:#64748b;font-size:.86rem;"><?php echo number_format($total_employees); ?> active professionals</div>
             <div class="sa-slim-list">
@@ -743,7 +764,11 @@ $role_short_labels = [
                     </div>
                 <?php endforeach; ?>
             </div>
-        </a>
+            <div class="sa-employee-actions">
+                <a class="sa-employee-btn" href="employees.php">Manage</a>
+                <a class="sa-employee-btn" href="analysis.php">Analysis</a>
+            </div>
+        </article>
     </section>
 
     <a href="notifications.php" class="sa-notify-cta">
