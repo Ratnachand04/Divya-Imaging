@@ -2,6 +2,9 @@
 $required_role = "receptionist";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
+
+ensure_bill_payment_split_columns($conn);
 
 $search_term = isset($_GET['search']) ? trim($_GET['search']) : '';
 $receptionist_id = $_SESSION['user_id'];
@@ -12,9 +15,15 @@ $sql = "SELECT
             p.uid as patient_uid,
             p.name as patient_name,
             b.net_amount,
+            b.amount_paid,
+            b.balance_amount,
             b.created_at,
             b.payment_status,
             b.payment_mode,
+            b.cash_amount,
+            b.card_amount,
+            b.upi_amount,
+            b.other_amount,
             b.referral_type,
             rd.doctor_name as ref_physician_name
         FROM bills b
@@ -46,13 +55,18 @@ if ($result->num_rows > 0) {
         $current_time = new DateTime();
         $interval = $current_time->diff($created_time);
         $hours_diff = $interval->h + ($interval->days * 24);
+
+        $paid_amount = round(max(0, (float)$bill['amount_paid']), 2);
+        $pending_amount = calculate_pending_amount((float)$bill['net_amount'], $paid_amount);
+        $derived_status = derive_payment_status_from_amounts((float)$bill['net_amount'], $paid_amount, 'Due');
+        $status_class = strtolower(str_replace(' ', '-', $derived_status));
         
         $edit_button = ($hours_diff < 12)
             ? '<a href="edit_bill.php?bill_id='.$bill['id'].'" class="btn-action btn-edit">Edit</a>'
             : '<a href="#" class="btn-action btn-disabled" title="Editing is only allowed within 12 hours of creation.">Edit</a>';
         
         $update_payment_button = '';
-        if ($bill['payment_status'] == 'Due' || $bill['payment_status'] == 'Half Paid') {
+        if ($pending_amount > 0.01) {
             $update_payment_button = '<a href="update_payment.php?bill_id='.$bill['id'].'" class="btn-action btn-update">Update Payment</a>';
         }
 
@@ -67,8 +81,8 @@ if ($result->num_rows > 0) {
         $output .= '<td>' . date('d-m-Y', strtotime($bill['created_at'])) . '</td>';
         $output .= '<td>' . $ref_physician_display . '</td>';
         $output .= '<td>' . number_format($bill['net_amount'], 2) . '</td>';
-        $output .= '<td>' . htmlspecialchars($bill['payment_mode']) . '</td>';
-        $output .= '<td><span class="status-'.strtolower(str_replace(' ', '-', $bill['payment_status'])).'">' . $bill['payment_status'] . '</span></td>';
+        $output .= '<td>' . htmlspecialchars(format_payment_mode_display($bill)) . '</td>';
+        $output .= '<td><span class="status-' . $status_class . '">' . htmlspecialchars($derived_status) . '</span></td>';
         $output .= '<td class="actions-cell"><a href="' . $base_url . '/templates/print_bill.php?bill_id='.$bill['id'].'" class="btn-action btn-view" target="_blank">View</a> ' . $edit_button . ' ' . $update_payment_button . '</td>';
         $output .= '</tr>';
     }

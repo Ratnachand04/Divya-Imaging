@@ -246,6 +246,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // --- Test Selection & Bill Calculation ---
     const mainTestSelect = document.getElementById('main-test-select');
     const subTestSelect = document.getElementById('sub-test-select');
+    const packageSelect = document.getElementById('package-select');
     
     if (mainTestSelect && subTestSelect && typeof testsData !== 'undefined') {
         mainTestSelect.addEventListener('change', function() {
@@ -280,10 +281,28 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    if (packageSelect && typeof packagesData !== 'undefined') {
+        packageSelect.addEventListener('change', function() {
+            const selectedPackageId = this.value;
+            if (!selectedPackageId || !packagesData[selectedPackageId]) {
+                return;
+            }
+
+            if (typeof window.addPackageToList === 'function') {
+                window.addPackageToList(selectedPackageId, packagesData[selectedPackageId]);
+            }
+
+            this.selectedIndex = 0;
+        });
+    }
+
     // --- Bill Calculation and List Management Logic ---
     const billForm = document.getElementById('bill-form');
     if (billForm) {
         const selectedTestsList = document.getElementById('selected-tests-list');
+        const selectedPackagesList = document.getElementById('selected-packages-list');
+        const selectedTestsSection = document.getElementById('selected-tests');
+        const selectedPackagesSection = document.getElementById('selected-packages');
         const grossAmountInput = document.getElementById('gross_amount');
         const discountInput = document.getElementById('discount');
         if (discountInput) {
@@ -294,9 +313,21 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Payment Status Logic Elements
         const paymentStatusSelect = document.getElementById('payment_status');
-        const halfPaidDetails = document.getElementById('half-paid-details');
+        const partialPaidDetails = document.getElementById('partial-paid-details');
         const amountPaidInput = document.getElementById('amount_paid');
         const balanceAmountInput = document.getElementById('balance_amount');
+        const paymentModeSelect = document.getElementById('payment_mode');
+        const discountBySelect = document.getElementById('discount_by');
+        const splitPaymentDetails = document.getElementById('split-payment-details');
+        const splitPaymentNote = document.getElementById('split-payment-note');
+        const splitTotalDisplay = document.getElementById('split-total-display');
+        const splitRequiredDisplay = document.getElementById('split-required-display');
+        const splitCashGroup = document.getElementById('split-cash-group');
+        const splitCardGroup = document.getElementById('split-card-group');
+        const splitUpiGroup = document.getElementById('split-upi-group');
+        const splitCashInput = document.getElementById('split_cash_amount');
+        const splitCardInput = document.getElementById('split_card_amount');
+        const splitUpiInput = document.getElementById('split_upi_amount');
 
         const submitBtnForSimpleForm = billForm.querySelector('.btn-submit');
         const isDetailedBillForm = !!(grossAmountInput && netAmountInput && selectedTestsJsonInput);
@@ -307,6 +338,19 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         } else {
             let selectedTests = {};
+            let selectedPackages = {};
+
+        function updateSelectionSectionVisibility() {
+            if (selectedTestsSection) {
+                selectedTestsSection.classList.toggle('is-empty', Object.keys(selectedTests).length === 0);
+            }
+
+            if (selectedPackagesSection) {
+                const hasPackages = Object.keys(selectedPackages).length > 0;
+                selectedPackagesSection.style.display = hasPackages ? 'block' : 'none';
+                selectedPackagesSection.setAttribute('aria-hidden', hasPackages ? 'false' : 'true');
+            }
+        }
 
         function highlightButtons(entry, activeButton) {
             if (!entry || !entry.ui) return;
@@ -570,6 +614,97 @@ document.addEventListener('DOMContentLoaded', function() {
             updateBill();
         };
 
+        // Package selection list for bundled tests.
+        window.addPackageToList = function(packageId, packageData) {
+            const normalizedId = String(packageId || '');
+            if (!normalizedId || selectedPackages[normalizedId] || !packageData) {
+                return;
+            }
+
+            const packageName = packageData.package_name || 'Package';
+            const packageCode = packageData.package_code || '';
+            const packagePrice = parseFloat(packageData.package_price) || 0;
+            const baseTotal = parseFloat(packageData.total_base_price) || 0;
+            const discountAmount = Math.max(baseTotal - packagePrice, 0);
+            const tests = Array.isArray(packageData.tests) ? packageData.tests : [];
+
+            const listItem = document.createElement('li');
+            listItem.className = 'selected-package-item';
+            listItem.setAttribute('data-package-id', normalizedId);
+
+            const leftContainer = document.createElement('div');
+            leftContainer.className = 'selected-test-left';
+
+            const titleSpan = document.createElement('span');
+            titleSpan.className = 'test-name';
+            titleSpan.textContent = `${packageName} (PACKAGE${packageCode ? ' - ' + packageCode : ''})`;
+            leftContainer.appendChild(titleSpan);
+
+            const packageMeta = document.createElement('span');
+            packageMeta.className = 'discount-summary';
+            packageMeta.textContent = `Original: ₹${baseTotal.toFixed(2)} | Package: ₹${packagePrice.toFixed(2)} | Discount: ₹${discountAmount.toFixed(2)}`;
+            leftContainer.appendChild(packageMeta);
+
+            if (tests.length > 0) {
+                const includeList = document.createElement('div');
+                includeList.className = 'package-includes';
+                const includeLabel = document.createElement('span');
+                includeLabel.className = 'screening-summary';
+                includeLabel.textContent = 'Included Tests:';
+                includeList.appendChild(includeLabel);
+
+                const includeUl = document.createElement('ul');
+                includeUl.className = 'package-includes-list';
+                tests.forEach(test => {
+                    const li = document.createElement('li');
+                    const label = test.test_name || 'Unnamed Test';
+                    const testPrice = parseFloat(test.package_test_price) || 0;
+                    li.textContent = `${label} - ₹${testPrice.toFixed(2)}`;
+                    includeUl.appendChild(li);
+                });
+                includeList.appendChild(includeUl);
+                leftContainer.appendChild(includeList);
+            }
+
+            const rightContainer = document.createElement('div');
+            rightContainer.className = 'selected-test-right';
+
+            const amountBadge = document.createElement('span');
+            amountBadge.className = 'charge-summary';
+            amountBadge.textContent = `Package Amount: ₹${packagePrice.toFixed(2)}`;
+            rightContainer.appendChild(amountBadge);
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.textContent = 'Remove';
+            removeBtn.className = 'btn-remove';
+            removeBtn.addEventListener('click', function() {
+                delete selectedPackages[normalizedId];
+                listItem.remove();
+                updateBill();
+            });
+            rightContainer.appendChild(removeBtn);
+
+            listItem.appendChild(leftContainer);
+            listItem.appendChild(rightContainer);
+
+            selectedPackages[normalizedId] = {
+                id: parseInt(normalizedId, 10) || 0,
+                name: packageName,
+                code: packageCode,
+                packagePrice,
+                baseTotal,
+                discountAmount,
+                tests
+            };
+
+            if (selectedPackagesList) {
+                selectedPackagesList.appendChild(listItem);
+            }
+
+            updateBill();
+        };
+
         function updateBill() {
             let grossAmount = 0;
             let totalDiscount = 0;
@@ -586,6 +721,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateChargeSummary(test);
             });
 
+            Object.values(selectedPackages).forEach(pkg => {
+                const baseTotal = parseFloat(pkg.baseTotal) || 0;
+                const packagePrice = parseFloat(pkg.packagePrice) || 0;
+                const packageDiscount = Math.max(baseTotal - packagePrice, 0);
+
+                if (packagePrice <= baseTotal) {
+                    grossAmount += baseTotal;
+                    totalDiscount += packageDiscount;
+                } else {
+                    grossAmount += packagePrice;
+                }
+            });
+
             if (grossAmount < 0) grossAmount = 0;
             if (totalDiscount > grossAmount) totalDiscount = grossAmount;
 
@@ -597,33 +745,341 @@ document.addEventListener('DOMContentLoaded', function() {
             if (discountInput) {
                 discountInput.value = totalDiscount.toFixed(2);
             }
+            if (discountBySelect) {
+                const hasDiscount = totalDiscount > 0.0001;
+                discountBySelect.required = hasDiscount;
+                if (!hasDiscount) {
+                    discountBySelect.setCustomValidity('');
+                }
+            }
             if (netAmountInput) {
                 netAmountInput.value = Math.max(netAmount, 0).toFixed(2);
             }
 
-            // Update half-paid calculation whenever the bill total changes
-            updateHalfPaid();
+            // Update partial-paid calculation whenever the bill total changes
+            updatePartialPaid();
 
             const testPayload = Object.entries(selectedTests).map(([id, data]) => ({
                 id: parseInt(id, 10) || 0,
+                item_type: 'test',
                 screening: parseFloat(data.screeningAmount) || 0,
                 discount: parseFloat(data.discountAmount) || 0
             }));
+
+            const packagePayload = Object.entries(selectedPackages).map(([id]) => ({
+                id: parseInt(id, 10) || 0,
+                item_type: 'package'
+            }));
+
+            const finalPayload = testPayload.concat(packagePayload);
             if (selectedTestsJsonInput) {
-                selectedTestsJsonInput.value = JSON.stringify(testPayload);
+                selectedTestsJsonInput.value = JSON.stringify(finalPayload);
             }
+
+            updateSelectionSectionVisibility();
+
             const submitBtn = billForm.querySelector('.btn-submit');
             if (submitBtn) {
-                submitBtn.disabled = testPayload.length === 0;
+                submitBtn.disabled = finalPayload.length === 0;
             }
         }
+
+        function parseAmount(value) {
+            const parsed = parseFloat(value);
+            if (!isFinite(parsed) || parsed < 0) {
+                return 0;
+            }
+            return parsed;
+        }
+
+        function isCombinedMode(mode) {
+            return mode === 'Cash + Card' || mode === 'UPI + Cash' || mode === 'Card + UPI';
+        }
+
+        const splitFieldMap = {
+            cash: { group: splitCashGroup, input: splitCashInput, label: 'Cash Amount' },
+            card: { group: splitCardGroup, input: splitCardInput, label: 'Card Amount' },
+            upi: { group: splitUpiGroup, input: splitUpiInput, label: 'UPI Amount' }
+        };
+
+        function getSplitModeConfig(mode) {
+            if (mode === 'Cash + Card') {
+                return { keys: ['cash', 'card'] };
+            }
+            if (mode === 'UPI + Cash') {
+                return { keys: ['upi', 'cash'] };
+            }
+            if (mode === 'Card + UPI') {
+                return { keys: ['card', 'upi'] };
+            }
+            return null;
+        }
+
+        function getSplitModeFields(mode) {
+            const config = getSplitModeConfig(mode);
+            if (!config) {
+                return null;
+            }
+
+            const first = splitFieldMap[config.keys[0]];
+            const second = splitFieldMap[config.keys[1]];
+            if (!first || !second || !first.input || !second.input) {
+                return null;
+            }
+
+            return {
+                keys: config.keys,
+                first,
+                second
+            };
+        }
+
+        function getExpectedPaymentAmount() {
+            const netAmount = parseAmount(netAmountInput ? netAmountInput.value : 0);
+            if (!paymentStatusSelect) {
+                return netAmount;
+            }
+
+            if (paymentStatusSelect.value === 'Paid') {
+                return netAmount;
+            }
+            if (paymentStatusSelect.value === 'Partial Paid') {
+                const entered = parseAmount(amountPaidInput ? amountPaidInput.value : 0);
+                return Math.min(entered, netAmount);
+            }
+            return 0;
+        }
+
+        function resetSplitInput(inputEl) {
+            if (!inputEl) return;
+            inputEl.required = false;
+            inputEl.value = '';
+            inputEl.setCustomValidity('');
+            inputEl.removeAttribute('max');
+        }
+
+        function toggleSplitField(groupEl, inputEl, shouldShow, expectedAmount) {
+            if (!groupEl || !inputEl) return;
+            groupEl.style.display = shouldShow ? 'block' : 'none';
+            inputEl.required = shouldShow;
+            inputEl.setCustomValidity('');
+            if (shouldShow) {
+                inputEl.max = expectedAmount.toFixed(2);
+            } else {
+                inputEl.value = '';
+                inputEl.removeAttribute('max');
+            }
+        }
+
+        function updateSplitTotalDisplay() {
+            if (!splitTotalDisplay) return;
+
+            const total = parseAmount(splitCashInput ? splitCashInput.value : 0)
+                + parseAmount(splitCardInput ? splitCardInput.value : 0)
+                + parseAmount(splitUpiInput ? splitUpiInput.value : 0);
+            const expected = getExpectedPaymentAmount();
+
+            splitTotalDisplay.textContent = `₹${total.toFixed(2)}`;
+            if (splitRequiredDisplay) {
+                splitRequiredDisplay.textContent = `₹${expected.toFixed(2)}`;
+            } else {
+                splitTotalDisplay.textContent = `₹${total.toFixed(2)} (Required: ₹${expected.toFixed(2)})`;
+            }
+        }
+
+        function autoBalanceSplitFields(changedKey, showValidation = false) {
+            const modeFields = getSplitModeFields(paymentModeSelect ? paymentModeSelect.value : '');
+            if (!modeFields || !modeFields.keys.includes(changedKey)) {
+                updateSplitTotalDisplay();
+                return;
+            }
+
+            const expectedAmount = getExpectedPaymentAmount();
+            if (expectedAmount <= 0.0001) {
+                updateSplitTotalDisplay();
+                return;
+            }
+
+            const sourceField = splitFieldMap[changedKey];
+            const companionKey = modeFields.keys[0] === changedKey ? modeFields.keys[1] : modeFields.keys[0];
+            const companionField = splitFieldMap[companionKey];
+            if (!sourceField || !companionField || !sourceField.input || !companionField.input) {
+                updateSplitTotalDisplay();
+                return;
+            }
+
+            const raw = sourceField.input.value.trim();
+            sourceField.input.setCustomValidity('');
+
+            if (raw === '') {
+                companionField.input.value = '';
+                updateSplitTotalDisplay();
+                return;
+            }
+
+            const entered = parseFloat(raw);
+            if (!isFinite(entered) || entered < 0) {
+                sourceField.input.setCustomValidity(`${sourceField.label} must be a valid non-negative amount.`);
+                if (showValidation) {
+                    sourceField.input.reportValidity();
+                }
+                companionField.input.value = '';
+                updateSplitTotalDisplay();
+                return;
+            }
+
+            if (entered > expectedAmount + 0.01) {
+                sourceField.input.setCustomValidity(`${sourceField.label} cannot exceed the required payable amount.`);
+                if (showValidation) {
+                    sourceField.input.reportValidity();
+                }
+                companionField.input.value = '';
+                updateSplitTotalDisplay();
+                return;
+            }
+
+            const remaining = Math.max(expectedAmount - entered, 0);
+            companionField.input.setCustomValidity('');
+            companionField.input.value = remaining.toFixed(2);
+            updateSplitTotalDisplay();
+        }
+
+        function syncSplitPaymentFields() {
+            if (!paymentModeSelect || !splitPaymentDetails) return;
+
+            const mode = paymentModeSelect.value;
+            const expectedAmount = getExpectedPaymentAmount();
+            const modeFields = getSplitModeFields(mode);
+            const shouldShowCombined = !!modeFields && expectedAmount > 0.0001;
+
+            if (!shouldShowCombined) {
+                splitPaymentDetails.style.display = 'none';
+                if (splitPaymentNote) {
+                    splitPaymentNote.style.display = 'none';
+                }
+                Object.values(splitFieldMap).forEach(function(field) {
+                    resetSplitInput(field.input);
+                    if (field.group) {
+                        field.group.style.display = 'none';
+                    }
+                });
+                updateSplitTotalDisplay();
+                return;
+            }
+
+            splitPaymentDetails.style.display = 'flex';
+            if (splitPaymentNote) {
+                splitPaymentNote.style.display = 'block';
+            }
+
+            const orderedKeys = modeFields.keys;
+            Object.keys(splitFieldMap).forEach(function(key) {
+                const field = splitFieldMap[key];
+                const shouldShow = orderedKeys.includes(key);
+                toggleSplitField(field.group, field.input, shouldShow, expectedAmount);
+                if (shouldShow && field.group) {
+                    field.group.style.order = String(orderedKeys.indexOf(key) + 1);
+                }
+            });
+
+            const firstKey = orderedKeys[0];
+            const secondKey = orderedKeys[1];
+            const firstInput = splitFieldMap[firstKey] ? splitFieldMap[firstKey].input : null;
+            const secondInput = splitFieldMap[secondKey] ? splitFieldMap[secondKey].input : null;
+            const activeElement = document.activeElement;
+
+            if (activeElement === firstInput) {
+                autoBalanceSplitFields(firstKey, false);
+            } else if (activeElement === secondInput) {
+                autoBalanceSplitFields(secondKey, false);
+            } else if (firstInput && firstInput.value.trim() !== '') {
+                autoBalanceSplitFields(firstKey, false);
+            } else if (secondInput && secondInput.value.trim() !== '') {
+                autoBalanceSplitFields(secondKey, false);
+            } else {
+                updateSplitTotalDisplay();
+            }
+        }
+
+        function validateSplitInputs() {
+            if (!paymentModeSelect || !isCombinedMode(paymentModeSelect.value)) {
+                return true;
+            }
+
+            const expectedAmount = getExpectedPaymentAmount();
+            if (expectedAmount <= 0.0001) {
+                return true;
+            }
+
+            const modeFields = getSplitModeFields(paymentModeSelect.value);
+            if (!modeFields) {
+                return true;
+            }
+
+            const firstInput = modeFields.first.input;
+            const secondInput = modeFields.second.input;
+            const firstLabel = modeFields.first.label;
+            const secondLabel = modeFields.second.label;
+
+            if (!firstInput || !secondInput) {
+                return true;
+            }
+
+            firstInput.setCustomValidity('');
+            secondInput.setCustomValidity('');
+
+            const rawFirst = firstInput.value.trim();
+            const rawSecond = secondInput.value.trim();
+
+            if (rawFirst === '' || rawSecond === '') {
+                secondInput.setCustomValidity(`Enter both ${firstLabel} and ${secondLabel} split amounts.`);
+                secondInput.reportValidity();
+                return false;
+            }
+
+            const firstVal = parseFloat(rawFirst);
+            const secondVal = parseFloat(rawSecond);
+
+            if (!isFinite(firstVal) || !isFinite(secondVal) || firstVal < 0 || secondVal < 0) {
+                secondInput.setCustomValidity('Split amounts must be valid non-negative numbers.');
+                secondInput.reportValidity();
+                return false;
+            }
+
+            if (firstVal <= 0 || secondVal <= 0) {
+                secondInput.setCustomValidity(`${firstLabel} and ${secondLabel} must be greater than zero.`);
+                secondInput.reportValidity();
+                return false;
+            }
+
+            if (firstVal > expectedAmount + 0.01 || secondVal > expectedAmount + 0.01) {
+                secondInput.setCustomValidity('Split amount in a single field cannot exceed the required payable amount.');
+                secondInput.reportValidity();
+                return false;
+            }
+
+            const total = firstVal + secondVal;
+            if (total > expectedAmount + 0.01) {
+                secondInput.setCustomValidity('Split total cannot exceed the payable amount.');
+                secondInput.reportValidity();
+                return false;
+            }
+
+            if (Math.abs(total - expectedAmount) > 0.01) {
+                secondInput.setCustomValidity('Split total must exactly match the payable amount.');
+                secondInput.reportValidity();
+                return false;
+            }
+
+            return true;
+        }
         
-        function updateHalfPaid() {
+        function updatePartialPaid() {
             // Ensure all required elements exist before proceeding
-            if (!paymentStatusSelect || !halfPaidDetails || !netAmountInput || !amountPaidInput || !balanceAmountInput) return;
+            if (!paymentStatusSelect || !partialPaidDetails || !netAmountInput || !amountPaidInput || !balanceAmountInput) return;
             
-            if (paymentStatusSelect.value === 'Half Paid') {
-                halfPaidDetails.style.display = 'flex'; // Use 'flex' to show the row
+            if (paymentStatusSelect.value === 'Partial Paid') {
+                partialPaidDetails.style.display = 'flex'; // Use 'flex' to show the row
                 let netAmount = parseFloat(netAmountInput.value) || 0;
                 let amountPaid = parseFloat(amountPaidInput.value) || 0;
                 
@@ -633,23 +1089,63 @@ document.addEventListener('DOMContentLoaded', function() {
                     amountPaidInput.value = amountPaid.toFixed(2);
                 }
 
+                if (amountPaid <= 0) {
+                    amountPaidInput.setCustomValidity('Amount paid must be greater than zero for Partial Paid status.');
+                } else {
+                    amountPaidInput.setCustomValidity('');
+                }
+
                 let balance = netAmount - amountPaid;
                 balanceAmountInput.value = balance.toFixed(2);
                 amountPaidInput.max = netAmount.toFixed(2); // Set max attribute for validation
             } else {
-                halfPaidDetails.style.display = 'none'; // Hide the section
+                partialPaidDetails.style.display = 'none'; // Hide the section
                 amountPaidInput.value = ''; // Clear the values when not visible
                 balanceAmountInput.value = '';
+                amountPaidInput.setCustomValidity('');
             }
+
+            syncSplitPaymentFields();
         }
 
         // Attach event listeners
         if(paymentStatusSelect) {
-            paymentStatusSelect.addEventListener('change', updateHalfPaid);
+            paymentStatusSelect.addEventListener('change', updatePartialPaid);
         }
         if(amountPaidInput) {
-            amountPaidInput.addEventListener('input', updateHalfPaid);
+            amountPaidInput.addEventListener('input', updatePartialPaid);
         }
+        if (paymentModeSelect) {
+            paymentModeSelect.addEventListener('change', syncSplitPaymentFields);
+        }
+        Object.keys(splitFieldMap).forEach(function(key) {
+            const field = splitFieldMap[key];
+            if (!field || !field.input) return;
+            field.input.addEventListener('input', function() {
+                field.input.setCustomValidity('');
+                autoBalanceSplitFields(key, true);
+            });
+            field.input.addEventListener('change', function() {
+                autoBalanceSplitFields(key, true);
+            });
+        });
+
+        billForm.addEventListener('submit', function(e) {
+            if (discountBySelect && discountInput) {
+                const hasDiscount = parseAmount(discountInput.value) > 0.0001;
+                if (hasDiscount && !discountBySelect.value) {
+                    discountBySelect.setCustomValidity('Please select who provided the discount.');
+                    discountBySelect.reportValidity();
+                    e.preventDefault();
+                    return;
+                }
+                discountBySelect.setCustomValidity('');
+            }
+
+            if (!validateSplitInputs()) {
+                e.preventDefault();
+            }
+        });
 
         // Initial call to set the correct state when the page loads
         updateBill();
@@ -727,8 +1223,22 @@ document.addEventListener('DOMContentLoaded', function() {
     const NOTIFICATION_API = (typeof SITE_BASE_URL !== 'undefined' ? SITE_BASE_URL : '') + '/api/notification_status.php';
 
     const POPUP_HOST_ID = 'global-popup-container';
-    const HALF_PAID_STORAGE_KEY = 'dc_half_paid_notice';
+    const PARTIAL_PAID_STORAGE_KEY = 'dc_partial_paid_notice';
     const LAST_REQUEST_STORAGE_KEY = 'dc_manager_last_request_id';
+    const PARTIAL_PAID_BELL_BUTTON_ID = 'notification-bell-btn';
+    const PARTIAL_PAID_BADGE_ID = 'partial-paid-badge';
+    const PARTIAL_PAID_DROPDOWN_ID = 'partial-paid-dropdown';
+    const NOTIFICATION_OPEN_CLASS = 'notification-dropdown-open';
+
+    const partialPaidBellButton = document.getElementById(PARTIAL_PAID_BELL_BUTTON_ID);
+    const partialPaidBadge = document.getElementById(PARTIAL_PAID_BADGE_ID);
+    const partialPaidDropdown = document.getElementById(PARTIAL_PAID_DROPDOWN_ID);
+
+    let partialPaidState = {
+        bills: [],
+        count: 0,
+        signature: 'none'
+    };
 
     function ensurePopupHost() {
         let host = document.getElementById(POPUP_HOST_ID);
@@ -830,16 +1340,16 @@ document.addEventListener('DOMContentLoaded', function() {
         return date.toLocaleString();
     }
 
-    function computeHalfPaidSignature(bills) {
+    function computePartialPaidSignature(bills) {
         if (!Array.isArray(bills) || bills.length === 0) {
             return 'none';
         }
         return bills.map(bill => `${bill.id}:${parseFloat(bill.balance_amount || bill.balanceAmount || 0)}`).join('|');
     }
 
-    function shouldShowHalfPaid(signature) {
+    function shouldShowPartialPaid(signature) {
         try {
-            const raw = sessionStorage.getItem(HALF_PAID_STORAGE_KEY);
+            const raw = sessionStorage.getItem(PARTIAL_PAID_STORAGE_KEY);
             if (raw) {
                 const data = JSON.parse(raw);
                 if (data.signature === signature && data.timestamp && (Date.now() - data.timestamp) < (55 * 60 * 1000)) {
@@ -847,78 +1357,319 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
         } catch (error) {
-            console.warn('Unable to read half-paid notification state', error);
+            console.warn('Unable to read partial-paid notification state', error);
         }
         return true;
     }
 
-    function markHalfPaidShown(signature) {
+    function markPartialPaidShown(signature) {
         try {
-            sessionStorage.setItem(HALF_PAID_STORAGE_KEY, JSON.stringify({ signature, timestamp: Date.now() }));
+            sessionStorage.setItem(PARTIAL_PAID_STORAGE_KEY, JSON.stringify({ signature, timestamp: Date.now() }));
         } catch (error) {
-            console.warn('Unable to persist half-paid notification state', error);
+            console.warn('Unable to persist partial-paid notification state', error);
         }
     }
 
-    function presentHalfPaidNotification(payload) {
-        if (!payload || !Array.isArray(payload.bills) || !payload.bills.length) return;
-        const count = payload.count || payload.bills.length;
+    function setBackgroundScrollLock(locked) {
+        const html = document.documentElement;
+        if (html) {
+            html.classList.toggle(NOTIFICATION_OPEN_CLASS, locked);
+        }
+        if (document.body) {
+            document.body.classList.toggle(NOTIFICATION_OPEN_CLASS, locked);
+        }
+    }
+
+    function containScrollWithinElement(scrollEl) {
+        if (!scrollEl) {
+            return;
+        }
+
+        scrollEl.addEventListener('wheel', (event) => {
+            event.stopPropagation();
+
+            const deltaY = event.deltaY || 0;
+            if (deltaY === 0) {
+                return;
+            }
+
+            const atTop = scrollEl.scrollTop <= 0;
+            const atBottom = (scrollEl.scrollTop + scrollEl.clientHeight) >= (scrollEl.scrollHeight - 1);
+            if ((deltaY < 0 && atTop) || (deltaY > 0 && atBottom)) {
+                event.preventDefault();
+            }
+        }, { passive: false });
+
+        scrollEl.addEventListener('touchmove', (event) => {
+            event.stopPropagation();
+        }, { passive: true });
+
+        scrollEl.addEventListener('scroll', (event) => {
+            event.stopPropagation();
+        }, { passive: true });
+    }
+
+    function getPartialPaidActionLink() {
+        const base = (typeof SITE_BASE_URL !== 'undefined' ? SITE_BASE_URL : '');
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const earliestDate = '2000-01-01';
+        if (currentRole === 'manager') {
+            return `${base}/manager/view_due_bills.php?all_dates=1&start_date=${earliestDate}&end_date=${todayStr}&status=Partial%20Paid`;
+        }
+        if (currentRole === 'receptionist') {
+            return `${base}/receptionist/bill_history.php?all_dates=1&start_date=${earliestDate}&end_date=${todayStr}&payment_status=pending#bill-review-section`;
+        }
+        return `${base}/manager/view_due_bills.php?all_dates=1&start_date=${earliestDate}&end_date=${todayStr}&status=Partial%20Paid`;
+    }
+
+    function setPartialPaidBadgeCount(value) {
+        const count = Math.max(0, parseInt(value, 10) || 0);
+
+        if (partialPaidBadge) {
+            partialPaidBadge.textContent = count > 99 ? '99+' : String(count);
+            partialPaidBadge.classList.toggle('is-hidden', count === 0);
+        }
+
+        if (partialPaidBellButton) {
+            const label = count === 0
+                ? 'Notifications'
+                : `Notifications, ${count} partial paid bill${count === 1 ? '' : 's'} pending`;
+            partialPaidBellButton.setAttribute('aria-label', label);
+            partialPaidBellButton.setAttribute('title', label);
+        }
+    }
+
+    function closePartialPaidDropdown() {
+        setBackgroundScrollLock(false);
+        if (!partialPaidDropdown) return;
+        partialPaidDropdown.hidden = true;
+        if (partialPaidBellButton) {
+            partialPaidBellButton.setAttribute('aria-expanded', 'false');
+        }
+    }
+
+    function openPartialPaidDropdown() {
+        if (!partialPaidDropdown || !partialPaidDropdown.childElementCount) return;
+        partialPaidDropdown.hidden = false;
+        if (partialPaidBellButton) {
+            partialPaidBellButton.setAttribute('aria-expanded', 'true');
+        }
+        setBackgroundScrollLock(true);
+    }
+
+    function renderPartialPaidDropdown(payload) {
+        if (!partialPaidDropdown || !payload || !Array.isArray(payload.bills) || !payload.bills.length) {
+            return;
+        }
+
+        const count = Math.max(0, parseInt(payload.count, 10) || payload.bills.length);
+        const summary = count === 1
+            ? 'There is 1 partial paid bill awaiting attention.'
+            : `There are ${count} partial paid bills awaiting attention.`;
+
+        partialPaidDropdown.innerHTML = '';
+
+        const header = document.createElement('div');
+        header.className = 'notification-dropdown__header';
+
+        const titleWrap = document.createElement('div');
+        titleWrap.className = 'notification-dropdown__title-wrap';
+
+        const title = document.createElement('h4');
+        title.className = 'notification-dropdown__title';
+        title.textContent = 'Partial Paid Bills Reminder';
+
+        const countLabel = document.createElement('p');
+        countLabel.className = 'notification-dropdown__count';
+        countLabel.textContent = `${count} pending bill${count === 1 ? '' : 's'}`;
+
+        titleWrap.appendChild(title);
+        titleWrap.appendChild(countLabel);
+
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'notification-dropdown__close';
+        closeBtn.setAttribute('aria-label', 'Dismiss notification');
+        closeBtn.innerHTML = '&times;';
+        closeBtn.addEventListener('click', () => {
+            closePartialPaidDropdown();
+            markPartialPaidShown(payload.signature || computePartialPaidSignature(payload.bills));
+        });
+
+        header.appendChild(titleWrap);
+        header.appendChild(closeBtn);
+        partialPaidDropdown.appendChild(header);
+
+        const body = document.createElement('div');
+        body.className = 'notification-dropdown__body';
+
+        const summaryLine = document.createElement('p');
+        summaryLine.className = 'notification-dropdown__summary';
+        summaryLine.textContent = summary;
+        body.appendChild(summaryLine);
+
         const list = document.createElement('ul');
-        list.className = 'global-popup-list';
+        list.className = 'notification-dropdown__list';
+
         payload.bills.forEach(bill => {
             const item = document.createElement('li');
-            const balance = formatCurrency(bill.balance_amount ?? bill.balanceAmount ?? 0);
-            item.textContent = `Bill #${bill.id} • ${bill.patient_name} • Balance ${balance}`;
+            item.className = 'notification-dropdown__item';
+
+            const billTitle = document.createElement('strong');
+            billTitle.textContent = `Bill #${bill.id} • ${bill.patient_name}`;
+
+            const balance = document.createElement('span');
+            balance.className = 'notification-dropdown__meta';
+            balance.textContent = `Balance ${formatCurrency(bill.balance_amount ?? bill.balanceAmount ?? 0)}`;
+
+            item.appendChild(billTitle);
+            item.appendChild(balance);
             list.appendChild(item);
         });
 
-        const summary = count === 1
-            ? 'There is 1 half-paid bill awaiting attention.'
-            : `There are ${count} half-paid bills awaiting attention.`;
+        containScrollWithinElement(list);
 
-        const todayStr = new Date().toISOString().slice(0, 10);
-        const earliestDate = '2000-01-01';
-        const actionLink = currentRole === 'manager'
-            ? `${typeof SITE_BASE_URL !== 'undefined' ? SITE_BASE_URL : ''}/manager/view_due_bills.php?all_dates=1&start_date=${earliestDate}&end_date=${todayStr}&status=pending`
-            : `${typeof SITE_BASE_URL !== 'undefined' ? SITE_BASE_URL : ''}/receptionist/bill_history.php?all_dates=1&start_date=${earliestDate}&end_date=${todayStr}&payment_status=pending`;
+        body.appendChild(list);
+        partialPaidDropdown.appendChild(body);
 
-        const actions = [
-            {
-                label: 'Review Bills',
-                variant: 'primary',
-                onClick: () => {
-                    window.location.href = actionLink;
+        const actions = document.createElement('div');
+        actions.className = 'notification-dropdown__actions';
+
+        const reviewBtn = document.createElement('button');
+        reviewBtn.type = 'button';
+        reviewBtn.className = 'popup-action-btn variant-primary';
+        reviewBtn.textContent = 'Review Bills';
+        reviewBtn.addEventListener('click', () => {
+            window.location.href = getPartialPaidActionLink();
+        });
+
+        const dismissBtn = document.createElement('button');
+        dismissBtn.type = 'button';
+        dismissBtn.className = 'popup-action-btn variant-secondary';
+        dismissBtn.textContent = 'Dismiss';
+        dismissBtn.addEventListener('click', () => {
+            closePartialPaidDropdown();
+            markPartialPaidShown(payload.signature || computePartialPaidSignature(payload.bills));
+        });
+
+        actions.appendChild(reviewBtn);
+        actions.appendChild(dismissBtn);
+        partialPaidDropdown.appendChild(actions);
+    }
+
+    function presentPartialPaidNotification(payload, { autoOpen = false } = {}) {
+        if (!payload || !Array.isArray(payload.bills)) {
+            return;
+        }
+
+        const count = Math.max(0, parseInt(payload.count, 10) || payload.bills.length);
+        const signature = payload.signature || computePartialPaidSignature(payload.bills);
+        partialPaidState = {
+            bills: payload.bills,
+            count,
+            signature
+        };
+
+        setPartialPaidBadgeCount(count);
+
+        if (count === 0) {
+            closePartialPaidDropdown();
+            if (partialPaidDropdown) {
+                partialPaidDropdown.innerHTML = '';
+            }
+            return;
+        }
+
+        const wasOpen = partialPaidDropdown ? !partialPaidDropdown.hidden : false;
+        renderPartialPaidDropdown(partialPaidState);
+        if (autoOpen || wasOpen) {
+            openPartialPaidDropdown();
+        }
+    }
+
+    function bindPartialPaidDropdownEvents() {
+        if (!partialPaidBellButton || !partialPaidDropdown) {
+            return;
+        }
+
+        partialPaidDropdown.addEventListener('wheel', (event) => {
+            event.stopPropagation();
+        }, { passive: true });
+
+        partialPaidDropdown.addEventListener('touchmove', (event) => {
+            event.stopPropagation();
+        }, { passive: true });
+
+        partialPaidDropdown.addEventListener('scroll', (event) => {
+            event.stopPropagation();
+        }, { passive: true });
+
+        partialPaidBellButton.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+
+            if (partialPaidDropdown.hidden) {
+                if (!partialPaidState.count) {
+                    return;
                 }
-            },
-            { label: 'Dismiss', variant: 'secondary' }
-        ];
+                renderPartialPaidDropdown(partialPaidState);
+                openPartialPaidDropdown();
+                return;
+            }
 
-        showPopup({
-            title: 'Half-Paid Bills Reminder',
-            lines: [summary, list],
-            actions
+            closePartialPaidDropdown();
+        });
+
+        document.addEventListener('click', (event) => {
+            if (partialPaidDropdown.hidden) {
+                return;
+            }
+
+            if (partialPaidDropdown.contains(event.target) || partialPaidBellButton.contains(event.target)) {
+                return;
+            }
+
+            closePartialPaidDropdown();
+        });
+
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                closePartialPaidDropdown();
+            }
+        });
+
+        window.addEventListener('beforeunload', () => {
+            setBackgroundScrollLock(false);
         });
     }
 
-    function performHalfPaidCheck() {
-        fetch(`${NOTIFICATION_API}?action=half_paid`, { cache: 'no-store' })
+    function performPartialPaidCheck() {
+        fetch(`${NOTIFICATION_API}?action=partial_paid`, { cache: 'no-store' })
             .then(response => response.json())
             .then(data => {
-                if (!data.success || !data.data) return;
-                const { bills, count } = data.data;
-                if (!count) return;
-                const signature = computeHalfPaidSignature(bills);
-                if (shouldShowHalfPaid(signature)) {
-                    presentHalfPaidNotification({ bills, count });
-                    markHalfPaidShown(signature);
+                if (!data.success || !data.data) {
+                    presentPartialPaidNotification({ bills: [], count: 0 });
+                    return;
+                }
+
+                const bills = Array.isArray(data.data.bills) ? data.data.bills : [];
+                const count = Math.max(0, parseInt(data.data.count, 10) || bills.length);
+                const signature = computePartialPaidSignature(bills);
+                const autoOpen = count > 0 && shouldShowPartialPaid(signature);
+
+                presentPartialPaidNotification({ bills, count, signature }, { autoOpen });
+
+                if (autoOpen) {
+                    markPartialPaidShown(signature);
                 }
             })
-            .catch(error => console.error('Half-paid check failed:', error));
+            .catch(error => console.error('Partial paid check failed:', error));
     }
 
-    function scheduleHalfPaidChecks() {
-        performHalfPaidCheck();
-        setInterval(performHalfPaidCheck, 60 * 60 * 1000); // hourly
+    function schedulePartialPaidChecks() {
+        bindPartialPaidDropdownEvents();
+        performPartialPaidCheck();
+        setInterval(performPartialPaidCheck, 60 * 60 * 1000); // hourly
     }
 
     function updateNavBadge(key, value) {
@@ -1013,7 +1764,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     if (currentRole === 'manager' || currentRole === 'receptionist') {
-        scheduleHalfPaidChecks();
+        schedulePartialPaidChecks();
     }
 
     if (currentRole === 'manager') {
