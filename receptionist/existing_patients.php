@@ -270,8 +270,9 @@ require_once '../includes/header.php';
 
                     var testsHtml = (v.tests || []).map(function(t) {
                         var label = t.sub_test_name ? t.main_test_name + ' \u2013 ' + t.sub_test_name : t.main_test_name;
-                        var rs = t.report_status || 'Pending';
-                        var rsClass = rs === 'Completed' ? 'rs-done' : (rs === 'In Progress' ? 'rs-wip' : 'rs-pending');
+                        var rawStatus = t.report_status || 'Pending';
+                        var rs = rawStatus === 'Completed' ? 'Uploaded' : rawStatus;
+                        var rsClass = rawStatus === 'Completed' ? 'rs-done' : (rawStatus === 'In Progress' ? 'rs-wip' : 'rs-pending');
                         return '<tr><td>' + escHtml(label) + '</td>'
                              + '<td>\u20b9' + parseFloat(t.price || 0).toFixed(2) + '</td>'
                              + '<td><span class="rs-badge ' + rsClass + '">' + escHtml(rs) + '</span></td></tr>';
