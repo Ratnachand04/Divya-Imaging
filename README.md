@@ -377,7 +377,7 @@ If SMTP config is missing, processor runs in simulation mode and logs to `upload
 - Method: GET (`action`)
 - Auth: required (session + role)
 - Actions:
-  - `half_paid` (manager/receptionist)
+  - `partial_paid` (manager/receptionist)
   - `manager_nav_counts` (manager)
   - `latest_request` (manager)
 
@@ -500,7 +500,7 @@ This website helps a diagnostic center run daily operations from one place.
 
 - Faster, simpler billing workflow for reception staff
 - Automatic amount handling for gross, discount, net, paid, and balance
-- Supports due and half-paid tracking for better collections
+- Supports due and partial-paid tracking for better collections
 - Bill edit request and approval flow to reduce billing mistakes
 - Printable and shareable bill output for patients
 
