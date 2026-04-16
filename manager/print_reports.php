@@ -3,6 +3,9 @@ $page_title = "Print Reports";
 $required_role = "manager"; // Set required role
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
+
+ensure_package_management_schema($conn);
 
 // --- Handle Filters ---
 $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : date('Y-m-d'); // Default to today
@@ -18,12 +21,14 @@ $sql = "SELECT
             p.sex as patient_sex,
             t.main_test_name,
             t.sub_test_name,
+            COALESCE(NULLIF(bi.package_name, ''), tp.package_name) AS package_name,
             bi.report_status,
             b.created_at as bill_date
         FROM bill_items bi
         JOIN bills b ON bi.bill_id = b.id
         JOIN patients p ON b.patient_id = p.id
         JOIN tests t ON bi.test_id = t.id
+        LEFT JOIN test_packages tp ON tp.id = bi.package_id
         WHERE DATE(b.created_at) BETWEEN ? AND ?
                     AND b.bill_status != 'Void'
                     AND COALESCE(bi.report_status, 'Pending') = 'Completed'"; // Managers see reports only after writer upload
@@ -99,6 +104,9 @@ require_once '../includes/header.php';
                             <td>
                                 <?php echo htmlspecialchars($item['main_test_name']); ?> /
                                 <?php echo htmlspecialchars($item['sub_test_name']); ?>
+                                <?php if (!empty($item['package_name'])): ?>
+                                    <br><small style="color:#64748b;">PACKAGE: <?php echo htmlspecialchars($item['package_name']); ?></small>
+                                <?php endif; ?>
                             </td>
                             <td>
                                 <span class="status-<?php echo strtolower($item['report_status']); ?>">

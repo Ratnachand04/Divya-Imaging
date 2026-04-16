@@ -3,6 +3,9 @@ $page_title = "Detailed Payment Report";
 $required_role = "manager";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
+
+ensure_payment_history_split_columns($conn);
 
 $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : date('Y-m-d');
 $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : date('Y-m-d');
@@ -68,7 +71,7 @@ require_once '../includes/header.php';
                     <td><?php echo number_format($p['previous_amount_paid'], 2); ?></td>
                     <td style="font-weight: bold; color: #27ae60;"><?php echo number_format($p['amount_paid_in_txn'], 2); ?></td>
                     <td><?php echo number_format($p['new_total_amount_paid'], 2); ?></td>
-                    <td><?php echo htmlspecialchars($p['payment_mode']); ?></td>
+                    <td><?php echo htmlspecialchars(format_payment_mode_display($p)); ?></td>
                     <td><?php echo htmlspecialchars($p['username']); ?></td>
                     <td><?php echo date('d-m-Y h:i A', strtotime($p['paid_at'])); ?></td>
                 </tr>

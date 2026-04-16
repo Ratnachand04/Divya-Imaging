@@ -246,7 +246,10 @@ require_once '../includes/header.php'; //
 <div class="page-container manage-tests-compact">
     <div class="dashboard-header">
         <h1>Manage Tests</h1>
-        <button id="toggle-form-btn" class="btn-submit"><?php echo ($is_editing || $feedback) ? 'Close Form' : 'Add New Test'; ?></button> 
+        <div class="actions-container" style="margin-top:0;">
+            <a href="manage_packages.php" class="btn-cancel" style="text-decoration:none;">Packages</a>
+            <button id="toggle-form-btn" class="btn-submit"><?php echo ($is_editing || $feedback) ? 'Close Form' : 'Add New Test'; ?></button>
+        </div>
     </div>
 
     <?php echo $feedback; ?>

@@ -20,14 +20,16 @@ function respondBadRequest(string $message): void {
 }
 
 switch ($action) {
-    case 'half_paid':
+    case 'partial_paid':
         if (!in_array($role, ['manager', 'receptionist'], true)) {
             respondForbidden();
         }
         $query = "SELECT b.id, p.name AS patient_name, b.net_amount, b.balance_amount, b.updated_at
                    FROM bills b
                    JOIN patients p ON b.patient_id = p.id
-                   WHERE b.payment_status = 'Half Paid' AND b.bill_status != 'Void'
+                   WHERE b.bill_status != 'Void'
+                     AND b.amount_paid > 0.01
+                                         AND ROUND(GREATEST(b.net_amount - COALESCE(b.amount_paid, 0), 0), 2) > 0.01
                    ORDER BY b.updated_at DESC
                    LIMIT 10";
         $result = $conn->query($query);
@@ -75,7 +77,7 @@ switch ($action) {
                 if ($stmt = $conn->prepare("SELECT COUNT(DISTINCT b.id) AS total
                                                                         FROM bills b
                                                                         WHERE b.bill_status != 'Void'
-                                                                            AND b.payment_status IN ('Due', 'Half Paid')")) {
+                                                                            AND ROUND(GREATEST(b.net_amount - COALESCE(b.amount_paid, 0), 0), 2) > 0.01")) {
             $stmt->execute();
             $stmt->bind_result($total);
             if ($stmt->fetch()) {

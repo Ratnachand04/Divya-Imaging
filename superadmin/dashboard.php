@@ -3,7 +3,10 @@ $page_title = "Superadmin Dashboard";
 $required_role = "superadmin";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
 require_once '../includes/header.php';
+
+ensure_package_management_schema($conn);
 
 if (!function_exists('summarize_change_label')) {
     function summarize_change_label($action_type, $details) {
@@ -49,14 +52,14 @@ if (!function_exists('summarize_change_label')) {
 
 // 1. Test Count
 // Total Tests Performed (All time)
-$sql_total_tests = "SELECT COUNT(*) as count FROM bill_items bi JOIN bills b ON bi.bill_id = b.id WHERE bi.item_status = 0 AND b.bill_status != 'Void'";
+$sql_total_tests = "SELECT COUNT(*) as count FROM bill_items bi JOIN bills b ON bi.bill_id = b.id WHERE bi.item_status = 0 AND COALESCE(bi.item_type, 'test') <> 'package' AND b.bill_status != 'Void'";
 $total_tests = 0;
 if ($res = $conn->query($sql_total_tests)) {
     $total_tests = $res->fetch_assoc()['count'];
 }
 
 // Today's Tests & Revenue
-$sql_today_stats = "SELECT COUNT(bi.id) as test_count, SUM(b.net_amount) as revenue FROM bills b LEFT JOIN bill_items bi ON b.id = bi.bill_id AND bi.item_status = 0 WHERE b.bill_status != 'Void' AND DATE(b.created_at) = CURDATE()";
+$sql_today_stats = "SELECT COUNT(bi.id) as test_count, SUM(b.net_amount) as revenue FROM bills b LEFT JOIN bill_items bi ON b.id = bi.bill_id AND bi.item_status = 0 AND COALESCE(bi.item_type, 'test') <> 'package' WHERE b.bill_status != 'Void' AND DATE(b.created_at) = CURDATE()";
 $today_tests = 0;
 $today_revenue = 0;
 if ($res = $conn->query($sql_today_stats)) {
@@ -66,7 +69,7 @@ if ($res = $conn->query($sql_today_stats)) {
 }
 
 // Monthly Tests
-$sql_month_tests = "SELECT COUNT(*) as count FROM bill_items bi JOIN bills b ON bi.bill_id = b.id WHERE bi.item_status = 0 AND b.bill_status != 'Void' AND MONTH(b.created_at) = MONTH(CURDATE()) AND YEAR(b.created_at) = YEAR(CURDATE())";
+$sql_month_tests = "SELECT COUNT(*) as count FROM bill_items bi JOIN bills b ON bi.bill_id = b.id WHERE bi.item_status = 0 AND COALESCE(bi.item_type, 'test') <> 'package' AND b.bill_status != 'Void' AND MONTH(b.created_at) = MONTH(CURDATE()) AND YEAR(b.created_at) = YEAR(CURDATE())";
 $month_tests = 0;
 if ($res = $conn->query($sql_month_tests)) {
     $month_tests = $res->fetch_assoc()['count'];
@@ -109,7 +112,7 @@ if ($res = $conn->query($sql_active_docs_today)) {
 }
 
 // Tests linked to doctors today
-$sql_tests_today_doctors = "SELECT COUNT(bi.id) as count FROM bills b JOIN bill_items bi ON b.id = bi.bill_id AND bi.item_status = 0 WHERE b.bill_status != 'Void' AND b.referral_type = 'Doctor' AND DATE(b.created_at) = CURDATE()";
+$sql_tests_today_doctors = "SELECT COUNT(bi.id) as count FROM bills b JOIN bill_items bi ON b.id = bi.bill_id AND bi.item_status = 0 AND COALESCE(bi.item_type, 'test') <> 'package' WHERE b.bill_status != 'Void' AND b.referral_type = 'Doctor' AND DATE(b.created_at) = CURDATE()";
 $tests_today_doctors = 0;
 if ($res = $conn->query($sql_tests_today_doctors)) {
     $tests_today_doctors = $res->fetch_assoc()['count'];
@@ -167,7 +170,7 @@ $sql_top_doc = "
         COUNT(bi.id) AS total_tests
     FROM bills b
     JOIN referral_doctors rd ON b.referral_doctor_id = rd.id
-    LEFT JOIN bill_items bi ON bi.bill_id = b.id AND bi.item_status = 0
+    LEFT JOIN bill_items bi ON bi.bill_id = b.id AND bi.item_status = 0 AND COALESCE(bi.item_type, 'test') <> 'package'
     WHERE
         b.referral_type = 'Doctor'
         AND b.bill_status != 'Void'
@@ -278,7 +281,7 @@ $last_month_rev = 0;
 if ($res = $conn->query($sql_last_month)) {
     $last_month_rev = $res->fetch_assoc()['total'] ?? 0;
 }
-$sql_last_month_tests = "SELECT COUNT(*) as count FROM bill_items bi JOIN bills b ON bi.bill_id = b.id WHERE bi.item_status = 0 AND b.bill_status != 'Void' AND MONTH(b.created_at) = MONTH(CURDATE() - INTERVAL 1 MONTH) AND YEAR(b.created_at) = YEAR(CURDATE() - INTERVAL 1 MONTH)";
+$sql_last_month_tests = "SELECT COUNT(*) as count FROM bill_items bi JOIN bills b ON bi.bill_id = b.id WHERE bi.item_status = 0 AND COALESCE(bi.item_type, 'test') <> 'package' AND b.bill_status != 'Void' AND MONTH(b.created_at) = MONTH(CURDATE() - INTERVAL 1 MONTH) AND YEAR(b.created_at) = YEAR(CURDATE() - INTERVAL 1 MONTH)";
 $last_month_tests = 0;
 if ($res = $conn->query($sql_last_month_tests)) {
     $last_month_tests = $res->fetch_assoc()['count'];
@@ -313,289 +316,43 @@ $revenue_growth_display = ($revenue_growth_amount >= 0 ? '+' : '-') . '₹' . nu
 
 ?>
 
-<link href="https://fonts.googleapis.com" rel="preconnect">
-<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
-<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="<?php echo $base_url; ?>/assets/css/superadmin_shell.css?v=<?php echo time(); ?>">
-<style>
-.sa-dashboard-page {
-    --sa-ink: #0f172a;
-    --sa-muted: #64748b;
-    --sa-border: #e2e8f0;
-    --sa-surface: #ffffff;
-    --sa-glow-1: #0ea5e9;
-    --sa-glow-2: #1d4ed8;
-    --sa-glow-3: #10b981;
-    --sa-glow-4: #f59e0b;
-    font-family: 'Sora', sans-serif;
-    display: grid;
-    gap: 1rem;
-}
-
-.sa-dash-hero {
-    border: 1px solid var(--sa-border);
-    border-radius: 18px;
-    padding: 1rem;
-    background:
-        radial-gradient(circle at 85% 10%, rgba(14, 165, 233, 0.16), transparent 45%),
-        radial-gradient(circle at 15% 90%, rgba(29, 78, 216, 0.14), transparent 40%),
-        var(--sa-surface);
-    box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 0.8rem;
-}
-
-.sa-dash-hero h1 {
-    margin: 0;
-    font-family: 'Space Grotesk', sans-serif;
-    color: #0b2a64;
-    letter-spacing: -0.02em;
-    font-size: 1.65rem;
-}
-
-.sa-dash-hero p {
-    margin: 0.3rem 0 0;
-    color: var(--sa-muted);
-    font-size: 0.9rem;
-}
-
-.sa-dash-timebox {
-    text-align: right;
-    color: #0b2a64;
-    font-weight: 700;
-    font-size: 0.85rem;
-}
-
-.sa-dash-timebox small {
-    display: block;
-    color: var(--sa-muted);
-    margin-top: 0.1rem;
-    font-weight: 600;
-}
-
-.sa-kpi-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 0.8rem;
-}
-
-.sa-kpi-card {
-    border: 1px solid var(--sa-border);
-    border-radius: 16px;
-    background: var(--sa-surface);
-    padding: 0.85rem;
-    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.05);
-    text-decoration: none;
-    color: inherit;
-    transition: transform .2s ease, box-shadow .2s ease;
-}
-
-.sa-kpi-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 16px 30px rgba(15, 23, 42, 0.1);
-}
-
-.sa-kpi-top {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.sa-kpi-label {
-    color: var(--sa-muted);
-    font-size: 0.72rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: .08em;
-}
-
-.sa-kpi-value {
-    margin-top: 0.3rem;
-    font-size: 1.9rem;
-    font-family: 'Space Grotesk', sans-serif;
-    line-height: 1.1;
-    color: var(--sa-ink);
-}
-
-.sa-kpi-sub {
-    margin-top: 0.4rem;
-    color: #334155;
-    font-size: 0.8rem;
-    display: flex;
-    justify-content: space-between;
-}
-
-.sa-kpi-icon {
-    width: 34px;
-    height: 34px;
-    border-radius: 10px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: #fff;
-    font-size: 0.95rem;
-}
-
-.sa-grad-1 { background: linear-gradient(135deg, var(--sa-glow-1), #0369a1); }
-.sa-grad-2 { background: linear-gradient(135deg, var(--sa-glow-2), #312e81); }
-.sa-grad-3 { background: linear-gradient(135deg, var(--sa-glow-3), #047857); }
-.sa-grad-4 { background: linear-gradient(135deg, var(--sa-glow-4), #d97706); }
-
-.sa-row-two {
-    display: grid;
-    grid-template-columns: 1.2fr 1fr;
-    gap: 0.8rem;
-}
-
-.sa-panel {
-    border: 1px solid var(--sa-border);
-    border-radius: 16px;
-    padding: 1rem;
-    background: var(--sa-surface);
-    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.05);
-}
-
-.sa-panel-title {
-    margin: 0;
-    color: #0b2a64;
-    font-family: 'Space Grotesk', sans-serif;
-    font-size: 1.08rem;
-}
-
-.sa-topdoc {
-    text-decoration: none;
-    color: inherit;
-    display: block;
-}
-
-.sa-topdoc-meta {
-    margin-top: 0.75rem;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.6rem;
-}
-
-.sa-chip {
-    background: #f8fafc;
-    border: 1px solid var(--sa-border);
-    border-radius: 12px;
-    padding: 0.55rem 0.6rem;
-}
-
-.sa-chip span {
-    display: block;
-    font-size: 0.72rem;
-    color: var(--sa-muted);
-    text-transform: uppercase;
-    font-weight: 700;
-}
-
-.sa-chip strong {
-    display: block;
-    margin-top: 0.2rem;
-    font-family: 'Space Grotesk', sans-serif;
-    color: #0f172a;
-    font-size: 1rem;
-}
-
-.sa-fin-bars {
-    margin-top: 0.9rem;
-    display: grid;
-    gap: 0.55rem;
-}
-
-.sa-fin-bar {
-    border-radius: 12px;
-    border: 1px solid var(--sa-border);
-    background: #f8fafc;
-    padding: 0.55rem 0.65rem;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 0.84rem;
-}
-
-.sa-row-three {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.8rem;
-}
-
-.sa-slim-list {
-    margin-top: 0.6rem;
-    display: grid;
-    gap: 0.35rem;
-}
-
-.sa-slim-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-bottom: 1px dashed #dbe1ea;
-    padding-bottom: 0.35rem;
-    color: #334155;
-    font-size: 0.82rem;
-}
-
-.sa-notify-cta {
-    text-decoration: none;
-    color: #fff;
-    border-radius: 16px;
-    padding: 1rem;
-    background: linear-gradient(120deg, #1e3a8a 0%, #3b82f6 45%, #0ea5e9 100%);
-    box-shadow: 0 16px 30px rgba(29, 78, 216, 0.3);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 0.8rem;
-}
-
-.sa-notify-cta h3 {
-    margin: 0;
-    font-size: 1.2rem;
-    font-family: 'Space Grotesk', sans-serif;
-}
-
-.sa-notify-cta p {
-    margin: 0.2rem 0 0;
-    opacity: .88;
-    font-size: .86rem;
-}
-
-.sa-notify-counts {
-    display: flex;
-    gap: 1rem;
-    align-items: center;
-    font-family: 'Space Grotesk', sans-serif;
-    font-size: 1.35rem;
-}
-
-.sa-pill {
-    border: 1px solid rgba(255,255,255,0.35);
-    background: rgba(255,255,255,0.12);
-    border-radius: 999px;
-    padding: 0.2rem 0.7rem;
-    font-size: .76rem;
-    text-transform: uppercase;
-    letter-spacing: .08em;
-    font-weight: 700;
-}
-
-@media (max-width: 1200px) {
-    .sa-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .sa-row-two { grid-template-columns: 1fr; }
-    .sa-row-three { grid-template-columns: 1fr; }
-}
-
-@media (max-width: 700px) {
-    .sa-kpi-grid { grid-template-columns: 1fr; }
-    .sa-dash-hero { flex-direction: column; }
-    .sa-dash-timebox { text-align: left; }
-    .sa-notify-cta { flex-direction: column; align-items: flex-start; }
-}
-</style>
+<!-- Fonts & Icons -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<!-- Tailwind CDN -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>
+tailwind.config = {
+    darkMode: "class",
+    theme: {
+        extend: {
+            colors: {
+                "primary": "#e91e63",
+                "on-primary": "#ffffff",
+                "secondary": "#5c47e5",
+                "tertiary": "#10b981",
+                "surface-container-lowest": "#ffffff",
+                "surface-bright": "#fdf4f7",
+                "background": "#fdf4f7",
+                "outline": "#70787d",
+                "surface-container": "#fce4ec",
+                "on-surface": "#191c1e",
+                "on-surface-variant": "#40484c"
+            },
+            fontFamily: {
+                "headline": ["Manrope"],
+                "body": ["Inter"],
+                "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+        },
+    },
+};
+</script>
+<!-- Dashboard CSS -->
+<link rel="stylesheet" href="<?php echo $base_url; ?>/assets/css/superadmin_dashboard.css?v=<?php echo time(); ?>">
 
 <?php
 // --- Helper: format large INR amounts ---
@@ -628,140 +385,262 @@ $role_short_labels = [
 ];
 ?>
 
-<?php $sa_active_page = 'dashboard.php'; ?>
-<?php require_once __DIR__ . '/components/shell_start.php'; ?>
+<div class="page-container font-body text-on-surface">
 
-<section class="sa-dashboard-page">
-    <header class="sa-dash-hero">
+    <!-- Header Metrics -->
+    <div class="sa-dashboard-header flex justify-between items-end mb-8">
         <div>
-            <h1>Clinic Performance</h1>
-            <p>Unified operational pulse for diagnostics, doctors, expenses, and workforce.</p>
+            <h1 class="font-headline text-2xl md:text-3xl font-extrabold text-slate-800 mb-1">Clinic Performance</h1>
+            <p class="font-body text-xs md:text-sm text-slate-500 font-medium">Real-time clinical and operational telemetry</p>
         </div>
-        <div class="sa-dash-timebox">
-            <div id="sa-dash-date"></div>
-            <small id="sa-dash-time"></small>
+        <div class="text-right">
+            <p class="font-headline text-sm md:text-lg font-bold text-primary uppercase tracking-tighter" id="sa-dash-date"></p>
+            <p class="font-body text-[10px] md:text-xs font-semibold text-slate-400" id="sa-dash-time"></p>
         </div>
-    </header>
+    </div>
 
-    <section class="sa-kpi-grid">
-        <a href="test_count.php" class="sa-kpi-card">
-            <div class="sa-kpi-top">
-                <span class="sa-kpi-label">Tests Today</span>
-                <span class="sa-kpi-icon sa-grad-1"><i class="fas fa-vial"></i></span>
-            </div>
-            <div class="sa-kpi-value"><?php echo number_format($today_tests); ?></div>
-            <div class="sa-kpi-sub"><span>Month: <?php echo number_format($month_tests); ?></span><strong>₹<?php echo number_format($today_revenue); ?></strong></div>
-        </a>
-
-        <a href="view_doctors.php" class="sa-kpi-card">
-            <div class="sa-kpi-top">
-                <span class="sa-kpi-label">Active Doctors</span>
-                <span class="sa-kpi-icon sa-grad-2"><i class="fas fa-user-md"></i></span>
-            </div>
-            <div class="sa-kpi-value"><?php echo number_format($active_doctors_today); ?></div>
-            <div class="sa-kpi-sub"><span>Tests/Doc: <?php echo number_format($tests_doctor_ratio, 1); ?></span><strong>₹<?php echo number_format($avg_revenue_per_doctor); ?></strong></div>
-        </a>
-
-        <a href="audit_log.php" class="sa-kpi-card">
-            <div class="sa-kpi-top">
-                <span class="sa-kpi-label">Audit Edits</span>
-                <span class="sa-kpi-icon sa-grad-3"><i class="fas fa-history"></i></span>
-            </div>
-            <div class="sa-kpi-value"><?php echo number_format($bill_edits_today); ?></div>
-            <div class="sa-kpi-sub"><span>Latest:</span><strong><?php echo htmlspecialchars($latest_change_summary); ?></strong></div>
-        </a>
-
-        <a href="notifications.php" class="sa-kpi-card">
-            <div class="sa-kpi-top">
-                <span class="sa-kpi-label">Queued Broadcasts</span>
-                <span class="sa-kpi-icon sa-grad-4"><i class="fas fa-bullhorn"></i></span>
-            </div>
-            <div class="sa-kpi-value"><?php echo str_pad((string)$queued_broadcasts, 2, '0', STR_PAD_LEFT); ?></div>
-            <div class="sa-kpi-sub"><span>Total Broadcasts</span><strong><?php echo number_format($total_broadcasts); ?></strong></div>
-        </a>
-    </section>
-
-    <section class="sa-row-two">
-        <a href="view_doctors.php" class="sa-panel sa-topdoc">
-            <h2 class="sa-panel-title">Top Physician - <?php echo htmlspecialchars($top_doc_period_label); ?></h2>
-            <p style="margin:0.35rem 0 0;color:#64748b;font-size:.9rem;">Most valuable referral source this cycle.</p>
-            <div style="margin-top:.9rem;display:flex;justify-content:space-between;align-items:flex-end;gap:.8rem;">
+    <!-- Bento Grid Layout -->
+    <div class="bento-grid">
+        <!-- 1. Test Count Card -->
+        <a href="test_count.php" class="col-span-12 md:col-span-4 rounded-xl p-6 bg-gradient-to-br from-[#00bcd4] to-[#0097a7] text-white shadow-lg overflow-hidden group block">
+            <div class="flex justify-between items-start mb-4">
                 <div>
-                    <div style="font-family:'Space Grotesk',sans-serif;font-size:1.42rem;color:#0f172a;font-weight:700;"><?php echo htmlspecialchars($top_doc_name); ?></div>
-                    <div style="margin-top:.15rem;color:#64748b;font-size:.82rem;">Doctor ID: <?php echo htmlspecialchars((string)$top_doc_id); ?></div>
+                    <p class="font-label text-[10px] uppercase font-bold tracking-widest opacity-80">Test Volume</p>
+                    <h3 class="font-headline text-5xl font-black"><?php echo number_format($today_tests); ?></h3>
                 </div>
-                <div class="sa-pill">Elite Performance</div>
+                <span class="material-symbols-outlined text-4xl opacity-30">biotech</span>
             </div>
-            <div class="sa-topdoc-meta">
-                <div class="sa-chip"><span>Revenue</span><strong>₹<?php echo number_format($top_doc_revenue); ?></strong></div>
-                <div class="sa-chip"><span>Tests / Patient</span><strong><?php echo number_format($top_doc_tests_ratio, 2); ?></strong></div>
-            </div>
-        </a>
-
-        <a href="expenditure.php" class="sa-panel" style="text-decoration:none;color:inherit;">
-            <h2 class="sa-panel-title">Revenue Pulse</h2>
-            <p style="margin:0.35rem 0 0;color:#64748b;font-size:.9rem;">Month over month financial momentum.</p>
-            <div class="sa-fin-bars">
-                <div class="sa-fin-bar"><span>Revenue Growth</span><strong><?php echo $revenue_growth_display; ?> (<?php echo $growth_badge_label; ?>)</strong></div>
-                <div class="sa-fin-bar"><span>Revenue This Month</span><strong><?php echo format_inr_short($month_revenue); ?></strong></div>
-                <div class="sa-fin-bar"><span>Daily Avg (This Month)</span><strong><?php echo format_inr_short($month_daily_avg); ?></strong></div>
-                <div class="sa-fin-bar"><span>Last Month Revenue</span><strong><?php echo format_inr_short($last_month_rev); ?></strong></div>
-                <div class="sa-fin-bar"><span>Last Month Daily Avg</span><strong><?php echo format_inr_short($last_month_daily_avg); ?></strong></div>
-            </div>
-        </a>
-    </section>
-
-    <section class="sa-row-three">
-        <a href="expenditure.php" class="sa-panel" style="text-decoration:none;color:inherit;">
-            <h2 class="sa-panel-title">Expenditure Snapshot</h2>
-            <div class="sa-slim-list">
-                <div class="sa-slim-item"><span>Month Expenditure</span><strong>₹<?php echo number_format($month_expenditure); ?></strong></div>
-                <div class="sa-slim-item"><span>Today</span><strong>₹<?php echo number_format($today_expenditure); ?></strong></div>
-                <div class="sa-slim-item"><span>Most Spent</span><strong>₹<?php echo number_format($most_spent_amount); ?></strong></div>
-                <div class="sa-slim-item"><span>Category</span><strong><?php echo htmlspecialchars($most_spent_category); ?></strong></div>
+            <div class="flex flex-col gap-1">
+                <p class="text-sm font-bold">Tests Today</p>
+                <div class="flex justify-between items-end mt-4">
+                    <p class="text-[10px] opacity-70 font-bold uppercase">This Month: <?php echo number_format($month_tests); ?></p>
+                    <p class="text-lg font-black">₹<?php echo number_format($today_revenue); ?> <span class="text-[10px] font-normal opacity-70">Today</span></p>
+                </div>
             </div>
         </a>
 
-        <a href="expenditure.php" class="sa-panel" style="text-decoration:none;color:inherit;">
-            <h2 class="sa-panel-title">Discount and Margin Focus</h2>
-            <div class="sa-slim-list">
-                <div class="sa-slim-item"><span>Total Discounts</span><strong>₹<?php echo number_format($total_month_discounts); ?></strong></div>
-                <div class="sa-slim-item"><span>Doctor Discount</span><strong>₹<?php echo number_format($month_discount_doctor); ?></strong></div>
-                <div class="sa-slim-item"><span>Center Discount</span><strong>₹<?php echo number_format($month_discount_center); ?></strong></div>
-                <div class="sa-slim-item"><span>Month Revenue</span><strong>₹<?php echo number_format($month_revenue); ?></strong></div>
+        <!-- 2. Doctors Card -->
+        <a href="doctor_wise_count.php" class="col-span-12 md:col-span-4 rounded-xl p-6 bg-white shadow-sm border border-slate-100 flex flex-col justify-between group block hover:border-primary/30 transition-colors">
+            <div class="flex justify-between">
+                <div>
+                    <p class="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-1">Clinical Staff</p>
+                    <h3 class="font-headline text-4xl font-black text-slate-800 group-hover:text-primary transition-colors"><?php echo number_format($active_doctors_today); ?></h3>
+                    <p class="text-xs font-medium text-slate-500 mt-1">Active Doctors Today</p>
+                </div>
+                <div class="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center group-hover:bg-primary transition-colors">
+                    <span class="material-symbols-outlined text-primary group-hover:text-white transition-colors">medical_services</span>
+                </div>
+            </div>
+            <div class="mt-6 grid grid-cols-2 gap-4">
+                <div class="p-3 bg-slate-50 rounded-lg group-hover:bg-primary/5 transition-colors">
+                    <p class="text-[9px] uppercase text-slate-400 font-bold">Tests / Doc</p>
+                    <p class="text-lg font-black text-slate-700"><?php echo number_format($tests_doctor_ratio, 1); ?></p>
+                </div>
+                <div class="p-3 bg-slate-50 rounded-lg group-hover:bg-primary/5 transition-colors">
+                    <p class="text-[9px] uppercase text-slate-400 font-bold">Avg Rev</p>
+                    <p class="text-lg font-black text-slate-700">₹<?php echo number_format($avg_revenue_per_doctor); ?></p>
+                </div>
             </div>
         </a>
 
-        <a href="employees.php" class="sa-panel" style="text-decoration:none;color:inherit;">
-            <h2 class="sa-panel-title">Employee Strength</h2>
-            <div style="margin:.4rem 0 .2rem;color:#64748b;font-size:.86rem;"><?php echo number_format($total_employees); ?> active professionals</div>
-            <div class="sa-slim-list">
-                <?php foreach ($roles_count as $roleKey => $count): ?>
-                    <div class="sa-slim-item">
-                        <span><?php echo htmlspecialchars($role_short_labels[$roleKey] ?? ucwords($roleKey)); ?></span>
-                        <strong><?php echo (int)$count; ?></strong>
+        <!-- 3. Audit Log Card -->
+        <a href="audit_log.php" class="col-span-12 md:col-span-4 rounded-xl p-6 bg-[#2c3e50] text-white shadow-lg flex flex-col justify-between block hover:scale-[1.02] transition-transform">
+            <div class="flex justify-between items-start">
+                <div>
+                    <p class="text-[10px] uppercase font-bold opacity-60 tracking-widest">Audit Log</p>
+                    <h3 class="text-4xl font-black"><?php echo number_format($bill_edits_today); ?></h3>
+                    <p class="text-xs font-medium opacity-80">Bill Edits Today</p>
+                </div>
+                <span class="material-symbols-outlined text-3xl opacity-40">history</span>
+            </div>
+            <div class="mt-6 p-3 bg-white/5 rounded-lg border border-white/10 italic text-[11px] opacity-70">
+                "<?php echo htmlspecialchars($latest_change_summary); ?>"
+            </div>
+        </a>
+
+        <!-- 4. Top Doctor -->
+        <a href="compare.php" class="col-span-12 md:col-span-5 rounded-xl p-8 bg-secondary text-white shadow-2xl relative overflow-hidden group block">
+            <div class="flex justify-between items-center mb-10 relative z-10">
+                <div>
+                    <p class="text-[10px] font-black uppercase tracking-widest opacity-70">Elite Performance</p>
+                    <h2 class="font-headline text-2xl font-black">Top Physician <span class="text-primary"><?php echo date('F Y'); ?></span></h2>
+                </div>
+                <span class="material-symbols-outlined text-white/40 text-4xl">workspace_premium</span>
+            </div>
+            <div class="flex items-center gap-8 relative z-10">
+                <div class="w-20 h-20 md:w-24 md:h-24 rounded-2xl bg-white/10 flex items-center justify-center border-2 border-dashed border-white/20 shrink-0">
+                    <span class="material-symbols-outlined text-5xl opacity-40">person</span>
+                </div>
+                <div class="flex-grow">
+                    <div class="flex flex-col xl:flex-row justify-between xl:items-start gap-1">
+                        <h3 class="text-xl md:text-2xl font-black truncate max-w-[200px]" title="<?php echo htmlspecialchars($top_doc_name); ?>"><?php echo htmlspecialchars($top_doc_name); ?></h3>
+                        <span class="text-[10px] bg-white/10 px-2 py-0.5 rounded font-bold self-start mt-1 xl:mt-0 whitespace-nowrap">ID: <?php echo htmlspecialchars($top_doc_id); ?></span>
                     </div>
-                <?php endforeach; ?>
+                    <div class="grid grid-cols-2 gap-4 mt-6 pt-6 border-t border-white/10">
+                        <div>
+                            <p class="text-[9px] font-bold opacity-60 uppercase">Revenue</p>
+                            <p class="text-lg md:text-xl font-bold">₹<?php echo number_format($top_doc_revenue); ?></p>
+                        </div>
+                        <div>
+                            <p class="text-[9px] font-bold opacity-60 uppercase">Tests / Pat</p>
+                            <p class="text-lg md:text-xl font-bold"><?php echo number_format($top_doc_tests_ratio, 2); ?></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <span class="material-symbols-outlined absolute -bottom-8 -right-8 text-9xl opacity-10 pointer-events-none group-hover:scale-110 transition-transform duration-700">scale</span>
+        </a>
+
+        <!-- 5. Deep Analysis -->
+        <a href="deep_analysis.php" class="col-span-12 md:col-span-7 rounded-xl p-8 bg-[#95a5a6] text-white shadow-lg flex flex-col justify-between relative overflow-hidden group block">
+            <div class="flex justify-between items-start mb-12 relative z-10">
+                <div>
+                    <h2 class="font-headline text-2xl font-black">Deep Financial Analysis</h2>
+                    <p class="text-sm font-medium opacity-80">Comparative performance vs. previous cycle</p>
+                </div>
+                <span class="material-symbols-outlined text-white/30 text-4xl">query_stats</span>
+            </div>
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 relative z-10">
+                <div class="p-4 bg-black/5 rounded-lg border-l-4 border-white">
+                    <p class="text-[9px] uppercase font-bold opacity-70">Revenue (Month)</p>
+                    <p class="text-2xl font-black leading-tight"><?php echo format_inr_short($month_revenue); ?></p>
+                </div>
+                <div class="p-4 bg-black/5 rounded-lg border-l-4 border-white">
+                    <p class="text-[9px] uppercase font-bold opacity-70">Daily Avg</p>
+                    <p class="text-2xl font-black leading-tight"><?php echo format_inr_short($month_daily_avg); ?></p>
+                </div>
+                <div class="p-4 bg-black/5 rounded-lg border-l-4 border-white/30">
+                    <p class="text-[9px] uppercase font-bold opacity-50">Last Month</p>
+                    <p class="text-2xl font-black opacity-70 leading-tight"><?php echo format_inr_short($last_month_rev); ?></p>
+                </div>
+                <div class="p-4 bg-black/5 rounded-lg border-l-4 border-white/30">
+                    <p class="text-[9px] uppercase font-bold opacity-50">Last Avg</p>
+                    <p class="text-2xl font-black opacity-70 leading-tight"><?php echo format_inr_short($last_month_daily_avg); ?></p>
+                </div>
+            </div>
+            <div class="absolute -bottom-10 -right-10 w-40 h-40 bg-white/5 rounded-full blur-2xl pointer-events-none"></div>
+        </a>
+
+        <!-- 6. Expenditure -->
+        <a href="expenditure.php" class="col-span-12 md:col-span-4 rounded-xl p-6 bg-gradient-to-br from-[#0091ea] to-[#00b0ff] text-white shadow-xl flex flex-col justify-between relative overflow-hidden block">
+            <div class="relative z-10">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="font-headline text-lg font-black uppercase tracking-tight">Expenditure</h3>
+                    <span class="material-symbols-outlined opacity-40">account_balance_wallet</span>
+                </div>
+                <p class="text-[10px] font-bold opacity-70 uppercase tracking-widest mb-1">Total Expenditure</p>
+                <h3 class="text-5xl font-black mb-8">₹<?php echo number_format($month_expenditure); ?></h3>
+            </div>
+            <div class="space-y-3 relative z-10">
+                <div class="flex justify-between text-xs py-2 border-b border-white/20">
+                    <span class="opacity-70">Today</span>
+                    <span class="font-bold">₹<?php echo number_format($today_expenditure); ?></span>
+                </div>
+                <div class="flex justify-between text-xs py-2 border-b border-white/20">
+                    <span class="opacity-70">Most Spent</span>
+                    <span class="font-bold">₹<?php echo number_format($most_spent_amount); ?></span>
+                </div>
+                <div class="flex justify-between text-xs py-2">
+                    <span class="opacity-70">Most Spent On</span>
+                    <span class="font-bold truncate max-w-[120px] text-right" title="<?php echo htmlspecialchars($most_spent_category); ?>"><?php echo htmlspecialchars($most_spent_category); ?></span>
+                </div>
+            </div>
+            <span class="material-symbols-outlined absolute -bottom-4 -right-4 text-8xl opacity-10 pointer-events-none">payments</span>
+        </a>
+
+        <!-- 7. Monthly Analysis -->
+        <a href="monthly_analysis.php" class="col-span-12 md:col-span-4 rounded-xl p-6 bg-[#2c3e50] text-white shadow-xl flex flex-col justify-between block hover:scale-[1.02] transition-transform">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="font-headline text-lg font-black tracking-tight">Monthly Analysis</h3>
+                <span class="material-symbols-outlined opacity-40">analytics</span>
+            </div>
+            <div class="space-y-6">
+                <div>
+                    <p class="text-[10px] font-bold opacity-60 uppercase mb-1">Revenue Growth</p>
+                    <div class="flex items-center gap-2">
+                        <span class="text-3xl font-black"><?php echo $revenue_growth_display; ?></span>
+                        <div class="px-2 py-0.5 bg-primary/20 text-primary rounded text-[9px] font-bold"><?php echo $growth_badge_label; ?></div>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 gap-3">
+                    <div class="flex justify-between items-center p-3 bg-white/5 rounded border border-white/10">
+                        <span class="text-[11px] opacity-60">Revenue of the Month</span>
+                        <span class="font-bold">₹<?php echo number_format($month_revenue); ?></span>
+                    </div>
+                    <div class="flex justify-between items-center p-3 bg-white/5 rounded border border-white/10">
+                        <span class="text-[11px] opacity-60">Total Discounts</span>
+                        <span class="font-bold">₹<?php echo number_format($total_month_discounts); ?></span>
+                    </div>
+                </div>
             </div>
         </a>
-    </section>
 
-    <a href="notifications.php" class="sa-notify-cta">
-        <div>
-            <h3>Notifications Control Hub</h3>
-            <p>Broadcast to patients and providers, then monitor queue completion from one place.</p>
-        </div>
-        <div class="sa-notify-counts">
-            <div><small style="display:block;font-size:.7rem;opacity:.78;letter-spacing:.08em;text-transform:uppercase;">Broadcasts</small><?php echo number_format($total_broadcasts); ?></div>
-            <div><small style="display:block;font-size:.7rem;opacity:.78;letter-spacing:.08em;text-transform:uppercase;">Queued</small><?php echo str_pad((string)$queued_broadcasts, 2, '0', STR_PAD_LEFT); ?></div>
-        </div>
-    </a>
-</section>
+        <!-- 8. Employees -->
+        <a href="employees.php" class="col-span-12 md:col-span-4 rounded-xl p-6 bg-tertiary text-white shadow-xl relative overflow-hidden flex flex-col justify-between block">
+            <div class="relative z-10">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h3 class="font-headline text-xl font-black">Employees</h3>
+                        <p class="text-xs font-bold opacity-80 mt-1"><?php echo $total_employees; ?> Professionals Total</p>
+                    </div>
+                    <span class="material-symbols-outlined text-4xl opacity-40">groups</span>
+                </div>
+                <div class="space-y-1 mt-4">
+                    <?php 
+                    $role_count_array = array_values($roles_count);
+                    $role_keys = array_keys($roles_count);
+                    for($i=0; $i<count($role_keys); $i++) {
+                        $role_key = $role_keys[$i];
+                        $count = $role_count_array[$i];
+                        $label = $role_short_labels[$role_key] ?? ucwords($role_key);
+                        $is_last = ($i === count($role_keys) - 1);
+                    ?>
+                        <div class="flex justify-between text-xs py-1.5 opacity-80 <?php echo !$is_last ? 'border-b border-white/10' : ''; ?>">
+                            <span><?php echo htmlspecialchars($label); ?></span>
+                            <span class="font-black <?php echo $count > 0 ? 'text-white' : 'text-[#a7f3d0]'; ?>"><?php echo $count; ?></span>
+                        </div>
+                    <?php } ?>
+                </div>
+            </div>
+            <span class="material-symbols-outlined absolute -bottom-6 -right-6 text-9xl opacity-10 pointer-events-none">diversity_3</span>
+        </a>
 
-<?php require_once __DIR__ . '/components/shell_end.php'; ?>
+        <!-- 9. Notifications / Broadcasts -->
+        <a href="notifications.php" class="col-span-12 rounded-xl p-8 bg-secondary text-white shadow-2xl relative overflow-hidden block group">
+            <div class="flex flex-col md:flex-row justify-between items-center gap-8 relative z-10">
+                <div class="flex items-center gap-6">
+                    <div class="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center shrink-0 group-hover:bg-white/20 transition-colors">
+                        <span class="material-symbols-outlined text-4xl">campaign</span>
+                    </div>
+                    <div>
+                        <h2 class="font-headline text-2xl font-black">Notifications</h2>
+                        <p class="text-sm font-medium opacity-70">Automated Patient & Provider Broadcasts</p>
+                    </div>
+                </div>
+                <div class="flex gap-10 md:gap-16 items-center">
+                    <div class="text-center">
+                        <p class="text-[10px] font-black uppercase tracking-widest opacity-60 mb-1">Broadcasts</p>
+                        <p class="text-4xl md:text-5xl font-black"><?php echo number_format($total_broadcasts); ?></p>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-[10px] font-black uppercase tracking-widest opacity-60 mb-1">Queued</p>
+                        <p class="text-4xl md:text-5xl font-black text-primary"><?php echo str_pad($queued_broadcasts, 2, '0', STR_PAD_LEFT); ?></p>
+                    </div>
+                    <div class="hidden sm:block">
+                        <button class="px-6 md:px-8 py-3 bg-primary text-white font-bold rounded-xl text-xs uppercase tracking-widest hover:scale-105 transition-transform shadow-lg shadow-primary/20 pointer-events-none">
+                            Manage Comms
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="absolute top-0 right-0 w-96 h-96 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl pointer-events-none"></div>
+            <span class="material-symbols-outlined absolute -bottom-10 -left-10 text-[200px] opacity-5 pointer-events-none">notifications</span>
+        </a>
+
+    </div> <!-- End of bento-grid -->
+</div> <!-- End of page-container -->
 
 <!-- Dashboard JS -->
 <script src="<?php echo $base_url; ?>/assets/js/superadmin_dashboard.js?v=<?php echo time(); ?>"></script>
 
-<!-- Close the standard body and html tags from header.php if necessary -->
 <?php require_once '../includes/footer.php'; ?>

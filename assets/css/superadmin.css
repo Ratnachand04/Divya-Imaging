@@ -58,6 +58,68 @@ body.role-superadmin {
     min-height: 100vh;
 }
 
+/* Keep Superadmin on the same unified shell as all other roles. */
+body.role-superadmin.app-layout .main-navbar::before,
+body.role-superadmin.app-layout .main-navbar::after {
+    display: none;
+}
+
+body.role-superadmin.app-layout .main-navbar ul {
+    display: flex;
+    grid-template-columns: none;
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+body.role-superadmin.app-layout .main-navbar li {
+    width: 100%;
+}
+
+body.role-superadmin.app-layout .main-navbar li a {
+    justify-content: flex-start;
+    min-height: 0;
+    border-radius: 10px;
+    padding: 0.67rem 0.72rem;
+}
+
+body.role-superadmin.app-layout .app-main {
+    padding: 1rem 1rem 1.25rem;
+}
+
+body.role-superadmin.app-layout .page-container,
+body.role-superadmin.app-layout .table-container,
+body.role-superadmin.app-layout .form-container,
+body.role-superadmin.app-layout .dashboard-container,
+body.role-superadmin.app-layout .calendar-container,
+body.role-superadmin.app-layout .analysis-container,
+body.role-superadmin.app-layout .management-container,
+body.role-superadmin.app-layout .main-content.page-container,
+body.role-superadmin.app-layout .main-content.form-container,
+body.role-superadmin.app-layout .main-content.table-container {
+    margin: 0 0 0.9rem;
+    max-width: none;
+    width: 100%;
+}
+
+@media (max-width: 1024px) {
+    body.role-superadmin.app-layout .main-navbar {
+        width: min(80vw, 300px);
+        margin: 0;
+    }
+
+    body.role-superadmin.app-layout .main-navbar ul {
+        display: flex;
+        width: 100%;
+        padding: 0;
+    }
+
+    body.role-superadmin.app-layout .app-main {
+        padding: 0.9rem;
+    }
+}
+
 .role-superadmin .table-scroll.scroll-y {
     overflow-y: auto;
 }
@@ -73,35 +135,15 @@ body.role-superadmin {
     opacity: 1;
 }
 
-body.role-superadmin .main-navbar::before,
-body.role-superadmin .main-navbar::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    max-width: 100%;
-    z-index: -1;
-}
-
-body.role-superadmin .main-navbar::after {
-    inset: -8px;
-    background: radial-gradient(circle at 50% 0%, rgba(233, 30, 99, 0.25), transparent 70%);
-    opacity: 0.7;
-    filter: blur(12px);
-}
-
+/* Navbar collision handling - match Manager behaviour */
 body.role-superadmin.manager-nav-colliding .main-navbar {
-    transform: translateY(0);
+    transform: none !important;
     opacity: 1;
     pointer-events: auto;
-    box-shadow: 0 12px 26px rgba(233, 30, 99, 0.2);
+    box-shadow: 8px 0 28px rgba(249, 168, 212, 0.3) !important;
 }
 
-body.role-superadmin.manager-nav-colliding .page-container {
-    margin-top: calc(1.5rem + 16px);
-}
-
-.role-superadmin .main-navbar ul {
+.role-superadmin:not(.app-layout) .main-navbar ul {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 0.5rem;
@@ -111,11 +153,11 @@ body.role-superadmin.manager-nav-colliding .page-container {
     box-shadow: var(--shadow-sm);
 }
 
-.role-superadmin .main-navbar li {
+.role-superadmin:not(.app-layout) .main-navbar li {
     list-style: none;
 }
 
-.role-superadmin .main-navbar li a {
+.role-superadmin:not(.app-layout) .main-navbar li a {
     justify-content: center;
     padding: 0.55rem 1.1rem;
     border-radius: 999px;
@@ -123,32 +165,32 @@ body.role-superadmin.manager-nav-colliding .page-container {
 }
 
 @media (max-width: 900px) {
-    .role-superadmin .main-navbar ul {
+    .role-superadmin:not(.app-layout) .main-navbar ul {
         grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     }
 }
 
 @media (max-width: 640px) {
-    body.role-superadmin .main-navbar {
+    body.role-superadmin:not(.app-layout) .main-navbar {
         width: calc(100% - 1rem);
         margin: 8px auto;
     }
 
-    .role-superadmin .main-navbar ul {
+    .role-superadmin:not(.app-layout) .main-navbar ul {
         display: none;
         grid-template-columns: 1fr;
         width: 100%;
         padding: 0.75rem 0.5rem;
     }
 
-    .role-superadmin .main-navbar ul.show {
+    .role-superadmin:not(.app-layout) .main-navbar ul.show {
         display: flex;
         flex-direction: column;
         gap: 0.45rem;
     }
 
-    .role-superadmin .main-navbar li,
-    .role-superadmin .main-navbar li a {
+    .role-superadmin:not(.app-layout) .main-navbar li,
+    .role-superadmin:not(.app-layout) .main-navbar li a {
         width: 100%;
     }
 }
@@ -161,12 +203,13 @@ body.role-superadmin.manager-nav-colliding .page-container {
 .role-superadmin .analysis-container,
 .role-superadmin .management-container {
     background: var(--bg-primary);
-    border-radius: 18px;
+    border-radius: 16px;
     border: 1px solid var(--border-light);
     box-shadow: var(--shadow-sm);
-    padding: clamp(1.5rem, 2vw, 2.25rem);
-    margin: 1.5rem auto;
-    max-width: min(1180px, 94vw);
+    padding: clamp(1rem, 1.6vw, 1.5rem);
+    margin: 0 0 1rem;
+    max-width: none;
+    width: 100%;
 }
 
 .role-superadmin .table-scroll {
@@ -248,7 +291,9 @@ body.role-superadmin.manager-nav-colliding .page-container {
 }
 
 .role-superadmin .main-content {
-    background: transparent !important; /* Ensure main-content doesn't have a dark background */
+    padding: 0;
+    min-height: auto;
+    background: transparent;
 }
 
 /* Typography Overrides */
@@ -1112,4 +1157,43 @@ body.role-superadmin.manager-nav-colliding .page-container {
     text-transform: uppercase;
     color: var(--text-muted, #6c757d);
     z-index: 10;
+}
+
+/* Keep superadmin pages on the shared fixed sidebar shell (matches Manager). */
+body.role-superadmin.app-layout .main-navbar {
+    top: var(--shell-header-height);
+    left: 0;
+    width: var(--shell-sidebar-width);
+    margin: 0;
+    border-radius: 0;
+    border: none;
+    border-right: 1px solid var(--nav-border);
+    background: linear-gradient(180deg, #fef1f6 0%, #fce7f1 100%);
+    box-shadow: 8px 0 28px rgba(249, 168, 212, 0.3);
+}
+
+body.role-superadmin.app-layout .main-navbar ul {
+    display: flex;
+    grid-template-columns: none;
+    gap: 0.42rem;
+    padding: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+body.role-superadmin.app-layout .main-content {
+    padding: 0;
+    min-height: auto;
+}
+
+body.role-superadmin.app-layout .page-container,
+body.role-superadmin.app-layout .table-container,
+body.role-superadmin.app-layout .form-container,
+body.role-superadmin.app-layout .dashboard-container,
+body.role-superadmin.app-layout .calendar-container,
+body.role-superadmin.app-layout .analysis-container,
+body.role-superadmin.app-layout .management-container {
+    width: 100%;
+    max-width: none;
+    margin: 0 0 1rem;
 }

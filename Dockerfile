@@ -4,8 +4,7 @@
 # This image is pushed to: ratnachand/diagnostic-center-web
 # It contains the full website. Pair with MariaDB via compose.
 # ============================================================
-
-FROM php:8.2-apache
+FROM php:8.2-apache-bookworm
 
 LABEL maintainer="ratnachand"
 LABEL description="Diagnostic Center Website - Apache + PHP 8.2"
@@ -22,7 +21,7 @@ ENV DB_NAME=diagnostic_center_db
 RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true \
     && apt-get update && apt-get install -y --no-install-recommends \
     libpng-dev \
-    libjpeg62-turbo-dev \
+    libjpeg-dev \
     libfreetype6-dev \
     libzip-dev \
     libonig-dev \

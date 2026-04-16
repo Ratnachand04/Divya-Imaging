@@ -1,5 +1,9 @@
 <?php
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
+
+ensure_bill_payment_split_columns($conn);
+ensure_package_management_schema($conn);
 
 if (!isset($_GET['bill_id']) || !is_numeric($_GET['bill_id'])) {
     die('Invalid Bill ID provided.');
@@ -7,7 +11,7 @@ if (!isset($_GET['bill_id']) || !is_numeric($_GET['bill_id'])) {
 $bill_id = (int) $_GET['bill_id'];
 
 $stmt = $conn->prepare(
-    "SELECT b.id AS invoice_number, b.gross_amount, b.discount, b.net_amount, b.created_at,
+    "SELECT b.id AS invoice_number, b.gross_amount, b.discount, b.net_amount, b.amount_paid, b.balance_amount, b.payment_mode, b.cash_amount, b.card_amount, b.upi_amount, b.other_amount, b.created_at,
             p.uid AS patient_uid, p.name AS patient_name, p.age, p.sex, p.address, p.city, p.mobile_number,
             u.username AS receptionist_name,
             rd.doctor_name AS referral_doctor_name
@@ -28,11 +32,21 @@ $bill = $bill_result->fetch_assoc();
 $stmt->close();
 
 $items_stmt = $conn->prepare(
-    "SELECT bi.id AS bill_item_id, t.main_test_name, t.sub_test_name, t.price, COALESCE(bis.screening_amount, 0) AS screening_amount
-     FROM bill_items bi
-     JOIN tests t ON bi.test_id = t.id
-     LEFT JOIN bill_item_screenings bis ON bis.bill_item_id = bi.id
-     WHERE bi.bill_id = ? AND bi.item_status = 0
+        "SELECT bi.id AS bill_item_id,
+                        COALESCE(bi.item_type, 'test') AS item_type,
+                        bi.package_id,
+                        COALESCE(NULLIF(bi.package_name, ''), tp.package_name) AS package_name,
+                        t.main_test_name,
+                        t.sub_test_name,
+                        t.price,
+                        COALESCE(bis.screening_amount, 0) AS screening_amount
+         FROM bill_items bi
+         LEFT JOIN tests t ON bi.test_id = t.id
+         LEFT JOIN test_packages tp ON tp.id = bi.package_id
+         LEFT JOIN bill_item_screenings bis ON bis.bill_item_id = bi.id
+         WHERE bi.bill_id = ?
+             AND bi.item_status = 0
+             AND (COALESCE(bi.item_type, 'test') = 'package' OR bi.package_id IS NULL)
      ORDER BY bi.id ASC"
 );
 $items_stmt->bind_param('i', $bill_id);
@@ -41,9 +55,64 @@ $items_result = $items_stmt->get_result();
 $bill_items = $items_result->fetch_all(MYSQLI_ASSOC);
 $items_stmt->close();
 
+$package_breakdown_map = [];
+$package_items_stmt = $conn->prepare(
+    "SELECT bill_item_id, test_name, package_test_price
+     FROM bill_package_items
+     WHERE bill_id = ?
+     ORDER BY id ASC"
+);
+if ($package_items_stmt) {
+    $package_items_stmt->bind_param('i', $bill_id);
+    $package_items_stmt->execute();
+    $package_items_result = $package_items_stmt->get_result();
+    while ($pkg_item = $package_items_result->fetch_assoc()) {
+        $bill_item_id = (int)($pkg_item['bill_item_id'] ?? 0);
+        if (!isset($package_breakdown_map[$bill_item_id])) {
+            $package_breakdown_map[$bill_item_id] = [];
+        }
+        $package_breakdown_map[$bill_item_id][] = $pkg_item;
+    }
+    $package_items_stmt->close();
+}
+
 $display_items = [];
 foreach ($bill_items as $item) {
+    $item_type = (string)($item['item_type'] ?? 'test');
+    if ($item_type === 'package') {
+        $package_name = trim((string)($item['package_name'] ?? ''));
+        if ($package_name === '') {
+            $package_name = 'Package';
+        }
+        $package_tests = $package_breakdown_map[(int)$item['bill_item_id']] ?? [];
+        $package_total = 0.0;
+        foreach ($package_tests as $package_test) {
+            $package_total += (float)($package_test['package_test_price'] ?? 0);
+        }
+        $package_total = round($package_total, 2);
+
+        $display_items[] = [
+            'label' => $package_name . ' (PACKAGE)',
+            'amount' => $package_total
+        ];
+
+        foreach ($package_tests as $package_test) {
+            $test_name = trim((string)($package_test['test_name'] ?? 'Included Test'));
+            if ($test_name === '') {
+                $test_name = 'Included Test';
+            }
+            $display_items[] = [
+                'label' => '  - ' . $test_name,
+                'amount' => (float)($package_test['package_test_price'] ?? 0)
+            ];
+        }
+        continue;
+    }
+
     $nameParts = trim(preg_replace('/\s+/', ' ', $item['main_test_name'] . ' ' . $item['sub_test_name']));
+    if ($nameParts === '') {
+        $nameParts = 'Unnamed Test';
+    }
     $label = 'Test ' . $nameParts;
     $display_items[] = [
         'label' => $label,
@@ -152,6 +221,7 @@ if ($referralName !== '') {
 }
 $patientCity = trim((string) $bill['city']);
 $patientMobile = trim((string) $bill['mobile_number']);
+$paymentModeDisplay = format_payment_mode_display($bill);
 $minItemRows = 12;
 $emptyRows = max(0, $minItemRows - count($display_items));
 
@@ -173,12 +243,13 @@ $emptyRows = max(0, $minItemRows - count($display_items));
             box-sizing: border-box;
         }
 
-        html, body {
-            height: 100%;
+        html,
+        body {
+            margin: 0;
+            padding: 0;
         }
 
         body {
-            margin: 0;
             background: #d6d6d6;
             font-family: var(--default-font-family);
             color: #000;
@@ -186,10 +257,8 @@ $emptyRows = max(0, $minItemRows - count($display_items));
         }
 
         .page {
-            min-height: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: flex-end;
+            width: 271.57mm;
+            margin: 0 auto;
             padding: 0;
         }
 
@@ -197,11 +266,10 @@ $emptyRows = max(0, $minItemRows - count($display_items));
             position: relative;
             width: 271.57mm;
             height: 191.39mm;
-            margin-bottom: 0;
-            transform: translateY(-10mm);
-            transform-origin: top center;
+            margin: 0 auto;
             background: url('../assets/images/billreceipt.png') no-repeat center top;
             background-size: 100% 100%;
+            overflow: hidden;
         }
 
         .bill-sheet span,
@@ -226,36 +294,59 @@ $emptyRows = max(0, $minItemRows - count($display_items));
             width: 84%;
             display: flex;
             justify-content: space-between;
-            font-size: 13.55px;
+            gap: 2.4%;
+            font-size: 13.2px;
             line-height: 1.1;
         }
 
-        .field-row.two-column .field-group:last-child {
-            justify-content: flex-end;
+        .field-row.two-column .field-group {
+            flex: 1 1 0;
+            max-width: 48%;
+            min-width: 0;
+        }
+
+        .field-row.two-column .field-group:only-child {
+            max-width: 100%;
         }
 
         .field-row.single {
             justify-content: flex-start;
-            width: 55%;
+            width: 84%;
         }
 
         .field-group {
-            display: flex;
-            gap: 5.18px;
+            display: grid;
+            grid-template-columns: max-content max-content minmax(0, 1fr);
+            column-gap: 4px;
             font-weight: 700;
-            align-items: flex-start;
-            max-width: 48%;
+            align-items: baseline;
+            min-width: 0;
+        }
+
+        .field-label {
+            min-width: 96px;
+            letter-spacing: 0.01em;
+        }
+
+        .field-colon {
+            width: 8px;
+            text-align: center;
         }
 
         .field-group .field-value {
             font-weight: 500;
-            max-width: 336.23px;
+            min-width: 0;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
         }
 
         .field-row.single .field-group {
+            width: 100%;
+            max-width: none;
+        }
+
+        .field-row.single .field-group .field-value {
             max-width: none;
         }
 
@@ -263,6 +354,7 @@ $emptyRows = max(0, $minItemRows - count($display_items));
     .row-patient { top: 24%; }
     .row-age { top: 27.5%; }
     .row-ref { top: 31%; }
+    .row-pay { top: 34.2%; }
 
         .items-container {
             position: absolute;
@@ -407,21 +499,36 @@ $emptyRows = max(0, $minItemRows - count($display_items));
         }
 
         @media print {
+            @page {
+                size: 271.57mm 191.39mm;
+                margin: 0;
+            }
+
+            html,
+            body {
+                height: auto;
+                overflow: visible;
+            }
+
             body {
                 background: #ffffff;
+                margin: 0;
             }
 
             .page {
+                width: 271.57mm;
+                margin: 0;
                 padding: 0;
+            }
+
+            .bill-sheet {
+                margin: 0;
+                page-break-inside: avoid;
+                break-inside: avoid-page;
             }
 
             .print-toolbar {
                 display: none;
-            }
-
-            @page {
-                size: 271.57mm 191.39mm;
-                margin: 6mm;
             }
         }
     </style>
@@ -483,6 +590,14 @@ $emptyRows = max(0, $minItemRows - count($display_items));
                     <span class="field-label">Ref. Physician</span>
                     <span class="field-colon">:</span>
                     <span class="field-value"><?php echo htmlspecialchars($referralDisplay); ?></span>
+                </div>
+            </div>
+
+            <div class="field-row single row-pay">
+                <div class="field-group">
+                    <span class="field-label">Payment Mode</span>
+                    <span class="field-colon">:</span>
+                    <span class="field-value"><?php echo htmlspecialchars($paymentModeDisplay); ?></span>
                 </div>
             </div>
 

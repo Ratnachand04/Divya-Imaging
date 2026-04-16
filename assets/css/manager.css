@@ -3,6 +3,10 @@
 body.role-manager {
     background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-muted) 100%);
     color: var(--text-secondary);
+    --manager-space-xs: 0.4rem;
+    --manager-space-sm: 0.65rem;
+    --manager-space-md: 0.9rem;
+    --manager-space-lg: 1.15rem;
 }
 
 .role-manager .page-container,
@@ -13,24 +17,24 @@ body.role-manager {
     border-radius: 16px;
     border: 1px solid var(--border-light);
     box-shadow: var(--shadow-sm);
-    padding: clamp(1rem, 1.6vw, 1.5rem);
-    margin-bottom: 1rem;
+    padding: clamp(0.9rem, 1.4vw, 1.2rem);
+    margin-bottom: var(--manager-space-md);
 }
 
 body.role-manager .main-content {
-    padding: clamp(1.25rem, 2.75vw, 2.75rem) clamp(0.75rem, 2vw, 2.25rem);
-    min-height: calc(100vh - var(--header-height, 64px));
+    padding: 0;
+    min-height: auto;
     display: flex;
     flex-direction: column;
-    gap: clamp(1rem, 2vw, 1.5rem);
+    gap: var(--manager-space-md);
 }
 
 .role-manager .page-container {
     width: min(1180px, 95vw);
-    margin: 0 auto clamp(0.5rem, 2vh, 1.5rem);
+    margin: 0 auto var(--manager-space-md);
     display: flex;
     flex-direction: column;
-    gap: clamp(1.1rem, 2vw, 1.8rem);
+    gap: var(--manager-space-md);
 }
 
 .role-manager .table-container,
@@ -60,9 +64,9 @@ body.role-manager .main-content {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 0.25rem 0 0.45rem;
+    padding: 0.15rem 0 0.4rem;
     border-bottom: 1px solid var(--border-light);
-    margin-bottom: 0.6rem;
+    margin-bottom: var(--manager-space-sm);
 }
 
 .role-manager .dashboard-header p {
@@ -73,12 +77,13 @@ body.role-manager .main-content {
 .role-manager .filter-form {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: clamp(0.75rem, 1.5vw, 1.25rem);
-    padding: clamp(0.85rem, 2vw, 1.5rem);
+    gap: clamp(0.6rem, 1.2vw, 0.95rem);
+    padding: clamp(0.7rem, 1.3vw, 1rem);
     border-radius: 14px;
     border: 1px solid var(--border-light);
     background: var(--bg-secondary);
     box-shadow: var(--shadow-sm);
+    margin-bottom: var(--manager-space-md);
 }
 
 .role-manager .filter-group {
@@ -120,10 +125,37 @@ body.role-manager .main-content {
     box-shadow: 0 0 0 3px var(--brand-pink-soft);
 }
 
+.role-manager fieldset {
+    padding: 0.85rem;
+    margin-bottom: var(--manager-space-md);
+}
+
+.role-manager .form-row {
+    gap: 0.85rem;
+    margin-bottom: 0.7rem;
+}
+
 .role-manager .filter-actions {
     display: flex;
     align-items: flex-end;
     justify-content: flex-end;
+}
+
+.role-manager .table-container > h2,
+.role-manager .table-container > h3 {
+    margin: 0 0 var(--manager-space-sm);
+}
+
+.role-manager .table-container > .filter-form {
+    margin-bottom: var(--manager-space-sm) !important;
+}
+
+.role-manager .table-container > .table-responsive {
+    margin-top: var(--manager-space-xs);
+}
+
+.role-manager .management-form > h3 {
+    margin: 0 0 var(--manager-space-sm);
 }
 
 body.role-manager .main-navbar {
@@ -221,6 +253,203 @@ body.role-manager.manager-nav-colliding .main-navbar {
         width: 100%;
     }
 }
+
+/* Manager patient history modal */
+    .role-manager .modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.5);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 1400;
+        padding: 1rem;
+    }
+
+    .role-manager .modal-content {
+        width: min(940px, 95vw);
+        max-height: 88vh;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        border-radius: 14px;
+        border: 1px solid #f4d7e4;
+        background: #fff;
+        box-shadow: 0 20px 40px rgba(15, 23, 42, 0.26);
+    }
+
+    .role-manager .modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.85rem 1rem;
+        border-bottom: 1px solid #f2bfd5;
+        background: #fff7fb;
+    }
+
+    .role-manager .modal-header h2 {
+        margin: 0;
+        font-size: 1.05rem;
+        color: #334155;
+    }
+
+    .role-manager .close-modal {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        border: 1px solid #f0c4d9;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        color: #64748b;
+        background: #fff;
+    }
+
+    .role-manager .modal-body {
+        padding: 1rem;
+        overflow: auto;
+    }
+
+    .role-manager .history-summary {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 20px;
+        margin-bottom: 14px;
+        padding: 12px 16px;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        font-size: 0.93rem;
+    }
+
+    .role-manager .history-summary strong {
+        color: #be123c;
+    }
+
+    .role-manager .scan-tag {
+        display: inline-block;
+        margin: 3px;
+        padding: 4px 12px;
+        border-radius: 999px;
+        background: #fff1f7;
+        color: #be123c;
+        font-size: 0.82rem;
+        font-weight: 600;
+    }
+
+    .role-manager .visit-card {
+        border: 1px solid #f1d7e3;
+        border-radius: 12px;
+        margin-bottom: 12px;
+        overflow: hidden;
+        background: #fff;
+    }
+
+    .role-manager .visit-card-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 14px;
+        background: #fff7fb;
+        border-bottom: 1px solid #f1d7e3;
+    }
+
+    .role-manager .visit-num {
+        font-weight: 700;
+        font-size: 0.95rem;
+        margin-right: 10px;
+        color: #334155;
+    }
+
+    .role-manager .visit-date {
+        font-size: 0.85rem;
+        color: #64748b;
+    }
+
+    .role-manager .visit-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 20px;
+        padding: 8px 14px;
+        font-size: 0.85rem;
+        color: #64748b;
+        border-bottom: 1px solid #f1d7e3;
+    }
+
+    .role-manager .visit-tests-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.88rem;
+    }
+
+    .role-manager .visit-tests-table th {
+        background: #f8fafc;
+        padding: 7px 14px;
+        text-align: left;
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #64748b;
+        border-bottom: 1px solid #f1d7e3;
+    }
+
+    .role-manager .visit-tests-table td {
+        padding: 7px 14px;
+        border-bottom: 1px solid #f1d7e3;
+        color: #475569;
+    }
+
+    .role-manager .visit-tests-table tbody tr:last-child td {
+        border-bottom: none;
+    }
+
+    .role-manager .visit-amounts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 20px;
+        padding: 10px 14px;
+        font-size: 0.88rem;
+        background: #f8fafc;
+        border-top: 1px solid #f1d7e3;
+        color: #64748b;
+    }
+
+    .role-manager .visit-amounts strong {
+        color: #334155;
+    }
+
+    .role-manager .net-amt strong {
+        color: #166534;
+    }
+
+    .role-manager .bal-amt strong {
+        color: #b91c1c;
+    }
+
+    .role-manager .rs-badge {
+        display: inline-block;
+        padding: 2px 10px;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        font-weight: 600;
+    }
+
+    .role-manager .rs-done { background: #dcfce7; color: #166534; }
+    .role-manager .rs-wip { background: #fef9c3; color: #854d0e; }
+    .role-manager .rs-pending { background: #f1f5f9; color: #64748b; }
+
+    .role-manager .ps-badge {
+        display: inline-block;
+        padding: 3px 12px;
+        border-radius: 999px;
+        font-size: 0.8rem;
+        font-weight: 700;
+    }
+
+    .role-manager .ps-paid { background: #dcfce7; color: #166534; }
+    .role-manager .ps-due { background: #fee2e2; color: #991b1b; }
+    .role-manager .ps-partial { background: #fef9c3; color: #854d0e; }
 
 .role-manager .btn-primary,
 .role-manager .btn-submit,
@@ -339,30 +568,484 @@ body.role-manager.manager-nav-colliding .main-navbar {
 .role-manager .status-tag.error { background: var(--error-soft); color: var(--error); }
 
 /* ===== Manager: Analytics (migrated from analytics.php) ===== */
-.action-header, .action-cell { display: none; }
-.show-delete-actions .action-header, .show-delete-actions .action-cell { display: table-cell; }
+.role-manager #analytics-table .action-header,
+.role-manager #analytics-table .action-cell { display: none; }
+
+.role-manager #analytics-table.show-delete-actions .action-header,
+.role-manager #analytics-table.show-delete-actions .action-cell { display: table-cell; }
 #delete-mode-toggle { cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent; }
 #delete-mode-toggle.delete-active { border-color: var(--error); box-shadow: 0 0 10px var(--error-soft); }
 .quick-date-pills .btn-action.active { background-color: var(--brand-blue); color: var(--bg-primary); border-color: var(--brand-blue); font-weight: bold; }
-.data-table tbody tr.bill-start td { border-top: 1.5px solid var(--border-muted); }
-.data-table tbody tr td { border-top: 1px solid var(--border-light); }
-.data-table tbody tr.bill-continue .merged-cell { color: transparent; user-select: none; }
+
+.role-manager .analytics-table-shell {
+    border: 1px solid var(--border-light);
+    border-radius: 14px;
+    background: var(--bg-primary);
+    box-shadow: var(--shadow-sm);
+    overflow-x: auto;
+    overflow-y: visible;
+    padding-bottom: 0.2rem;
+}
+
+.role-manager .analytics-entries-control {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.65rem 0.85rem 0.35rem;
+    border-bottom: 1px solid #f7dce8;
+}
+
+.role-manager .analytics-entries-control label {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: #6b7280;
+}
+
+.role-manager .analytics-entries-control select {
+    height: 34px;
+    border-radius: 8px;
+    border: 1px solid #f2bfd5;
+    background: #fff;
+    color: #374151;
+    padding: 0.3rem 0.6rem;
+    font-size: 0.86rem;
+    cursor: pointer;
+}
+
+.role-manager .analytics-entries-control select:focus {
+    outline: none;
+    border-color: var(--brand-pink);
+    box-shadow: 0 0 0 3px var(--brand-pink-soft);
+}
+
+.role-manager #analytics-table {
+    min-width: 1420px;
+    border: none;
+    box-shadow: none;
+    margin: 0;
+    table-layout: fixed;
+}
+
+.role-manager #analytics-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #fdf2f8;
+    color: #4b5563;
+    font-size: 0.77rem;
+    letter-spacing: 0.04em;
+    padding: 0.65rem 0.55rem;
+    border-bottom: 2px solid #f4c9dc;
+    white-space: nowrap;
+}
+
+.role-manager #analytics-table tbody td {
+    padding: 0.5rem 0.55rem;
+    font-size: 0.82rem;
+    line-height: 1.22;
+    color: var(--text-secondary);
+    border-bottom: 1px solid #f7dce8;
+    vertical-align: top;
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    overflow: visible;
+    text-overflow: clip;
+}
+
+.role-manager #analytics-table tbody tr.bill-start td {
+    border-top: 1.5px solid var(--border-muted);
+}
+
+.role-manager #analytics-table tbody tr.bill-continue .merged-cell {
+    color: transparent;
+    user-select: none;
+}
+
+.role-manager #analytics-table th.col-bill,
+.role-manager #analytics-table td.col-bill {
+    width: 11%;
+    min-width: 120px;
+}
+
+.role-manager #analytics-table th.col-patient,
+.role-manager #analytics-table td.col-patient {
+    width: 20%;
+    min-width: 220px;
+}
+
+.role-manager #analytics-table th.col-test-details,
+.role-manager #analytics-table td.col-test-details {
+    width: 25%;
+    min-width: 300px;
+}
+
+.role-manager #analytics-table th.col-gross,
+.role-manager #analytics-table td.col-gross {
+    width: 10%;
+    min-width: 140px;
+}
+
+.role-manager #analytics-table th.col-discount,
+.role-manager #analytics-table td.col-discount {
+    width: 8%;
+    min-width: 90px;
+}
+
+.role-manager #analytics-table th.col-testtotal,
+.role-manager #analytics-table td.col-testtotal {
+    width: 9%;
+    min-width: 120px;
+}
+
+.role-manager #analytics-table th.col-profcharge,
+.role-manager #analytics-table td.col-profcharge {
+    width: 8%;
+    min-width: 120px;
+}
+
+.role-manager #analytics-table th.col-payment-mode,
+.role-manager #analytics-table td.col-payment-mode {
+    width: 14%;
+    min-width: 220px;
+    text-align: left;
+}
+
+.role-manager #analytics-table th.col-actions,
+.role-manager #analytics-table td.col-actions {
+    width: 8%;
+    min-width: 120px;
+    text-align: center;
+}
+
+.role-manager #analytics-table td.cell-amount,
+.role-manager #analytics-table th.col-amount {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+.role-manager #analytics-table .bill-detail-link {
+    display: inline-block;
+    color: #be123c;
+    font-weight: 700;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 2px;
+    white-space: nowrap;
+}
+
+.role-manager #analytics-table .bill-detail-link:hover,
+.role-manager #analytics-table .bill-detail-link:focus-visible {
+    color: #9f1239;
+    text-decoration-style: solid;
+}
+
+.role-manager #analytics-table .bill-meta-line {
+    display: block;
+    margin-top: 0.08rem;
+    color: #64748b;
+    font-size: 0.7rem;
+    line-height: 1.2;
+}
+
+.role-manager #analytics-table .patient-name {
+    display: block;
+    font-weight: 600;
+    color: #1f2937;
+    font-size: 0.82rem;
+}
+
+.role-manager #analytics-table .patient-ref,
+.role-manager #analytics-table .patient-uid {
+    display: block;
+    margin-top: 0.08rem;
+    color: #64748b;
+    font-size: 0.7rem;
+    line-height: 1.2;
+}
+
+.role-manager #analytics-table .test-main {
+    display: block;
+    font-weight: 600;
+    color: #1f2937;
+    font-size: 0.81rem;
+}
+
+.role-manager #analytics-table .test-sub {
+    display: block;
+    margin-top: 0.08rem;
+    color: #334155;
+    font-size: 0.78rem;
+    line-height: 1.22;
+}
+
+.role-manager #analytics-table .screening-note {
+    display: block;
+    margin-top: 0.1rem;
+    font-size: 0.69rem;
+    color: #0f766e;
+    line-height: 1.18;
+}
+
+.role-manager #analytics-table .discount-tag {
+    margin-left: 0.2rem;
+    font-size: 0.69rem;
+    color: #64748b;
+    font-weight: 600;
+}
+
+.role-manager #analytics-table .payment-mode-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    padding: 0.2rem 0.55rem;
+    font-size: 0.71rem;
+    font-weight: 800;
+    letter-spacing: 0.01em;
+    line-height: 1.1;
+    white-space: nowrap;
+}
+
+.role-manager #analytics-table .payment-mode-pill.mode-cash {
+    background: #e8f7ef;
+    color: #166534;
+    border: 1px solid #c9ebd6;
+}
+
+.role-manager #analytics-table .payment-mode-pill.mode-card {
+    background: #e9f2ff;
+    color: #1d4ed8;
+    border: 1px solid #cadbff;
+}
+
+.role-manager #analytics-table .payment-mode-pill.mode-upi {
+    background: #f3ecff;
+    color: #6d28d9;
+    border: 1px solid #dfd1ff;
+}
+
+.role-manager #analytics-table .payment-mode-pill.mode-mixed {
+    background: #fff5e8;
+    color: #b45309;
+    border: 1px solid #f8dbbd;
+}
+
+.role-manager #analytics-table .payment-mode-pill.mode-other {
+    background: #f1f5f9;
+    color: #334155;
+    border: 1px solid #dbe3ec;
+}
+
+.role-manager #analytics-table .payment-mode-breakdown {
+    display: block;
+    margin-top: 0.14rem;
+    font-size: 0.68rem;
+    color: #64748b;
+    line-height: 1.2;
+    white-space: normal;
+}
+
+.role-manager #analytics-table .analytics-delete-form {
+    margin: 0;
+    display: inline-flex;
+    justify-content: center;
+}
+
+.role-manager #analytics-table .analytics-delete-form .btn-action {
+    padding: 0.18rem 0.38rem;
+    font-size: 0.66rem;
+    line-height: 1.15;
+}
+
+.role-manager #analytics-table tfoot th {
+    padding: 0.58rem 0.55rem;
+    background: #edf4ff;
+    border-top: 2px solid #c8d8f1;
+    color: #1f3f6b;
+    font-size: 0.78rem;
+}
+
+.role-manager #analytics-table tfoot .analytics-total-label {
+    text-align: right;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 700;
+}
+
+.role-manager #analytics-table tfoot .col-amount {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.role-manager #analytics-table tbody tr:nth-child(even) td {
+    background: #fff9fc;
+}
+
+.role-manager #analytics-table tbody tr:hover td {
+    background: #ffeef5;
+}
+
+.role-manager .btn-apply-entries {
+    height: 32px;
+    padding: 0 0.9rem;
+    border-radius: 8px;
+    border: none;
+    background: var(--brand-pink);
+    color: #fff;
+    font-size: 0.84rem;
+    font-weight: 600;
+    cursor: pointer;
+    vertical-align: middle;
+    transition: background 0.18s ease, transform 0.15s ease;
+}
+
+.role-manager .btn-apply-entries:hover {
+    background: #be123c;
+    transform: translateY(-1px);
+}
+
+.role-manager .analytics-pagination,
+.role-manager .unified-pagination {
+    margin: 0.95rem 0 0.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.34rem;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 0.2rem;
+    scrollbar-width: thin;
+}
+
+.role-manager .analytics-pagination .page-item,
+.role-manager .unified-pagination .page-item {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+    height: 32px;
+    padding: 0 0.58rem;
+    border-radius: 8px;
+    border: 1px solid #f0c4d9;
+    background: #fff;
+    color: #475569;
+    text-decoration: none;
+    font-size: 0.84rem;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    transition: all 0.18s ease;
+}
+
+.role-manager .analytics-pagination .page-number:hover,
+.role-manager .analytics-pagination .page-prev:hover,
+.role-manager .analytics-pagination .page-next:hover,
+.role-manager .unified-pagination .page-number:hover,
+.role-manager .unified-pagination .page-prev:hover,
+.role-manager .unified-pagination .page-next:hover {
+    border-color: #e63b6f;
+    color: #be123c;
+    background: #fff6fa;
+}
+
+.role-manager .analytics-pagination .page-number.is-active,
+.role-manager .unified-pagination .page-number.is-active {
+    background: linear-gradient(135deg, #e63b6f 0%, #de2d63 100%);
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 8px 16px rgba(230, 59, 111, 0.24);
+}
+
+.role-manager .analytics-pagination .page-ellipsis,
+.role-manager .unified-pagination .page-ellipsis {
+    border: none;
+    background: transparent;
+    min-width: auto;
+    padding: 0 0.15rem;
+    color: #94a3b8;
+}
+
+.role-manager .analytics-pagination .is-disabled,
+.role-manager .unified-pagination .is-disabled {
+    opacity: 0.48;
+    pointer-events: none;
+}
+
+@media (max-width: 768px) {
+    .role-manager #analytics-table {
+        min-width: 1360px;
+    }
+
+    .role-manager #analytics-table thead th,
+    .role-manager #analytics-table tbody td {
+        padding: 0.45rem 0.48rem;
+        font-size: 0.77rem;
+    }
+
+    .role-manager #analytics-table .test-main { font-size: 0.77rem; }
+    .role-manager #analytics-table .test-sub { font-size: 0.74rem; }
+    .role-manager #analytics-table .patient-name { font-size: 0.78rem; }
+}
 
 /* ===== Manager: Dashboard (migrated from dashboard.php) ===== */
 .kpi-link, .summary-card-clickable { text-decoration: none; display: block; color: inherit; }
 .summary-card-clickable { cursor: pointer; }
 .chart-container canvas { cursor: pointer; }
 .text-danger { color: var(--error); }
-.summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+.summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.85rem; margin-bottom: var(--manager-space-md); }
 .summary-cards { align-items: stretch; }
-.summary-card { background: var(--bg-primary); border-radius: 14px; box-shadow: var(--shadow-sm); padding: clamp(0.9rem, 2vw, 1.4rem); transition: transform 0.2s ease, box-shadow 0.2s ease; border: 1px solid var(--border-light); display: flex; flex-direction: column; gap: 0.35rem; }
+.summary-card { background: var(--bg-primary); border-radius: 14px; box-shadow: var(--shadow-sm); padding: clamp(0.8rem, 1.5vw, 1.15rem); transition: transform 0.2s ease, box-shadow 0.2s ease; border: 1px solid var(--border-light); display: flex; flex-direction: column; gap: 0.35rem; }
 .summary-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-md); }
 .summary-card h3 { margin: 0 0 0.35rem; font-size: 0.95rem; font-weight: 700; color: var(--text-muted); }
 .summary-card p { margin: 0; font-size: clamp(1.35rem, 3vw, 1.65rem); font-weight: 800; color: var(--text-primary); }
-.charts-section { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: clamp(1rem, 2vw, 1.5rem); }
-.chart-container { background: var(--bg-primary); border-radius: 14px; box-shadow: var(--shadow-sm); padding: clamp(1rem, 2vw, 1.5rem); min-height: 320px; display: flex; flex-direction: column; border: 1px solid var(--border-light); }
-.chart-container h3 { margin: 0 0 1rem; font-size: 1rem; font-weight: 700; color: var(--text-primary); }
-.chart-container canvas { flex: 1; }
+.charts-section,
+.manager-charts-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: clamp(0.85rem, 1.6vw, 1.1rem);
+    align-items: stretch;
+}
+
+.chart-container {
+    background: var(--bg-primary);
+    border-radius: 14px;
+    box-shadow: var(--shadow-sm);
+    padding: clamp(0.85rem, 1.5vw, 1.1rem);
+    min-height: 320px;
+    max-height: 390px;
+    height: clamp(320px, 36vh, 390px);
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border-light);
+}
+
+.chart-container h3 {
+    margin: 0 0 0.62rem;
+    font-size: 0.98rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.chart-canvas-wrap {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
+}
+
+.chart-container canvas {
+    width: 100% !important;
+    height: 100% !important;
+    cursor: pointer;
+}
 
 .role-manager .manager-settings-widget {
     position: fixed;
@@ -401,7 +1084,7 @@ body.role-manager.manager-nav-colliding .main-navbar {
 .role-manager .settings-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: 1rem;
+    gap: 0.85rem;
 }
 
 .role-manager .settings-card {
@@ -409,7 +1092,7 @@ body.role-manager.manager-nav-colliding .main-navbar {
     border: 1px solid var(--border-light);
     border-radius: 14px;
     box-shadow: var(--shadow-sm);
-    padding: 1rem 1.05rem;
+    padding: 0.9rem 0.95rem;
 }
 
 .role-manager .settings-card h3 {
@@ -437,14 +1120,14 @@ body.role-manager.manager-nav-colliding .main-navbar {
 .role-manager .settings-form {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.8rem;
 }
 
 .role-manager .settings-field {
     display: flex;
     flex-direction: column;
     gap: 0.4rem;
-    margin-bottom: 0.8rem;
+    margin-bottom: 0.6rem;
 }
 
 .role-manager .settings-field label {
@@ -496,8 +1179,15 @@ body.role-manager.manager-nav-colliding .main-navbar {
         width: min(1020px, 96vw);
     }
 
-    .charts-section {
-        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    .charts-section,
+    .manager-charts-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .chart-container {
+        min-height: 300px;
+        max-height: 360px;
+        height: clamp(300px, 34vh, 360px);
     }
 }
 
@@ -510,14 +1200,21 @@ body.role-manager.manager-nav-colliding .main-navbar {
         grid-column: 1 / -1;
     }
 
-    .charts-section {
+    .charts-section,
+    .manager-charts-grid {
         grid-template-columns: 1fr;
+    }
+
+    .chart-container {
+        min-height: 280px;
+        max-height: 340px;
+        height: clamp(280px, 42vh, 340px);
     }
 }
 
 @media (max-width: 560px) {
     body.role-manager .main-content {
-        padding: 0.75rem;
+        padding: 0;
     }
 
     .role-manager .page-container,
@@ -561,20 +1258,34 @@ body.role-manager.manager-nav-colliding .main-navbar {
 }
 
 /* ===== Manager: Manage Doctors (migrated from manage_doctors.php) ===== */
-.form-container-collapsible { max-height: 0; overflow: hidden; transition: max-height 0.5s ease-in-out, padding 0.5s ease-in-out, border 0.5s ease-in-out; padding: 0 20px; margin: 0; border: 1px solid transparent; background-color: var(--bg-secondary); border-radius: var(--border-radius, 8px); }
-.form-container-collapsible.visible { max-height: 5000px; padding: 20px; border: 1px solid var(--border-light); box-shadow: var(--shadow-sm); margin-top: 1.5rem; background-color: var(--bg-primary); }
-.scrollable-test-list { max-height: 400px; overflow-y: auto; border: 1px solid var(--border-light); padding: 10px; border-radius: var(--border-radius, 8px); background-color: var(--bg-primary); }
+.form-container-collapsible { max-height: 0; overflow: hidden; transition: max-height 0.5s ease-in-out, padding 0.5s ease-in-out, border 0.5s ease-in-out; padding: 0 16px; margin: 0; border: 1px solid transparent; background-color: var(--bg-secondary); border-radius: var(--border-radius, 8px); }
+.form-container-collapsible.visible { max-height: 5000px; padding: 16px; border: 1px solid var(--border-light); box-shadow: var(--shadow-sm); margin-top: 0.75rem; background-color: var(--bg-primary); }
+.scrollable-test-list { max-height: 400px; overflow-y: auto; border: 1px solid var(--border-light); padding: 8px; border-radius: var(--border-radius, 8px); background-color: var(--bg-primary); }
+
+.role-manager .doctor-active-toggle {
+    margin-top: 0.45rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.role-manager .doctor-active-toggle input[type="checkbox"] {
+    margin: 0;
+    accent-color: var(--brand-pink);
+}
 
 /* ===== Manager: Manage Tests (migrated from manage_tests.php) ===== */
 /* Reusing .form-container-collapsible from manage_doctors.php if duplicates occur, but including for completeness or slight diffs */
 .role-manager .page-container.manage-tests-compact {
-    padding: 5px 18px 8px;
-    margin-bottom: 0.6rem;
+    padding: 0.55rem 0.95rem 0.75rem;
+    margin-bottom: 0;
 }
 
 .role-manager .manage-tests-compact .dashboard-header {
-    padding: 4px 0 6px;
-    margin-bottom: 0.35rem;
+    padding: 2px 0 5px;
+    margin-bottom: 0.3rem;
 }
 
 .role-manager .manage-tests-compact .dashboard-header h1 {
@@ -586,24 +1297,24 @@ body.role-manager.manager-nav-colliding .main-navbar {
 }
 
 .role-manager .manage-tests-compact .form-container-collapsible.visible {
-    margin-top: 0.4rem;
-    padding: 14px;
+    margin-top: 0.35rem;
+    padding: 12px;
 }
 
 .role-manager .manage-tests-compact .table-container {
-    margin-top: 0.5rem;
+    margin-top: 0.35rem;
 }
 
-.filter-bar { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-end; padding: 1rem 1.5rem; background-color: var(--bg-secondary); border-radius: var(--border-radius, 8px); margin-bottom: 1.5rem; border: 1px solid var(--border-light); }
+.filter-bar { display: flex; flex-wrap: wrap; gap: 0.9rem; align-items: flex-end; padding: 0.75rem 1rem; background-color: var(--bg-secondary); border-radius: var(--border-radius, 8px); margin-bottom: 0.9rem; border: 1px solid var(--border-light); }
 .filter-bar .form-group { margin-bottom: 0; flex-grow: 1; }
 .filter-bar .form-group label { margin-bottom: 0.3rem; font-size: 0.9em; color: var(--text-muted); }
 .filter-bar input[type="text"], .filter-bar select { width: 100%; box-sizing: border-box; padding: 0.5rem; border: 1px solid var(--border-light); border-radius: 4px; color: var(--text-secondary); background: var(--bg-primary); }
-.filter-bar .btn-submit, .filter-bar .btn-cancel { height: calc(1.5em + 1rem + 2px); padding: 0.5rem 1.2rem; margin-left: 1rem; flex-shrink: 0; border-radius: 6px; }
+.filter-bar .btn-submit, .filter-bar .btn-cancel { height: calc(1.5em + 1rem + 2px); padding: 0.5rem 1.2rem; margin-left: 0.5rem; flex-shrink: 0; border-radius: 6px; }
 .filter-bar .btn-submit { background: var(--brand-pink); color: var(--bg-primary); border: none; }
 .filter-bar .btn-cancel { background: var(--brand-blue-soft); color: var(--brand-blue); border: 1px solid var(--brand-blue); }
 
 /* ===== Manager: Payment Report (migrated from payment_report.php) ===== */
-.date-filter-form { display: flex; gap: 15px; align-items: center; margin-bottom: 20px; background-color: var(--bg-secondary); padding: 15px; border-radius: 8px; flex-wrap: wrap; border: 1px solid var(--border-light); }
+.date-filter-form { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; background-color: var(--bg-secondary); padding: 10px; border-radius: 8px; flex-wrap: wrap; border: 1px solid var(--border-light); }
 
 /* ===== Manager: Print Reports (migrated from print_reports.php) ===== */
 .status-completed { background-color: var(--success); color: var(--bg-primary); padding: 3px 8px; border-radius: 4px; font-size: 0.9em; display: inline-block; }
@@ -630,15 +1341,15 @@ body.role-manager.manager-nav-colliding .main-navbar {
 /* .date-filter-form reused */
 .status-paid { background-color: var(--success); color: var(--bg-primary); padding: 3px 8px; border-radius: 4px; font-size: 0.9em; }
 .status-due { background-color: var(--error); color: var(--bg-primary); padding: 3px 8px; border-radius: 4px; font-size: 0.9em; }
-.status-half-paid { background-color: var(--warning); color: var(--bg-primary); padding: 3px 8px; border-radius: 4px; font-size: 0.9em; }
+.status-partial-paid { background-color: var(--warning); color: var(--bg-primary); padding: 3px 8px; border-radius: 4px; font-size: 0.9em; }
 
 /* ===== Manager: View Request Details (migrated from view_request_details.php) ===== */
-.detail-section { margin-bottom: 1.5rem; padding: 1rem; border: 1px solid var(--border-light); border-radius: 8px; background-color: var(--bg-secondary); }
+.detail-section { margin-bottom: 0.9rem; padding: 0.85rem; border: 1px solid var(--border-light); border-radius: 8px; background-color: var(--bg-secondary); }
 .detail-section h3 { margin-top: 0; border-bottom: 1px solid var(--border-light); padding-bottom: 0.5rem; color: var(--text-primary); }
 .detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0.5rem 1rem; }
 .detail-grid p { margin: 0.3rem 0; }
 .detail-grid strong { color: var(--text-secondary); }
-.actions-container { margin-top: 2rem; display: flex; gap: 1rem; justify-content: flex-end; }
+.actions-container { margin-top: 1rem; display: flex; gap: 0.75rem; justify-content: flex-end; }
 .data-table.minimal-padding th, .data-table.minimal-padding td { padding: 6px 10px; }
 
 /* --- Sidebar Layout (for Manager pages) --- */
@@ -716,20 +1427,20 @@ body.role-manager.manager-nav-colliding .main-navbar {
     }
 }
 /* Improved Filter Bar for Analytics */
-.filter-form.compact-filters {
+.role-manager .filter-form.compact-filters {
     display: flex;
     flex-wrap: wrap;
-    gap: 1rem;
+    gap: 0.75rem;
     background: var(--bg-primary);
-    padding: 0.85rem 1.25rem;
+    padding: 0.7rem 1rem;
     border-radius: 10px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.04);
     align-items: center;
-    margin: 0 0 1.25rem 0;
+    margin: 0 0 var(--manager-space-md) 0 !important;
     border: 1px solid var(--border-light);
 }
 
-.filter-form.compact-filters .filter-group {
+.role-manager .filter-form.compact-filters .filter-group {
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -737,7 +1448,7 @@ body.role-manager.manager-nav-colliding .main-navbar {
     margin: 0;
 }
 
-.filter-form.compact-filters label {
+.role-manager .filter-form.compact-filters label {
     font-size: 0.9em;
     font-weight: 600;
     color: var(--text-secondary);
@@ -745,8 +1456,8 @@ body.role-manager.manager-nav-colliding .main-navbar {
     white-space: nowrap;
 }
 
-.filter-form.compact-filters input[type="date"],
-.filter-form.compact-filters select {
+.role-manager .filter-form.compact-filters input[type="date"],
+.role-manager .filter-form.compact-filters select {
     padding: 8px 12px;
     border: 1px solid #ddd;
     border-radius: 6px;
@@ -755,30 +1466,30 @@ body.role-manager.manager-nav-colliding .main-navbar {
     flex: 1 1 auto;
 }
 
-.filter-form.compact-filters .quick-date-pills {
+.role-manager .filter-form.compact-filters .quick-date-pills {
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem;
 }
 
-.filter-form.compact-filters .quick-dates-group {
+.role-manager .filter-form.compact-filters .quick-dates-group {
     flex: 1 1 100%;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.5rem;
 }
 
-.filter-form.compact-filters .date-field-group {
+.role-manager .filter-form.compact-filters .date-field-group {
     flex: 1 1 220px;
 }
 
-.filter-form.compact-filters .filter-actions {
+.role-manager .filter-form.compact-filters .filter-actions {
     display: flex;
-    gap: 10px;
+    gap: 8px;
     margin-left: auto;
 }
 
-.filter-form.compact-filters button {
-    padding: 8px 20px;
+.role-manager .filter-form.compact-filters button {
+    padding: 8px 16px;
     border: none;
     border-radius: 6px;
     background: var(--brand-blue);
@@ -789,25 +1500,49 @@ body.role-manager.manager-nav-colliding .main-navbar {
     height: 38px;
 }
 
-.filter-form.compact-filters button:hover {
+.role-manager .filter-form.compact-filters button:hover {
     background: var(--brand-dark);
 }
 
+.role-manager .analytics-active-filters {
+    margin-top: var(--manager-space-sm);
+    padding: 0.55rem 0.7rem;
+    background-color: #eef2f7;
+    border: 1px solid #d9e2ef;
+    border-radius: 10px;
+}
+
+.role-manager .analytics-active-filters strong {
+    margin-right: 0.5rem;
+    color: #334155;
+}
+
+.role-manager .analytics-filter-tag {
+    display: inline-block;
+    background-color: #2563eb;
+    color: #ffffff;
+    padding: 0.22rem 0.55rem;
+    border-radius: 999px;
+    margin: 0.12rem;
+    font-size: 0.8rem;
+    line-height: 1.25;
+}
+
 @media (max-width: 768px) {
-    .filter-form.compact-filters {
+    .role-manager .filter-form.compact-filters {
         gap: 0.75rem;
     }
-    .filter-form.compact-filters .date-field-group {
+    .role-manager .filter-form.compact-filters .date-field-group {
         flex: 1 1 100%;
     }
 }
 
 @media (max-width: 560px) {
-    .filter-form.compact-filters .quick-dates-group {
+    .role-manager .filter-form.compact-filters .quick-dates-group {
         flex-direction: column;
         align-items: flex-start;
     }
-    .filter-form.compact-filters .filter-actions {
+    .role-manager .filter-form.compact-filters .filter-actions {
         width: 100%;
         justify-content: flex-end;
     }
@@ -853,7 +1588,7 @@ body.role-manager.manager-nav-colliding .main-navbar {
 }
 
 .rd-notice {
-    padding: 1rem 1.25rem;
+    padding: 0.75rem 1rem;
     border-radius: 10px;
     font-size: .95rem;
 }
@@ -989,5 +1724,40 @@ body.role-manager.manager-nav-colliding .main-navbar {
     height: 100%;
     display: block;
     border: none;
+}
+
+/* Keep manager pages on the shared fixed sidebar shell. */
+body.role-manager.app-layout .main-navbar {
+    top: var(--shell-header-height);
+    left: 0;
+    width: var(--shell-sidebar-width);
+    margin: 0;
+    border-radius: 0;
+    border: none;
+    border-right: 1px solid var(--nav-border);
+    background: linear-gradient(180deg, #fef1f6 0%, #fce7f1 100%);
+}
+
+body.role-manager.app-layout .main-navbar ul {
+    display: flex;
+    grid-template-columns: none;
+    padding: 0;
+    gap: 0.42rem;
+    background: transparent;
+    box-shadow: none;
+}
+
+body.role-manager.app-layout .main-content {
+    padding: 0;
+    min-height: auto;
+}
+
+body.role-manager.app-layout .page-container,
+body.role-manager.app-layout .table-container,
+body.role-manager.app-layout .form-container,
+body.role-manager.app-layout .dashboard-container {
+    width: 100%;
+    max-width: none;
+    margin: 0 0 var(--manager-space-md);
 }
 

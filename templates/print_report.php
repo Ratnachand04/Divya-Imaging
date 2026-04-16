@@ -1,6 +1,9 @@
 <?php
 session_start();
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
+
+ensure_package_management_schema($conn);
 
 // Basic security check
 if (!isset($_SESSION['user_id'])) {
@@ -27,11 +30,13 @@ $stmt = $conn->prepare(
         b.id as bill_id,
         p.name as patient_name, p.age, p.sex,
         t.main_test_name, t.sub_test_name,
+          COALESCE(NULLIF(bi.package_name, ''), tp.package_name) AS package_name,
         rd.doctor_name as referral_doctor_name
      FROM bill_items bi
      JOIN bills b ON bi.bill_id = b.id
      JOIN patients p ON b.patient_id = p.id
      JOIN tests t ON bi.test_id = t.id
+      LEFT JOIN test_packages tp ON tp.id = bi.package_id
      LEFT JOIN referral_doctors rd ON b.referral_doctor_id = rd.id
      WHERE bi.id = ?"
 );
@@ -237,12 +242,15 @@ if ($viewer_role === 'manager' && ($report['report_status'] ?? 'Pending') !== 'C
                 <div><strong>Bill No:</strong> <?php echo $report['bill_id']; ?></div>
                 <div><strong>Age / Gender:</strong> <?php echo htmlspecialchars($report['age']); ?> / <?php echo htmlspecialchars($report['sex']); ?></div>
                 <div><strong>Report Date:</strong> <?php echo date("F j, Y, g:i a", strtotime($report['report_date'])); ?></div>
+                <?php if (!empty($report['package_name'])): ?>
+                    <div style="grid-column: 1 / -1;"><strong>Package:</strong> <?php echo htmlspecialchars($report['package_name']); ?></div>
+                <?php endif; ?>
                 <div style="grid-column: 1 / -1;"><strong>Referred By:</strong> <?php echo htmlspecialchars($report['referral_doctor_name'] ?? 'Self'); ?></div>
             </div>
         </div>
 
         <div class="report-body">
-            <h2 class="report-title"><?php echo strtoupper(htmlspecialchars($report['sub_test_name'])); ?></h2>
+            <h2 class="report-title"><?php echo strtoupper(htmlspecialchars($report['sub_test_name'])); ?><?php echo !empty($report['package_name']) ? ' (PACKAGE)' : ''; ?></h2>
             <div class="report-content">
                 <?php echo $report['report_content']; // This displays the formatted content from the editor ?>
             </div>

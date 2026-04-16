@@ -13,6 +13,8 @@ require_once '../includes/functions.php';
 
 ensureBillItemScreeningsTable($conn);
 ensureBillItemDiscountColumn($conn);
+ensure_bill_payment_split_columns($conn);
+ensure_package_management_schema($conn);
 
 // #############################################################################
 // ### PDF SAVE PATH (relative to this file's directory) ###
@@ -70,18 +72,85 @@ function generateAndSaveBillPdf($bill_id, $conn, $patient_name, $base_save_path)
 
 
     $items_stmt = $conn->prepare(
-        "SELECT bi.id AS bill_item_id, t.main_test_name, t.sub_test_name, t.price, COALESCE(bis.screening_amount, 0) AS screening_amount
+        "SELECT bi.id AS bill_item_id,
+                COALESCE(bi.item_type, 'test') AS item_type,
+                bi.package_id,
+                COALESCE(NULLIF(bi.package_name, ''), tp.package_name) AS package_name,
+                t.main_test_name,
+                t.sub_test_name,
+                t.price,
+                COALESCE(bis.screening_amount, 0) AS screening_amount
          FROM bill_items bi
-         JOIN tests t ON bi.test_id = t.id
+         LEFT JOIN tests t ON bi.test_id = t.id
+         LEFT JOIN test_packages tp ON tp.id = bi.package_id
          LEFT JOIN bill_item_screenings bis ON bis.bill_item_id = bi.id
-         WHERE bi.bill_id = ? AND bi.item_status = 0"
+         WHERE bi.bill_id = ?
+           AND bi.item_status = 0
+           AND (COALESCE(bi.item_type, 'test') = 'package' OR bi.package_id IS NULL)
+         ORDER BY bi.id ASC"
     );
     $items_stmt->bind_param("i", $bill_id);
     $items_stmt->execute();
     $items_result = $items_stmt->get_result();
+
+    $package_breakdown_map = [];
+    $package_items_stmt = $conn->prepare(
+        "SELECT bill_item_id, test_name, package_test_price
+         FROM bill_package_items
+         WHERE bill_id = ?
+         ORDER BY id ASC"
+    );
+    if ($package_items_stmt) {
+        $package_items_stmt->bind_param('i', $bill_id);
+        $package_items_stmt->execute();
+        $package_items_result = $package_items_stmt->get_result();
+        while ($pkg_item = $package_items_result->fetch_assoc()) {
+            $bill_item_id = (int)($pkg_item['bill_item_id'] ?? 0);
+            if (!isset($package_breakdown_map[$bill_item_id])) {
+                $package_breakdown_map[$bill_item_id] = [];
+            }
+            $package_breakdown_map[$bill_item_id][] = $pkg_item;
+        }
+        $package_items_stmt->close();
+    }
+
     $items_html = '';
     while($item = $items_result->fetch_assoc()) {
+        $item_type = (string)($item['item_type'] ?? 'test');
+        $bill_item_id = (int)($item['bill_item_id'] ?? 0);
+
+        if ($item_type === 'package') {
+            $package_name = trim((string)($item['package_name'] ?? ''));
+            if ($package_name === '') {
+                $package_name = 'Package';
+            }
+            $package_tests = $package_breakdown_map[$bill_item_id] ?? [];
+            $package_total = 0.0;
+            foreach ($package_tests as $package_test) {
+                $package_total += (float)($package_test['package_test_price'] ?? 0);
+            }
+            $package_total = round($package_total, 2);
+
+            $package_label = htmlspecialchars($package_name . ' (PACKAGE)');
+            $items_html .= "<tr><td>{$package_label}</td><td style='text-align:right;'>" . number_format($package_total, 2) . "</td></tr>";
+
+            foreach ($package_tests as $package_test) {
+                $test_name = trim((string)($package_test['test_name'] ?? 'Included Test'));
+                if ($test_name === '') {
+                    $test_name = 'Included Test';
+                }
+                $test_label = htmlspecialchars('- ' . $test_name);
+                $test_price = number_format((float)($package_test['package_test_price'] ?? 0), 2);
+                $items_html .= "<tr><td>{$test_label}</td><td style='text-align:right;'>{$test_price}</td></tr>";
+            }
+
+            continue;
+        }
+
         $raw_name = trim(preg_replace('/\s+/', ' ', $item['main_test_name'] . ' ' . $item['sub_test_name']));
+        if ($raw_name === '') {
+            $raw_name = 'Unnamed Test';
+        }
         $test_label = htmlspecialchars('Test ' . $raw_name);
         $base_price = number_format($item['price'], 2);
         $items_html .= "<tr><td>{$test_label}</td><td style='text-align:right;'>{$base_price}</td></tr>";
@@ -161,52 +230,75 @@ $success_message = '';
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $conn->begin_transaction();
     try {
+        ensure_patient_registration_schema($conn);
+
+        $is_new_patient = isset($_POST['is_new_patient']) && $_POST['is_new_patient'] === '1';
+        $submitted_uid = strtoupper(trim($_POST['patient_uid'] ?? ''));
         $patient_name = trim($_POST['patient_name'] ?? '');
         $patient_age = isset($_POST['patient_age']) ? (int)$_POST['patient_age'] : 0;
         $patient_sex = trim($_POST['patient_sex'] ?? '');
         $patient_address = trim($_POST['patient_address'] ?? '');
         $patient_city = trim($_POST['patient_city'] ?? '');
         $patient_mobile = trim($_POST['patient_mobile'] ?? '');
-
-        if ($patient_name === '' || $patient_age < 0 || $patient_sex === '' || $patient_mobile === '') {
-            throw new Exception("Patient name, age, gender, and mobile number are required.");
-        }
-        if (!preg_match('/^\d{10}$/', $patient_mobile)) {
-            throw new Exception("Mobile number must be exactly 10 digits.");
-        }
-
-        // Check if an existing patient was selected
-        $existing_patient_id = isset($_POST['existing_patient_id']) ? (int)$_POST['existing_patient_id'] : 0;
         $patient_id = 0;
 
-        if ($existing_patient_id > 0) {
-            // Use the existing patient
-            $patient_id = $existing_patient_id;
-        } else {
-            // New patient - use the submitted uid or generate one
-            $submitted_uid = trim($_POST['patient_uid'] ?? '');
-            for ($attempt = 0; $attempt < 5; $attempt++) {
-                $uid = ($attempt === 0 && $submitted_uid !== '') ? $submitted_uid : generate_patient_uid($conn);
-                $stmt_patient = $conn->prepare("INSERT INTO patients (uid, name, age, sex, address, city, mobile_number) VALUES (?, ?, ?, ?, ?, ?, ?)");
-                if (!$stmt_patient) {
-                    throw new Exception("Patient preparation failed: " . $conn->error);
-                }
-                $stmt_patient->bind_param("ssissss", $uid, $patient_name, $patient_age, $patient_sex, $patient_address, $patient_city, $patient_mobile);
+        if ($is_new_patient) {
+            if ($submitted_uid === '' || !preg_match('/^DC\d{8}$/', $submitted_uid)) {
+                throw new Exception("Please generate a valid patient ID after entering patient details.");
+            }
+            if ($patient_name === '' || $patient_age < 0 || $patient_sex === '' || $patient_mobile === '') {
+                throw new Exception("Patient name, age, gender, and mobile number are required for new patient registration.");
+            }
+            if (!preg_match('/^\d{10}$/', $patient_mobile)) {
+                throw new Exception("Mobile number must be exactly 10 digits.");
+            }
 
-                if ($stmt_patient->execute()) {
-                    $patient_id = $stmt_patient->insert_id;
-                    $stmt_patient->close();
-                    break;
-                }
-
+            $uid = $submitted_uid;
+            $stmt_patient = $conn->prepare("INSERT INTO patients (uid, name, age, sex, address, city, mobile_number) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            if (!$stmt_patient) {
+                throw new Exception("Patient preparation failed: " . $conn->error);
+            }
+            $stmt_patient->bind_param("ssissss", $uid, $patient_name, $patient_age, $patient_sex, $patient_address, $patient_city, $patient_mobile);
+            if ($stmt_patient->execute()) {
+                $patient_id = $stmt_patient->insert_id;
+            } else {
                 $insert_error_no = $stmt_patient->errno;
                 $insert_error = $stmt_patient->error;
                 $stmt_patient->close();
-
-                if ($insert_error_no !== 1062) {
-                    throw new Exception("Patient insertion failed: " . $insert_error);
+                if ($insert_error_no === 1062) {
+                    throw new Exception("Generated patient ID already exists. Please click Generate New again.");
                 }
+                throw new Exception("Patient insertion failed: " . $insert_error);
             }
+            $stmt_patient->close();
+        } else {
+            if ($submitted_uid === '') {
+                throw new Exception("Patient ID is required for existing patient.");
+            }
+            if (!preg_match('/^DC\d{8}$/', $submitted_uid)) {
+                throw new Exception("Patient ID must be in DCYYYYNNNN format.");
+            }
+
+            $stmt_existing = $conn->prepare("SELECT id, uid, name, age, sex, address, city, mobile_number FROM patients WHERE uid = ? LIMIT 1");
+            if (!$stmt_existing) {
+                throw new Exception("Failed to prepare patient lookup: " . $conn->error);
+            }
+            $stmt_existing->bind_param("s", $submitted_uid);
+            $stmt_existing->execute();
+            $existing_patient = $stmt_existing->get_result()->fetch_assoc();
+            $stmt_existing->close();
+
+            if (!$existing_patient) {
+                throw new Exception("Patient not found for ID {$submitted_uid}.");
+            }
+
+            $patient_id = (int)$existing_patient['id'];
+            $patient_name = (string)$existing_patient['name'];
+            $patient_age = (int)$existing_patient['age'];
+            $patient_sex = (string)$existing_patient['sex'];
+            $patient_address = (string)($existing_patient['address'] ?? '');
+            $patient_city = (string)($existing_patient['city'] ?? '');
+            $patient_mobile = (string)($existing_patient['mobile_number'] ?? '');
         }
 
         if ($patient_id <= 0) {
@@ -249,16 +341,32 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $referral_source_other = trim($_POST['referral_source_other_select'] ?? '');
         }
 
-        $selected_tests_raw = json_decode($_POST['selected_tests_json'] ?? '', true);
-        if (!is_array($selected_tests_raw) || empty($selected_tests_raw)) {
-            throw new Exception("No tests were selected.");
+        $selected_items_raw = json_decode($_POST['selected_tests_json'] ?? '', true);
+        if (!is_array($selected_items_raw) || empty($selected_items_raw)) {
+            throw new Exception("No tests or packages were selected.");
         }
 
         $structured_tests = [];
-        foreach ($selected_tests_raw as $entry) {
+        $structured_packages = [];
+        $package_seen = [];
+        foreach ($selected_items_raw as $entry) {
             if (!is_array($entry)) {
                 continue;
             }
+
+            $item_type = strtolower(trim((string)($entry['item_type'] ?? 'test')));
+            if ($item_type === 'package') {
+                $package_id = isset($entry['id']) ? (int)$entry['id'] : 0;
+                if ($package_id <= 0 || isset($package_seen[$package_id])) {
+                    continue;
+                }
+                $package_seen[$package_id] = true;
+                $structured_packages[] = [
+                    'id' => $package_id
+                ];
+                continue;
+            }
+
             $test_id = isset($entry['id']) ? (int)$entry['id'] : 0;
             if ($test_id <= 0) {
                 continue;
@@ -273,28 +381,73 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             ];
         }
 
-        if (empty($structured_tests)) {
-            throw new Exception("No valid tests were selected.");
+        if (empty($structured_tests) && empty($structured_packages)) {
+            throw new Exception("No valid tests or packages were selected.");
         }
 
-        $test_ids = array_column($structured_tests, 'id');
-        $placeholders = implode(',', array_fill(0, count($test_ids), '?'));
-        $stmt_prices = $conn->prepare("SELECT id, price FROM tests WHERE id IN ($placeholders)");
-        if (!$stmt_prices) {
-            throw new Exception("Failed to prepare test price lookup: " . $conn->error);
-        }
-        $types_str = str_repeat('i', count($test_ids));
-        $stmt_prices->bind_param($types_str, ...$test_ids);
-        $stmt_prices->execute();
-        $price_result = $stmt_prices->get_result();
         $test_price_map = [];
-        while ($row = $price_result->fetch_assoc()) {
-            $test_price_map[(int)$row['id']] = (float)$row['price'];
+        if (!empty($structured_tests)) {
+            $test_ids = array_column($structured_tests, 'id');
+            $placeholders = implode(',', array_fill(0, count($test_ids), '?'));
+            $stmt_prices = $conn->prepare("SELECT id, price FROM tests WHERE id IN ($placeholders)");
+            if (!$stmt_prices) {
+                throw new Exception("Failed to prepare test price lookup: " . $conn->error);
+            }
+            $types_str = str_repeat('i', count($test_ids));
+            $stmt_prices->bind_param($types_str, ...$test_ids);
+            $stmt_prices->execute();
+            $price_result = $stmt_prices->get_result();
+            while ($row = $price_result->fetch_assoc()) {
+                $test_price_map[(int)$row['id']] = (float)$row['price'];
+            }
+            $stmt_prices->close();
         }
-        $stmt_prices->close();
+
+        $package_map = [];
+        $package_tests_map = [];
+        if (!empty($structured_packages)) {
+            $package_ids = array_column($structured_packages, 'id');
+            $pkg_placeholders = implode(',', array_fill(0, count($package_ids), '?'));
+            $pkg_types = str_repeat('i', count($package_ids));
+
+            $stmt_packages = $conn->prepare("SELECT id, package_code, package_name, total_base_price, package_price, discount_amount, status FROM test_packages WHERE id IN ($pkg_placeholders)");
+            if (!$stmt_packages) {
+                throw new Exception('Failed to prepare package lookup: ' . $conn->error);
+            }
+            $stmt_packages->bind_param($pkg_types, ...$package_ids);
+            $stmt_packages->execute();
+            $package_result = $stmt_packages->get_result();
+            while ($pkg = $package_result->fetch_assoc()) {
+                $package_map[(int)$pkg['id']] = $pkg;
+            }
+            $stmt_packages->close();
+
+            $stmt_package_tests = $conn->prepare(
+                "SELECT pt.package_id, pt.test_id, pt.base_test_price, pt.package_test_price, t.main_test_name, t.sub_test_name
+                 FROM package_tests pt
+                 JOIN tests t ON t.id = pt.test_id
+                 WHERE pt.package_id IN ($pkg_placeholders)
+                 ORDER BY pt.package_id ASC, pt.display_order ASC, pt.id ASC"
+            );
+            if (!$stmt_package_tests) {
+                throw new Exception('Failed to prepare package tests lookup: ' . $conn->error);
+            }
+            $stmt_package_tests->bind_param($pkg_types, ...$package_ids);
+            $stmt_package_tests->execute();
+            $pkg_tests_result = $stmt_package_tests->get_result();
+            while ($pkg_test = $pkg_tests_result->fetch_assoc()) {
+                $pid = (int)$pkg_test['package_id'];
+                if (!isset($package_tests_map[$pid])) {
+                    $package_tests_map[$pid] = [];
+                }
+                $package_tests_map[$pid][] = $pkg_test;
+            }
+            $stmt_package_tests->close();
+        }
 
         $gross_amount = 0.0;
         $total_discount = 0.0;
+
         foreach ($structured_tests as &$test_entry) {
             $test_id = $test_entry['id'];
             if (!isset($test_price_map[$test_id])) {
@@ -311,31 +464,124 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
         unset($test_entry);
 
+        foreach ($structured_packages as &$package_entry) {
+            $package_id = (int)$package_entry['id'];
+            if (!isset($package_map[$package_id])) {
+                throw new Exception('One or more selected packages are invalid. Please refresh and try again.');
+            }
+
+            $package_row = $package_map[$package_id];
+            if ((string)($package_row['status'] ?? 'inactive') !== 'active') {
+                throw new Exception('Selected package is currently inactive. Please select an active package.');
+            }
+
+            $package_tests = $package_tests_map[$package_id] ?? [];
+            if (empty($package_tests)) {
+                throw new Exception('Selected package has no tests configured. Please update package first.');
+            }
+
+            $base_total = 0.0;
+            $sum_package_test_price = 0.0;
+            $normalized_tests = [];
+            foreach ($package_tests as $pkg_test_row) {
+                $base_price = round((float)$pkg_test_row['base_test_price'], 2);
+                $package_test_price = round((float)$pkg_test_row['package_test_price'], 2);
+                if ($package_test_price < 0) {
+                    $package_test_price = 0.0;
+                }
+
+                $main_test_name = trim((string)($pkg_test_row['main_test_name'] ?? ''));
+                $sub_test_name = trim((string)($pkg_test_row['sub_test_name'] ?? ''));
+                $test_name = $sub_test_name !== '' ? ($main_test_name . ' - ' . $sub_test_name) : $main_test_name;
+                if ($test_name === '') {
+                    $test_name = 'Unnamed Test';
+                }
+
+                $normalized_tests[] = [
+                    'test_id' => (int)$pkg_test_row['test_id'],
+                    'test_name' => $test_name,
+                    'base_test_price' => $base_price,
+                    'package_test_price' => $package_test_price
+                ];
+
+                $base_total += $base_price;
+                $sum_package_test_price += $package_test_price;
+            }
+
+            $base_total = round($base_total, 2);
+            $sum_package_test_price = round($sum_package_test_price, 2);
+
+            $package_price = round((float)($package_row['package_price'] ?? 0), 2);
+            if ($package_price < 0) {
+                $package_price = 0.0;
+            }
+
+            $price_delta = round($package_price - $sum_package_test_price, 2);
+            if (!empty($normalized_tests) && abs($price_delta) > 0.01) {
+                $last_index = count($normalized_tests) - 1;
+                $adjusted = round($normalized_tests[$last_index]['package_test_price'] + $price_delta, 2);
+                if ($adjusted < 0) {
+                    $adjusted = 0.0;
+                }
+                $normalized_tests[$last_index]['package_test_price'] = $adjusted;
+            }
+
+            $billable_gross = $base_total;
+            $package_discount = 0.0;
+            if ($package_price <= $base_total) {
+                $package_discount = round($base_total - $package_price, 2);
+            } else {
+                $billable_gross = $package_price;
+            }
+
+            $gross_amount += $billable_gross;
+            $total_discount += $package_discount;
+
+            foreach ($normalized_tests as &$normalized_test) {
+                $component_discount = round(max($normalized_test['base_test_price'] - $normalized_test['package_test_price'], 0), 2);
+                $normalized_test['component_discount'] = $component_discount;
+            }
+            unset($normalized_test);
+
+            $package_entry['package_name'] = (string)$package_row['package_name'];
+            $package_entry['package_code'] = (string)$package_row['package_code'];
+            $package_entry['base_total'] = $base_total;
+            $package_entry['package_price'] = $package_price;
+            $package_entry['package_discount'] = $package_discount;
+            $package_entry['tests'] = $normalized_tests;
+        }
+        unset($package_entry);
+
         $gross_amount = round($gross_amount, 2);
         $total_discount = round(min($total_discount, $gross_amount), 2);
         $net_amount = round($gross_amount - $total_discount, 2);
 
         $allowed_discount_sources = ['Center', 'Doctor'];
         $discount_by_input = trim($_POST['discount_by'] ?? '');
-        if (!in_array($discount_by_input, $allowed_discount_sources, true)) {
-            throw new Exception("Please select who provided the discount.");
+        if ($total_discount > 0) {
+            if (!in_array($discount_by_input, $allowed_discount_sources, true)) {
+                throw new Exception("Please select who provided the discount.");
+            }
+            $discount_by = $discount_by_input;
+        } else {
+            $discount_by = in_array($discount_by_input, $allowed_discount_sources, true) ? $discount_by_input : 'Center';
         }
-        $discount_by = $discount_by_input;
-        $payment_mode_allowed = ['Cash', 'Card', 'UPI', 'Other'];
-        $payment_mode = trim($_POST['payment_mode'] ?? 'Cash');
+
+        $payment_mode_allowed = get_supported_payment_modes();
+        $payment_mode = sanitize_payment_mode_input($_POST['payment_mode'] ?? 'Cash');
         if (!in_array($payment_mode, $payment_mode_allowed, true)) {
             $payment_mode = 'Cash';
         }
 
         $payment_status = trim($_POST['payment_status'] ?? 'Paid');
-        if (!in_array($payment_status, ['Paid', 'Due', 'Half Paid'], true)) {
+        if (!in_array($payment_status, ['Paid', 'Due', 'Partial Paid'], true)) {
             $payment_status = 'Paid';
         }
 
         $amount_paid = 0.00;
         $balance_amount = $net_amount;
 
-        if ($payment_status === 'Half Paid') {
+        if ($payment_status === 'Partial Paid') {
             $amount_paid = isset($_POST['amount_paid']) ? max(0, (float)$_POST['amount_paid']) : 0.00;
             if ($amount_paid <= 0) {
                 $payment_status = 'Due';
@@ -357,20 +603,38 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $balance_amount = $net_amount;
         }
 
-        $stmt_bill = $conn->prepare("INSERT INTO bills (patient_id, receptionist_id, referral_type, referral_doctor_id, referral_source_other, gross_amount, discount, discount_by, net_amount, amount_paid, balance_amount, payment_mode, payment_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $split_amounts = build_payment_split_from_input($_POST, $payment_mode, $amount_paid);
+        $cash_amount = $split_amounts['cash_amount'];
+        $card_amount = $split_amounts['card_amount'];
+        $upi_amount = $split_amounts['upi_amount'];
+        $other_amount = $split_amounts['other_amount'];
+
+        $stmt_bill = $conn->prepare("INSERT INTO bills (patient_id, receptionist_id, referral_type, referral_doctor_id, referral_source_other, gross_amount, discount, discount_by, net_amount, amount_paid, balance_amount, payment_mode, cash_amount, card_amount, upi_amount, other_amount, payment_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
         if (!$stmt_bill) {
             throw new Exception("Failed to prepare bill insert statement: " . $conn->error);
         }
-        $stmt_bill->bind_param("iisisddsdddss", $patient_id, $receptionist_id, $referral_type, $referral_doctor_id, $referral_source_other, $gross_amount, $total_discount, $discount_by, $net_amount, $amount_paid, $balance_amount, $payment_mode, $payment_status);
+        $stmt_bill->bind_param("iisisddsdddsdddds", $patient_id, $receptionist_id, $referral_type, $referral_doctor_id, $referral_source_other, $gross_amount, $total_discount, $discount_by, $net_amount, $amount_paid, $balance_amount, $payment_mode, $cash_amount, $card_amount, $upi_amount, $other_amount, $payment_status);
         $stmt_bill->execute();
         $bill_id = $stmt_bill->insert_id;
         $stmt_bill->close();
 
-        $stmt_items = $conn->prepare("INSERT INTO bill_items (bill_id, test_id, discount_amount) VALUES (?, ?, ?)");
-        if (!$stmt_items) {
-            throw new Exception("Failed to prepare bill items statement: " . $conn->error);
+        $stmt_item_test = $conn->prepare("INSERT INTO bill_items (bill_id, test_id, is_package, item_type, discount_amount) VALUES (?, ?, 0, 'test', ?)");
+        if (!$stmt_item_test) {
+            throw new Exception("Failed to prepare bill test items statement: " . $conn->error);
         }
-        $stmt_items->bind_param("iid", $bill_id_param, $test_id_param, $discount_amount_param);
+        $stmt_item_test->bind_param("iid", $bill_id_param, $test_id_param, $discount_amount_param);
+
+        $stmt_item_package_component = $conn->prepare("INSERT INTO bill_items (bill_id, test_id, package_id, is_package, item_type, package_name, package_discount, discount_amount) VALUES (?, ?, ?, 0, 'test', ?, 0.00, ?)");
+        if (!$stmt_item_package_component) {
+            throw new Exception("Failed to prepare package component bill item statement: " . $conn->error);
+        }
+        $stmt_item_package_component->bind_param("iiisd", $bill_id_param, $test_id_param, $package_id_param, $package_name_param, $discount_amount_param);
+
+        $stmt_item_package = $conn->prepare("INSERT INTO bill_items (bill_id, test_id, package_id, is_package, item_type, package_name, package_discount, discount_amount) VALUES (?, NULL, ?, 1, 'package', ?, ?, ?)");
+        if (!$stmt_item_package) {
+            throw new Exception("Failed to prepare package bill item statement: " . $conn->error);
+        }
+        $stmt_item_package->bind_param("iisdd", $bill_id_param, $package_id_param, $package_name_param, $package_discount_param, $discount_amount_param);
 
         $stmt_screening = $conn->prepare("INSERT INTO bill_item_screenings (bill_item_id, screening_amount) VALUES (?, ?)");
         if (!$stmt_screening) {
@@ -378,21 +642,59 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
         $stmt_screening->bind_param("id", $bill_item_id_param, $screening_amount_param);
 
+        $stmt_bill_package_items = $conn->prepare("INSERT INTO bill_package_items (bill_id, bill_item_id, package_id, test_id, test_name, base_test_price, package_test_price) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        if (!$stmt_bill_package_items) {
+            throw new Exception("Failed to prepare bill package breakdown statement: " . $conn->error);
+        }
+        $stmt_bill_package_items->bind_param("iiiisdd", $bill_id_param, $bill_item_id_param, $package_id_param, $test_id_param, $package_test_name_param, $base_test_price_param, $package_test_price_param);
+
         foreach ($structured_tests as $test_entry) {
             $bill_id_param = $bill_id;
-            $test_id_param = $test_entry['id'];
-            $discount_amount_param = $test_entry['discount'];
-            $stmt_items->execute();
-            $bill_item_id_param = $stmt_items->insert_id;
+            $test_id_param = (int)$test_entry['id'];
+            $discount_amount_param = (float)$test_entry['discount'];
+            $stmt_item_test->execute();
+            $bill_item_id_param = (int)$stmt_item_test->insert_id;
 
-            $screening_amount_param = $test_entry['screening'];
-            if ($bill_item_id_param && $screening_amount_param > 0) {
+            $screening_amount_param = (float)$test_entry['screening'];
+            if ($bill_item_id_param > 0 && $screening_amount_param > 0) {
                 $stmt_screening->execute();
             }
         }
 
-        $stmt_items->close();
+        foreach ($structured_packages as $package_entry) {
+            $bill_id_param = $bill_id;
+            $package_id_param = (int)$package_entry['id'];
+            $package_name_param = (string)$package_entry['package_name'];
+            $package_discount_param = (float)$package_entry['package_discount'];
+            $discount_amount_param = (float)$package_entry['package_discount'];
+
+            $stmt_item_package->execute();
+            $package_bill_item_id = (int)$stmt_item_package->insert_id;
+            if ($package_bill_item_id <= 0) {
+                throw new Exception('Failed to insert package bill item.');
+            }
+
+            foreach (($package_entry['tests'] ?? []) as $pkg_test) {
+                $bill_id_param = $bill_id;
+                $test_id_param = (int)$pkg_test['test_id'];
+                $package_id_param = (int)$package_entry['id'];
+                $package_name_param = (string)$package_entry['package_name'];
+                $discount_amount_param = (float)($pkg_test['component_discount'] ?? 0);
+                $stmt_item_package_component->execute();
+
+                $bill_item_id_param = $package_bill_item_id;
+                $package_test_name_param = (string)$pkg_test['test_name'];
+                $base_test_price_param = (float)$pkg_test['base_test_price'];
+                $package_test_price_param = (float)$pkg_test['package_test_price'];
+                $stmt_bill_package_items->execute();
+            }
+        }
+
+        $stmt_item_test->close();
+        $stmt_item_package_component->close();
+        $stmt_item_package->close();
         $stmt_screening->close();
+        $stmt_bill_package_items->close();
 
         $conn->commit();
 
@@ -421,6 +723,62 @@ while ($test = $tests_result->fetch_assoc()) {
     $tests_by_category[$test['main_test_name']][] = $test;
 }
 
+$packages_map = [];
+$packages_heads_result = $conn->query("SELECT id, package_code, package_name, total_base_price, package_price, discount_amount, discount_percent FROM test_packages WHERE status = 'active' ORDER BY package_name ASC");
+if ($packages_heads_result instanceof mysqli_result) {
+    while ($pkg = $packages_heads_result->fetch_assoc()) {
+        $pid = (int)$pkg['id'];
+        $packages_map[$pid] = [
+            'id' => $pid,
+            'package_code' => (string)$pkg['package_code'],
+            'package_name' => (string)$pkg['package_name'],
+            'total_base_price' => round((float)$pkg['total_base_price'], 2),
+            'package_price' => round((float)$pkg['package_price'], 2),
+            'discount_amount' => round((float)$pkg['discount_amount'], 2),
+            'discount_percent' => round((float)$pkg['discount_percent'], 2),
+            'tests' => []
+        ];
+    }
+    $packages_heads_result->free();
+}
+
+if (!empty($packages_map)) {
+    $package_ids = array_keys($packages_map);
+    $pkg_placeholders = implode(',', array_fill(0, count($package_ids), '?'));
+    $pkg_types = str_repeat('i', count($package_ids));
+    $package_tests_stmt = $conn->prepare(
+        "SELECT pt.package_id, pt.test_id, pt.base_test_price, pt.package_test_price, t.main_test_name, t.sub_test_name
+         FROM package_tests pt
+         JOIN tests t ON t.id = pt.test_id
+         WHERE pt.package_id IN ($pkg_placeholders)
+         ORDER BY pt.package_id ASC, pt.display_order ASC, pt.id ASC"
+    );
+    if ($package_tests_stmt) {
+        $package_tests_stmt->bind_param($pkg_types, ...$package_ids);
+        $package_tests_stmt->execute();
+        $package_tests_result = $package_tests_stmt->get_result();
+        while ($pkg_test = $package_tests_result->fetch_assoc()) {
+            $pid = (int)$pkg_test['package_id'];
+            if (!isset($packages_map[$pid])) {
+                continue;
+            }
+            $main_test_name = trim((string)($pkg_test['main_test_name'] ?? ''));
+            $sub_test_name = trim((string)($pkg_test['sub_test_name'] ?? ''));
+            $test_label = $sub_test_name !== '' ? ($main_test_name . ' - ' . $sub_test_name) : $main_test_name;
+            if ($test_label === '') {
+                $test_label = 'Unnamed Test';
+            }
+            $packages_map[$pid]['tests'][] = [
+                'test_id' => (int)$pkg_test['test_id'],
+                'test_name' => $test_label,
+                'base_test_price' => round((float)$pkg_test['base_test_price'], 2),
+                'package_test_price' => round((float)$pkg_test['package_test_price'], 2)
+            ];
+        }
+        $package_tests_stmt->close();
+    }
+}
+
 require_once '../includes/header.php';
 ?>
 
@@ -429,32 +787,41 @@ require_once '../includes/header.php';
     <?php if ($error_message): ?><div class="error-banner"><?php echo htmlspecialchars($error_message); ?></div><?php endif; ?>
 
     <form action="generate_bill.php" method="POST" id="bill-form">
-        <input type="hidden" id="existing_patient_id" name="existing_patient_id" value="0">
-        <fieldset>
+        <input type="hidden" id="is_new_patient" name="is_new_patient" value="0">
+        <input type="hidden" id="patient_uid" name="patient_uid" value="">
+        <fieldset class="patient-fieldset">
             <legend>Patient Information</legend>
-            <div class="form-row" style="align-items:flex-end; margin-bottom:15px;">
-                <div class="form-group" style="flex:2;">
-                    <label for="patient_uid">Patient UID</label>
-                    <input type="text" id="patient_uid" name="patient_uid" placeholder="e.g. DC20260001" style="text-transform:uppercase;">
+
+            <div class="patient-info-card">
+                <div class="patient-card-head">
+                    <div>
+                        <h3 class="patient-card-title">Patient Mode</h3>
+                        <p class="patient-card-subtitle">Choose existing patient for quick fetch or register a new patient.</p>
+                    </div>
+                    <div class="patient-mode-switch" role="radiogroup" aria-label="Patient mode">
+                        <label class="mode-pill" for="patient_mode_existing">
+                            <input type="radio" name="patient_mode" id="patient_mode_existing" value="existing" checked>
+                            <span>Existing Patient</span>
+                        </label>
+                        <label class="mode-pill" for="patient_mode_new">
+                            <input type="radio" name="patient_mode" id="patient_mode_new" value="new">
+                            <span>New Patient</span>
+                        </label>
+                    </div>
                 </div>
-                <div class="form-group" style="flex:0 0 auto;">
-                    <button type="button" id="btn-check-uid" class="btn-submit" style="margin-top:0;">Check</button>
-                </div>
-                <div class="form-group" style="flex:0 0 auto;">
-                    <button type="button" id="btn-generate-uid" class="btn-submit" style="margin-top:0; background:#28a745;">Generate New</button>
-                </div>
-            </div>
-            <div id="uid-status" style="margin-bottom:10px; padding:8px; border-radius:4px; display:none;"></div>
-             <div class="form-row">
-                <div class="form-group">
+
+                <div id="patient-id-top-slot"></div>
+
+                <div class="form-row patient-details-row">
+                    <div class="form-group patient-name-col">
                     <label for="patient_name">Patient Name</label>
                     <input type="text" id="patient_name" name="patient_name" required>
                 </div>
-                <div class="form-group">
+                <div class="form-group patient-age-col">
                     <label for="patient_age">Age</label>
                     <input type="number" id="patient_age" name="patient_age" required min="0">
                 </div>
-                 <div class="form-group">
+                 <div class="form-group patient-gender-col">
                     <label for="patient_sex">Gender</label>
                     <select id="patient_sex" name="patient_sex" required>
                         <option value="Male">Male</option>
@@ -463,18 +830,40 @@ require_once '../includes/header.php';
                     </select>
                 </div>
             </div>
-            <div class="form-group">
-                <label for="patient_address">Address</label>
-                <textarea id="patient_address" name="patient_address" rows="2"></textarea>
-            </div>
-            <div class="form-row">
                 <div class="form-group">
-                    <label for="patient_city">City</label>
-                    <input type="text" id="patient_city" name="patient_city">
+                    <label for="patient_address">Address (Optional)</label>
+                    <textarea id="patient_address" name="patient_address" rows="2"></textarea>
                 </div>
-                <div class="form-group">
-                    <label for="patient_mobile">Mobile Number</label>
-                        <input type="tel" id="patient_mobile" name="patient_mobile" required pattern="\d{10}" maxlength="10" minlength="10" inputmode="numeric" placeholder="10-digit mobile number">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="patient_city">City</label>
+                        <input type="text" id="patient_city" name="patient_city">
+                    </div>
+                    <div class="form-group">
+                        <label for="patient_mobile">Mobile Number</label>
+                            <input type="tel" id="patient_mobile" name="patient_mobile" required pattern="\d{10}" maxlength="10" minlength="10" inputmode="numeric" placeholder="10-digit mobile number">
+                    </div>
+                </div>
+
+                <div id="patient-id-bottom-slot"></div>
+
+                <div id="patient-id-block">
+                    <div class="form-row patient-id-row">
+                        <div class="form-group patient-id-group">
+                            <label for="patient_uid_suffix">Patient ID</label>
+                            <div class="uid-input-wrap">
+                                <span class="uid-prefix">DC</span>
+                                <input type="text" id="patient_uid_suffix" placeholder="YYYYNNNN" maxlength="8" pattern="\d{8}" inputmode="numeric">
+                            </div>
+                        </div>
+                        <div class="form-group patient-id-action-group" id="generate-id-group" style="display:none;">
+                            <button type="button" id="btn-generate-uid" class="btn-submit btn-generate-id">Generate New UID</button>
+                        </div>
+                    </div>
+
+                    <small class="uid-hint">Format: DCYYYYNNNN (example: DC20260001)</small>
+
+                    <div id="uid-status" class="uid-status" style="display:none;"></div>
                 </div>
             </div>
         </fieldset>
@@ -536,10 +925,25 @@ require_once '../includes/header.php';
                         <option value="">-- Select Category First --</option>
                     </select>
                 </div>
+                <div class="form-group">
+                    <label for="package-select">3. Select Package</label>
+                    <select id="package-select">
+                        <option value="">-- Select Package --</option>
+                        <?php foreach ($packages_map as $package): ?>
+                            <option value="<?php echo (int)$package['id']; ?>">
+                                <?php echo htmlspecialchars($package['package_name'] . ' [' . $package['package_code'] . '] - Rs ' . number_format((float)$package['package_price'], 2)); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
             </div>
             <div id="selected-tests">
                 <h4>Selected Tests</h4>
                 <ul id="selected-tests-list"></ul>
+            </div>
+            <div id="selected-packages" style="margin-top:1rem; display:none;" aria-hidden="true">
+                <h4>Selected Packages</h4>
+                <ul id="selected-packages-list"></ul>
             </div>
         </fieldset>
 
@@ -548,8 +952,8 @@ require_once '../includes/header.php';
             <div class="form-row">
                 <div class="form-group">
                     <label for="discount_by">Discount By</label>
-                        <select id="discount_by" name="discount_by" required>
-                            <option value="">Select Discount Type</option>
+                        <select id="discount_by" name="discount_by">
+                            <option value="">Select discount </option>
                             <option value="Center">Center</option>
                             <option value="Doctor">Doctor</option>
                     </select>
@@ -571,7 +975,12 @@ require_once '../includes/header.php';
                 <div class="form-group">
                     <label for="payment_mode">Payment Mode</label>
                     <select id="payment_mode" name="payment_mode" required>
-                        <option value="Cash">Cash</option><option value="Card">Card</option><option value="UPI">UPI</option><option value="Other">Other</option>
+                        <option value="Cash">Cash</option>
+                        <option value="Card">Card</option>
+                        <option value="UPI">UPI</option>
+                        <option value="Cash + Card">Cash + Card</option>
+                        <option value="UPI + Cash">UPI + Cash</option>
+                        <option value="Card + UPI">Card + UPI</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -579,11 +988,11 @@ require_once '../includes/header.php';
                     <select id="payment_status" name="payment_status" required>
                         <option value="Paid" selected>Paid</option>
                         <option value="Due">Due</option>
-                        <option value="Half Paid">Half Paid</option>
+                        <option value="Partial Paid">Partial Paid</option>
                     </select>
                 </div>
             </div>
-            <div class="form-row" id="half-paid-details" style="display: none; background-color: #f0f8ff; padding: 15px; border-radius: 5px; margin-top: 10px;">
+            <div class="form-row" id="partial-paid-details" style="display: none; background-color: #f0f8ff; padding: 15px; border-radius: 5px; margin-top: 10px;">
                 <div class="form-group">
                     <label for="amount_paid">Amount Paid Now</label>
                     <input type="number" id="amount_paid" name="amount_paid" step="0.01" min="0">
@@ -593,6 +1002,23 @@ require_once '../includes/header.php';
                     <input type="text" id="balance_amount" name="balance_amount" readonly>
                 </div>
             </div>
+            <div class="form-row split-payment-details" id="split-payment-details" style="display: none;">
+                <div class="form-group" id="split-cash-group" style="display: none;">
+                    <label for="split_cash_amount">Cash Amount</label>
+                    <input type="number" id="split_cash_amount" name="split_cash_amount" step="0.01" min="0" inputmode="decimal" placeholder="0.00">
+                </div>
+                <div class="form-group" id="split-card-group" style="display: none;">
+                    <label for="split_card_amount">Card Amount</label>
+                    <input type="number" id="split_card_amount" name="split_card_amount" step="0.01" min="0" inputmode="decimal" placeholder="0.00">
+                </div>
+                <div class="form-group" id="split-upi-group" style="display: none;">
+                    <label for="split_upi_amount">UPI Amount</label>
+                    <input type="number" id="split_upi_amount" name="split_upi_amount" step="0.01" min="0" inputmode="decimal" placeholder="0.00">
+                </div>
+            </div>
+            <div class="split-payment-note" id="split-payment-note" style="display: none;">
+                Split Total: <strong id="split-total-display">₹0.00</strong> (Required: <strong id="split-required-display">₹0.00</strong>)
+            </div>
         </fieldset>
         
         <input type="hidden" name="selected_tests_json" id="selected_tests_json" required>
@@ -600,31 +1026,51 @@ require_once '../includes/header.php';
     </form>
 </div>
 <script>
-    const testsData = <?php echo json_encode($tests_by_category, JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE) ?: '{}'; ?>;
+    const testsData = <?php echo json_encode($tests_by_category); ?>;
+    const packagesData = <?php echo json_encode($packages_map); ?>;
 
     // --- UID Check / Generate logic ---
     (function() {
-        const uidInput = document.getElementById('patient_uid');
-        const btnCheck = document.getElementById('btn-check-uid');
+        const uidSuffixInput = document.getElementById('patient_uid_suffix');
+        const fullUidInput = document.getElementById('patient_uid');
+        const isNewPatientInput = document.getElementById('is_new_patient');
+        const existingPatientRadio = document.getElementById('patient_mode_existing');
+        const newPatientRadio = document.getElementById('patient_mode_new');
         const btnGenerate = document.getElementById('btn-generate-uid');
         const statusDiv = document.getElementById('uid-status');
-        const hiddenPatientId = document.getElementById('existing_patient_id');
+        const generateIdGroup = document.getElementById('generate-id-group');
+        const patientIdBlock = document.getElementById('patient-id-block');
+        const patientIdTopSlot = document.getElementById('patient-id-top-slot');
+        const patientIdBottomSlot = document.getElementById('patient-id-bottom-slot');
+        const billForm = document.getElementById('bill-form');
+        const workflowFieldsets = Array.from(document.querySelectorAll('#bill-form fieldset')).filter(function(fs) {
+            return !fs.classList.contains('patient-fieldset');
+        });
+        var lastAutoFetchedUid = '';
+        var newUidGenerated = false;
 
-        if (!uidInput || !btnCheck || !btnGenerate || !statusDiv || !hiddenPatientId) {
-            return;
+        const patientFieldIds = ['patient_name', 'patient_age', 'patient_sex', 'patient_address', 'patient_city', 'patient_mobile'];
+
+        function setWorkflowLocked(isLocked) {
+            workflowFieldsets.forEach(function(fs) {
+                fs.style.opacity = isLocked ? '0.55' : '1';
+                fs.style.pointerEvents = isLocked ? 'none' : 'auto';
+                var controls = fs.querySelectorAll('input, select, textarea, button');
+                controls.forEach(function(el) {
+                    el.disabled = isLocked;
+                });
+            });
         }
 
-        function parseJsonResponse(response) {
-            if (!response.ok) {
-                throw new Error('Request failed with status ' + response.status + '.');
-            }
-            return response.text().then(function(body) {
-                try {
-                    return JSON.parse(body);
-                } catch (e) {
-                    throw new Error('Server returned an invalid response.');
-                }
-            });
+        function getFullUidFromInput() {
+            var suffix = (uidSuffixInput.value || '').replace(/\D/g, '');
+            uidSuffixInput.value = suffix;
+            if (suffix.length === 0) return '';
+            return 'DC' + suffix;
+        }
+
+        function syncUidHiddenInput() {
+            fullUidInput.value = getFullUidFromInput();
         }
 
         function showStatus(msg, isSuccess) {
@@ -634,6 +1080,10 @@ require_once '../includes/header.php';
             statusDiv.style.color = isSuccess ? '#155724' : '#721c24';
         }
 
+        function valueOrEmpty(value) {
+            return value === null || value === undefined ? '' : value;
+        }
+
         function clearPatientFields() {
             document.getElementById('patient_name').value = '';
             document.getElementById('patient_age').value = '';
@@ -641,12 +1091,10 @@ require_once '../includes/header.php';
             document.getElementById('patient_address').value = '';
             document.getElementById('patient_city').value = '';
             document.getElementById('patient_mobile').value = '';
-            hiddenPatientId.value = '0';
-            setPatientFieldsReadonly(false);
         }
 
         function setPatientFieldsReadonly(isReadonly) {
-            ['patient_name', 'patient_age', 'patient_sex', 'patient_address', 'patient_city', 'patient_mobile'].forEach(function(id) {
+            patientFieldIds.forEach(function(id) {
                 var el = document.getElementById(id);
                 if (el) {
                     if (el.tagName === 'SELECT') {
@@ -658,60 +1106,229 @@ require_once '../includes/header.php';
             });
         }
 
-        btnCheck.addEventListener('click', function() {
-            var uid = uidInput.value.trim().toUpperCase();
-            if (uid === '') { showStatus('Please enter a UID to check.', false); return; }
-            statusDiv.style.display = 'block';
-            statusDiv.textContent = 'Checking...';
-            statusDiv.style.background = '#fff3cd';
-            statusDiv.style.color = '#856404';
+        function setPatientFieldsRequired(isRequired) {
+            ['patient_name', 'patient_age', 'patient_sex', 'patient_mobile'].forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el) el.required = isRequired;
+            });
+        }
 
-            fetch('../api/check_patient_uid.php?uid=' + encodeURIComponent(uid))
-                .then(parseJsonResponse)
-                .then(function(data) {
-                    if (data.success) {
-                        var p = data.patient;
-                        document.getElementById('patient_name').value = p.name || '';
-                        document.getElementById('patient_age').value = p.age || '';
-                        document.getElementById('patient_sex').value = p.sex || 'Male';
-                        document.getElementById('patient_address').value = p.address || '';
-                        document.getElementById('patient_city').value = p.city || '';
-                        document.getElementById('patient_mobile').value = p.mobile_number || '';
-                        hiddenPatientId.value = p.id;
-                        uidInput.value = p.uid;
-                        setPatientFieldsReadonly(true);
-                        showStatus('Patient found! Info auto-filled. (Existing patient will be reused)', true);
-                    } else {
-                        clearPatientFields();
-                        showStatus(data.message + ' You can fill in the details for a new patient or click "Generate New".', false);
-                    }
-                })
-                .catch(function(error) {
-                    showStatus(error && error.message ? error.message : 'Network error. Please try again.', false);
-                });
-        });
+        function areNewPatientFieldsValid() {
+            var name = (document.getElementById('patient_name').value || '').trim();
+            var age = (document.getElementById('patient_age').value || '').trim();
+            var sex = (document.getElementById('patient_sex').value || '').trim();
+            var mobile = (document.getElementById('patient_mobile').value || '').trim();
+            if (name === '' || age === '' || sex === '') {
+                return false;
+            }
+            if (!/^\d+$/.test(age) || parseInt(age, 10) < 0) {
+                return false;
+            }
+            if (!/^\d{10}$/.test(mobile)) {
+                return false;
+            }
+            return true;
+        }
 
-        btnGenerate.addEventListener('click', function() {
+        function refreshGenerateUidButton() {
+            if (!newPatientRadio.checked) {
+                btnGenerate.disabled = true;
+                return;
+            }
+
+            if (newUidGenerated) {
+                btnGenerate.disabled = true;
+                btnGenerate.textContent = 'UID Generated';
+                return;
+            }
+
+            var valid = areNewPatientFieldsValid();
+            btnGenerate.disabled = !valid;
+            btnGenerate.textContent = 'Generate New UID';
+
+            if (!valid && statusDiv.style.display !== 'block') {
+                statusDiv.style.display = 'none';
+            }
+        }
+
+        function requestNewUid(autoTriggered) {
             statusDiv.style.display = 'block';
-            statusDiv.textContent = 'Generating...';
+            statusDiv.textContent = autoTriggered ? 'Preparing new patient ID...' : 'Generating...';
             statusDiv.style.background = '#fff3cd';
             statusDiv.style.color = '#856404';
 
             fetch('../api/generate_patient_uid.php')
-                .then(parseJsonResponse)
+                .then(function(r) { return r.json(); })
                 .then(function(data) {
                     if (data.success) {
-                        uidInput.value = data.uid;
-                        clearPatientFields();
-                        showStatus('New UID generated: ' + data.uid + '. Please fill in the patient details below.', true);
+                        uidSuffixInput.value = (data.uid || '').replace(/^DC/, '');
+                        syncUidHiddenInput();
+                        setPatientFieldsReadonly(true);
+                        newUidGenerated = true;
+                        setWorkflowLocked(false);
+                        refreshGenerateUidButton();
+                        showStatus('New patient ID generated: ' + data.uid, true);
                     } else {
                         showStatus('Error generating UID: ' + data.message, false);
                     }
                 })
-                .catch(function(error) {
-                    showStatus(error && error.message ? error.message : 'Network error. Please try again.', false);
+                .catch(function() {
+                    showStatus('Network error. Please try again.', false);
                 });
+        }
+
+        function fetchPatientByUid(uid) {
+            statusDiv.style.display = 'block';
+            statusDiv.textContent = 'Looking up patient...';
+            statusDiv.style.background = '#fff3cd';
+            statusDiv.style.color = '#856404';
+
+            fetch('../api/check_patient_uid.php?uid=' + encodeURIComponent(uid))
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        var p = data.patient;
+                        setPatientFieldsReadonly(false);
+                        document.getElementById('patient_name').value = valueOrEmpty(p.name);
+                        document.getElementById('patient_age').value = valueOrEmpty(p.age);
+                        document.getElementById('patient_sex').value = p.sex || 'Male';
+                        document.getElementById('patient_address').value = valueOrEmpty(p.address);
+                        document.getElementById('patient_city').value = valueOrEmpty(p.city);
+                        document.getElementById('patient_mobile').value = valueOrEmpty(p.mobile_number || p.mobile);
+                        uidSuffixInput.value = valueOrEmpty(p.uid || uid).replace(/^DC/, '');
+                        syncUidHiddenInput();
+                        setPatientFieldsReadonly(true);
+                        showStatus('Patient found: ' + valueOrEmpty(p.name), true);
+                    } else {
+                        clearPatientFields();
+                        setPatientFieldsReadonly(false);
+                        showStatus(data.message || 'No patient found with this ID.', false);
+                    }
+                })
+                .catch(function() {
+                    showStatus('Network error. Please try again.', false);
+                });
+        }
+
+        function togglePatientMode() {
+            var isNew = newPatientRadio.checked;
+            isNewPatientInput.value = isNew ? '1' : '0';
+            generateIdGroup.style.display = isNew ? 'block' : 'none';
+            statusDiv.style.display = 'none';
+
+            if (isNew) {
+                patientIdBottomSlot.appendChild(patientIdBlock);
+            } else {
+                patientIdTopSlot.appendChild(patientIdBlock);
+            }
+
+            uidSuffixInput.value = '';
+            syncUidHiddenInput();
+            newUidGenerated = false;
+            btnGenerate.textContent = 'Generate New UID';
+
+            if (isNew) {
+                clearPatientFields();
+                setPatientFieldsReadonly(false);
+                setPatientFieldsRequired(true);
+                setWorkflowLocked(true);
+            } else {
+                clearPatientFields();
+                setPatientFieldsReadonly(false);
+                setPatientFieldsRequired(false);
+                lastAutoFetchedUid = '';
+                setWorkflowLocked(false);
+            }
+            refreshGenerateUidButton();
+        }
+
+        uidSuffixInput.addEventListener('input', function() {
+            uidSuffixInput.value = uidSuffixInput.value.replace(/\D/g, '').slice(0, 8);
+            syncUidHiddenInput();
+
+            if (!existingPatientRadio.checked) return;
+
+            var uid = getFullUidFromInput();
+
+            // Clear status and fields if input is incomplete
+            if (!/^DC\d{8}$/.test(uid)) {
+                statusDiv.style.display = 'none';
+                clearPatientFields();
+                setPatientFieldsReadonly(false);
+                lastAutoFetchedUid = '';
+                return;
+            }
+
+            if (uid === lastAutoFetchedUid) return;
+
+            lastAutoFetchedUid = uid;
+            fetchPatientByUid(uid);
         });
+
+        uidSuffixInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && existingPatientRadio.checked) {
+                e.preventDefault();
+                var uid = getFullUidFromInput();
+                if (/^DC\d{8}$/.test(uid)) {
+                    lastAutoFetchedUid = uid;
+                    fetchPatientByUid(uid);
+                }
+            }
+        });
+
+        existingPatientRadio.addEventListener('change', togglePatientMode);
+        newPatientRadio.addEventListener('change', togglePatientMode);
+
+        patientFieldIds.forEach(function(id) {
+            var el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('input', refreshGenerateUidButton);
+            el.addEventListener('change', refreshGenerateUidButton);
+        });
+
+        btnGenerate.addEventListener('click', function() {
+            if (!areNewPatientFieldsValid()) {
+                showStatus('Please fill all required patient details correctly before generating UID.', false);
+                refreshGenerateUidButton();
+                return;
+            }
+            requestNewUid(false);
+        });
+
+        billForm.addEventListener('submit', function(e) {
+            var uid = getFullUidFromInput();
+            fullUidInput.value = uid;
+
+            if (uid.length !== 10 || !/^DC\d{8}$/.test(uid)) {
+                e.preventDefault();
+                showStatus('Patient ID must be in DCYYYYNNNN format.', false);
+                return;
+            }
+
+            if (newPatientRadio.checked) {
+                if (!areNewPatientFieldsValid()) {
+                    e.preventDefault();
+                    showStatus('Please complete all required patient details before generating UID.', false);
+                    refreshGenerateUidButton();
+                    return;
+                }
+                if (!newUidGenerated) {
+                    e.preventDefault();
+                    showStatus('Please generate a new UID to continue.', false);
+                    return;
+                }
+
+                // New-patient fields are locked after UID generation; unlock before submit so select values are posted.
+                setPatientFieldsReadonly(false);
+            }
+
+            if (!newPatientRadio.checked) {
+                setPatientFieldsReadonly(false);
+            }
+        });
+
+        togglePatientMode();
     })();
 </script>
+
 <?php require_once '../includes/footer.php'; ?>

@@ -5,6 +5,9 @@ $page_title = "Bill Status";
 $required_role = "manager";
 
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
+
+ensure_bill_payment_split_columns($conn);
 
 // --- 1. GET AND PREPARE FILTERS & PAGINATION ---
 $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : date('Y-m-01');
@@ -28,10 +31,10 @@ if ($payment_status !== 'all') {
 }
 $where_sql = " WHERE " . implode(' AND ', $where_clauses);
 
-// --- 3. GET SUMMARY COUNTS (Full Paid, Half Paid) ---
+// --- 3. GET SUMMARY COUNTS (Full Paid, Partial Paid) ---
 $summary_query = "SELECT 
                     SUM(CASE WHEN payment_status = 'Paid' THEN 1 ELSE 0 END) as full_paid_count,
-                    SUM(CASE WHEN payment_status = 'Half Paid' THEN 1 ELSE 0 END) as half_paid_count
+                    SUM(CASE WHEN payment_status = 'Partial Paid' THEN 1 ELSE 0 END) as partial_paid_count
                   FROM bills b" . $where_sql;
 $stmt_summary = $conn->prepare($summary_query);
 $stmt_summary->bind_param($types, ...$params);
@@ -40,7 +43,7 @@ $summary_result = $stmt_summary->get_result()->fetch_assoc();
 $stmt_summary->close();
 
 $full_paid_count = $summary_result['full_paid_count'] ?? 0;
-$half_paid_count = $summary_result['half_paid_count'] ?? 0;
+$partial_paid_count = $summary_result['partial_paid_count'] ?? 0;
 
 // --- 4. GET TOTAL RECORD COUNT FOR PAGINATION ---
 $count_query = "SELECT COUNT(b.id) as total FROM bills b" . $where_sql;
@@ -52,7 +55,7 @@ $total_pages = ceil($total_records / $records_per_page);
 $stmt_count->close();
 
 // --- 5. GET PAGINATED DATA FOR THE TABLE ---
-$data_query = "SELECT b.id, b.invoice_number, p.uid as patient_uid, p.name as patient_name, b.net_amount, b.payment_status, b.payment_mode, b.created_at
+$data_query = "SELECT b.id, b.invoice_number, p.uid as patient_uid, p.name as patient_name, b.net_amount, b.payment_status, b.payment_mode, b.cash_amount, b.card_amount, b.upi_amount, b.other_amount, b.created_at
                FROM bills b
                JOIN patients p ON b.patient_id = p.id" . $where_sql . "
                ORDER BY b.created_at DESC
@@ -91,7 +94,7 @@ require_once '../includes/header.php';
             <select name="payment_status" id="payment_status">
                 <option value="all" <?php if($payment_status == 'all') echo 'selected'; ?>>All</option>
                 <option value="Paid" <?php if($payment_status == 'Paid') echo 'selected'; ?>>Full Paid</option>
-                <option value="Half Paid" <?php if($payment_status == 'Half Paid') echo 'selected'; ?>>Half Paid</option>
+                <option value="Partial Paid" <?php if($payment_status == 'Partial Paid') echo 'selected'; ?>>Partial Paid</option>
                 <option value="Due" <?php if($payment_status == 'Due') echo 'selected'; ?>>Due</option>
             </select>
         </div>
@@ -103,7 +106,7 @@ require_once '../includes/header.php';
 
     <div class="summary-cards">
         <div class="summary-card"><h3>Fully Paid Bills</h3><p><?php echo $full_paid_count; ?></p></div>
-        <div class="summary-card"><h3>Half Paid Bills</h3><p><?php echo $half_paid_count; ?></p></div>
+        <div class="summary-card"><h3>Partial Paid Bills</h3><p><?php echo $partial_paid_count; ?></p></div>
     </div>
 
     <div class="table-responsive">
@@ -128,7 +131,7 @@ require_once '../includes/header.php';
                     <td><?php echo htmlspecialchars($bill['patient_name']); ?></td>
                     <td>₹ <?php echo number_format($bill['net_amount'], 2); ?></td>
                     <td><span class="status-<?php echo strtolower(str_replace(' ', '', $bill['payment_status'])); ?>"><?php echo htmlspecialchars($bill['payment_status']); ?></span></td>
-                    <td><?php echo htmlspecialchars($bill['payment_mode']); ?></td>
+                    <td><?php echo htmlspecialchars(format_payment_mode_display($bill)); ?></td>
                     <td><?php echo date('d-m-Y H:i A', strtotime($bill['created_at'])); ?></td>
                 </tr>
                 <?php endforeach; ?>
@@ -137,17 +140,7 @@ require_once '../includes/header.php';
     </table>
     </div>
 
-    <div class="pagination">
-        <?php
-        $query_params = $_GET;
-        for ($i = 1; $i <= $total_pages; $i++) {
-            $query_params['page'] = $i;
-            $link = 'bill_status.php?' . http_build_query($query_params);
-            $active_class = ($i == $page) ? 'active' : '';
-            echo "<a href='{$link}' class='{$active_class}'>{$i}</a> ";
-        }
-        ?>
-    </div>
+    <?php echo render_unified_pagination('bill_status.php', (int)$page, (int)$total_pages, $_GET, 'Bill Status Pagination'); ?>
 </div>
 
 <?php require_once '../includes/footer.php'; ?>

@@ -1,6 +1,6 @@
 <?php
 $page_title = "Preview Bill";
-$required_role = "receptionist";
+$required_role = "manager";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
 require_once '../includes/functions.php';
@@ -9,7 +9,7 @@ ensure_bill_payment_split_columns($conn);
 ensure_package_management_schema($conn);
 
 if (!isset($_GET['bill_id']) || !is_numeric($_GET['bill_id'])) {
-    header("Location: generate_bill.php");
+    header("Location: analytics.php");
     exit();
 }
 
@@ -660,7 +660,7 @@ require_once '../includes/header.php';
             <div class="preview-actions-bottom">
                 <a href="../templates/print_bill.php?bill_id=<?php echo $bill_id; ?>" target="_blank" class="preview-btn primary">Confirm & Print</a>
                 <a href="edit_bill.php?bill_id=<?php echo $bill_id; ?>" class="preview-btn secondary">Edit Bill</a>
-                <a href="dashboard.php" class="preview-btn danger">Cancel</a>
+                <a href="analytics.php" class="preview-btn danger">Cancel</a>
             </div>
         </div>
     </div>
