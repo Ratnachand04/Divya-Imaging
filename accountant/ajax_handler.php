@@ -6,6 +6,9 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'accountant') {
     die(json_encode(["error" => "Unauthorized access."]));
 }
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
+
+ensure_package_management_schema($conn);
 
 header('Content-Type: application/json');
 
@@ -28,6 +31,9 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
         'total_discounts' => 0.0,
         'total_payouts' => 0.0,
         'pending_payouts' => 0.0,
+        'package_revenue' => 0.0,
+        'package_sales_count' => 0,
+        'package_discount_impact' => 0.0,
     ];
 
     // Total earnings (paid bills)
@@ -99,6 +105,47 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
             $pending_total += max(0.0, $payable - $alreadyPaid);
         }
         $metrics['pending_payouts'] = $pending_total;
+        $stmt->close();
+    }
+
+    $package_sales_sql = "
+        SELECT
+            COUNT(*) AS package_sales_count,
+            COALESCE(SUM(COALESCE(bi.package_discount, 0)), 0) AS package_discount_impact
+        FROM bill_items bi
+        JOIN bills b ON b.id = bi.bill_id
+        WHERE COALESCE(bi.item_type, 'test') = 'package'
+          AND bi.item_status = 0
+          AND b.bill_status != 'Void'
+          AND b.created_at BETWEEN ? AND ?
+    ";
+    if ($stmt = $conn->prepare($package_sales_sql)) {
+        $stmt->bind_param('ss', $start_date, $end_date_for_query);
+        if ($stmt->execute()) {
+            $row = $stmt->get_result()->fetch_assoc();
+            $metrics['package_sales_count'] = (int)($row['package_sales_count'] ?? 0);
+            $metrics['package_discount_impact'] = (float)($row['package_discount_impact'] ?? 0);
+        }
+        $stmt->close();
+    }
+
+    $package_revenue_sql = "
+        SELECT COALESCE(SUM(pkg_totals.package_total), 0) AS package_revenue
+        FROM (
+            SELECT bpi.bill_item_id, SUM(bpi.package_test_price) AS package_total
+            FROM bill_package_items bpi
+            JOIN bills b ON b.id = bpi.bill_id
+            WHERE b.bill_status != 'Void'
+              AND b.created_at BETWEEN ? AND ?
+            GROUP BY bpi.bill_item_id
+        ) AS pkg_totals
+    ";
+    if ($stmt = $conn->prepare($package_revenue_sql)) {
+        $stmt->bind_param('ss', $start_date, $end_date_for_query);
+        if ($stmt->execute()) {
+            $row = $stmt->get_result()->fetch_assoc();
+            $metrics['package_revenue'] = (float)($row['package_revenue'] ?? 0);
+        }
         $stmt->close();
     }
 
@@ -221,7 +268,7 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
                     GREATEST(DATEDIFF(?, DATE(created_at)), 0) AS diff
                 FROM bills
                 WHERE bill_status != 'Void'
-                  AND payment_status IN ('Due', 'Half Paid')
+                  AND payment_status IN ('Due', 'Partial Paid')
                   AND DATE(created_at) <= ?
             ) AS aging_source
         ) AS bucketed
@@ -504,11 +551,10 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
     if ($stmt = $conn->prepare($paymentModeSql)) {
         $stmt->bind_param('ss', $start_date, $end_date_for_query);
         if ($stmt->execute()) {
-            $result = $stmt->get_result();
-            while ($row = $result->fetch_assoc()) {
-                $response['payment_modes']['labels'][] = $row['payment_mode'];
-                $response['payment_modes']['values'][] = (float) $row['total'];
-            }
+            $result = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $normalized_payment_totals = normalize_payment_mode_totals($result);
+            $response['payment_modes']['labels'] = array_keys($normalized_payment_totals);
+            $response['payment_modes']['values'] = array_values($normalized_payment_totals);
         }
         $stmt->close();
     }
@@ -601,7 +647,7 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
         FROM bills b
         JOIN patients p ON b.patient_id = p.id
         WHERE b.bill_status != 'Void'
-          AND b.payment_status IN ('Due','Half Paid')
+          AND b.payment_status IN ('Due','Partial Paid')
         ORDER BY balance_due DESC, b.created_at ASC
         LIMIT 6
     ";

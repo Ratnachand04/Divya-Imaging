@@ -3,6 +3,7 @@ $page_title = "Discount Report";
 $required_role = "accountant";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
 require_once '../includes/header.php';
 
 $start_date = $_GET['start_date'] ?? date('Y-m-01');
@@ -266,46 +267,7 @@ $doctor_stmt->close();
             <div class="pagination-info" style="font-size:0.9rem;color:var(--text-secondary, #555);">
                 Showing <?php echo $showing_start; ?>-<?php echo $showing_end; ?> of <?php echo number_format($total_records); ?> record<?php echo ($total_records === 1) ? '' : 's'; ?>
             </div>
-            <?php if ($total_pages > 1): ?>
-            <?php
-            $window = 2;
-            $start_loop = max(1, $page - $window);
-            $end_loop = min($total_pages, $page + $window);
-            $link_base_style = 'padding:0.35rem 0.7rem;border:1px solid var(--border-light, #dcdfe6);border-radius:6px;';
-            ?>
-            <div class="pagination-nav" style="display:flex;align-items:center;gap:0.35rem;flex-wrap:wrap;">
-                <?php if ($page > 1): ?>
-                <a class="page-link" href="<?php echo htmlspecialchars('discount_report.php?' . http_build_query(array_merge($pagination_query_params, ['page' => $page - 1]))); ?>" style="<?php echo $link_base_style; ?>">Prev</a>
-                <?php else: ?>
-                <span class="page-link disabled" style="<?php echo $link_base_style; ?>color:#aaa;">Prev</span>
-                <?php endif; ?>
-
-                <?php if ($start_loop > 1): ?>
-                <a class="page-link" href="<?php echo htmlspecialchars('discount_report.php?' . http_build_query(array_merge($pagination_query_params, ['page' => 1]))); ?>" style="<?php echo $link_base_style; ?>">1</a>
-                <?php if ($start_loop > 2): ?><span class="page-ellipsis" style="padding:0.35rem 0.4rem;color:#888;">…</span><?php endif; ?>
-                <?php endif; ?>
-
-                <?php for ($i = $start_loop; $i <= $end_loop; $i++): ?>
-                <?php
-                $page_url = 'discount_report.php?' . http_build_query(array_merge($pagination_query_params, ['page' => $i]));
-                $is_active = ($i === $page);
-                $active_style = $is_active ? 'background:var(--accent-color, #2f5bea);color:#fff;border-color:var(--accent-color, #2f5bea);' : '';
-                ?>
-                <a class="page-link<?php echo $is_active ? ' active' : ''; ?>" href="<?php echo htmlspecialchars($page_url); ?>" style="<?php echo $link_base_style . $active_style; ?>"><?php echo $i; ?></a>
-                <?php endfor; ?>
-
-                <?php if ($end_loop < $total_pages): ?>
-                    <?php if ($end_loop < $total_pages - 1): ?><span class="page-ellipsis" style="padding:0.35rem 0.4rem;color:#888;">…</span><?php endif; ?>
-                    <a class="page-link" href="<?php echo htmlspecialchars('discount_report.php?' . http_build_query(array_merge($pagination_query_params, ['page' => $total_pages]))); ?>" style="<?php echo $link_base_style; ?>"><?php echo $total_pages; ?></a>
-                <?php endif; ?>
-
-                <?php if ($page < $total_pages): ?>
-                <a class="page-link" href="<?php echo htmlspecialchars('discount_report.php?' . http_build_query(array_merge($pagination_query_params, ['page' => $page + 1]))); ?>" style="<?php echo $link_base_style; ?>">Next</a>
-                <?php else: ?>
-                <span class="page-link disabled" style="<?php echo $link_base_style; ?>color:#aaa;">Next</span>
-                <?php endif; ?>
-            </div>
-            <?php endif; ?>
+            <?php echo render_unified_pagination('discount_report.php', (int)$page, (int)$total_pages, $pagination_query_params, 'Discount Report Pagination'); ?>
         </div>
         <?php endif; ?>
     </div>

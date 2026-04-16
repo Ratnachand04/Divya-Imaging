@@ -58,6 +58,18 @@ require_once '../includes/header.php';
             <h3>Pending Payouts</h3>
             <p id="kpi-pending-payouts">₹ 0.00</p>
         </div>
+        <div class="summary-card">
+            <h3>Package Revenue</h3>
+            <p id="kpi-package-revenue">₹ 0.00</p>
+        </div>
+        <div class="summary-card">
+            <h3>Package Sales Count</h3>
+            <p id="kpi-package-sales">0</p>
+        </div>
+        <div class="summary-card">
+            <h3>Package Discount Impact</h3>
+            <p id="kpi-package-discount-impact">₹ 0.00</p>
+        </div>
     </div>
 
     <div class="insights-grid">
@@ -644,6 +656,9 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('kpi-total-earnings').textContent = formatCurrency(metrics.total_earnings);
         document.getElementById('kpi-total-discounts').textContent = formatCurrency(metrics.total_discounts);
         document.getElementById('kpi-total-payouts').textContent = formatCurrency(metrics.total_payouts);
+        document.getElementById('kpi-package-revenue').textContent = formatCurrency(metrics.package_revenue);
+        document.getElementById('kpi-package-sales').textContent = formatNumber(metrics.package_sales_count ?? 0);
+        document.getElementById('kpi-package-discount-impact').textContent = formatCurrency(metrics.package_discount_impact);
         const pendingEl = document.getElementById('kpi-pending-payouts');
         pendingEl.textContent = formatCurrency(metrics.pending_payouts);
         pendingEl.style.color = (metrics.pending_payouts ?? 0) > 0 ? '#e74a3b' : '#1cc88a';

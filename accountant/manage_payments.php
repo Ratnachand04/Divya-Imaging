@@ -3,17 +3,9 @@ $page_title = "Manage Payments";
 $required_role = "accountant";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
 
-if (!function_exists('buildManagePaymentsPageUrl')) {
-    function buildManagePaymentsPageUrl($pageNumber, $searchTerm = '') {
-        $pageNumber = max(1, (int)$pageNumber);
-        $params = ['page' => $pageNumber];
-        if ($searchTerm !== '') {
-            $params['search'] = $searchTerm;
-        }
-        return '?' . http_build_query($params);
-    }
-}
+ensure_bill_payment_split_columns($conn);
 
 if (isset($_POST['update_status']) && isset($_POST['bill_id'])) {
     $bill_id_to_update = (int)$_POST['bill_id'];
@@ -30,7 +22,7 @@ $search_term = isset($_GET['search']) ? trim($_GET['search']) : '';
 $limit = 20;
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 
-$query_select = "SELECT b.id, p.uid as patient_uid, p.name as patient_name, b.net_amount, b.created_at, b.payment_status, b.payment_mode FROM bills b JOIN patients p ON b.patient_id = p.id";
+$query_select = "SELECT b.id, p.uid as patient_uid, p.name as patient_name, b.net_amount, b.created_at, b.payment_status, b.payment_mode, b.cash_amount, b.card_amount, b.upi_amount, b.other_amount FROM bills b JOIN patients p ON b.patient_id = p.id";
 $count_select = "SELECT COUNT(b.id) FROM bills b JOIN patients p ON b.patient_id = p.id";
 $params = [];
 $types = '';
@@ -102,7 +94,7 @@ require_once '../includes/header.php';
                         <td><?php echo htmlspecialchars($bill['patient_name']); ?></td>
                         <td><?php echo date('d M Y', strtotime($bill['created_at'])); ?></td>
                         <td style="font-weight:600;">₹ <?php echo number_format($bill['net_amount'], 2); ?></td>
-                        <td><span class="tag warning"><?php echo htmlspecialchars($bill['payment_mode']); ?></span></td>
+                        <td><span class="tag warning"><?php echo htmlspecialchars(format_payment_mode_display($bill)); ?></span></td>
                         <td><span class="status-pill <?php echo strtolower($bill['payment_status']) == 'paid' ? 'down' : 'up'; ?>"><?php echo $bill['payment_status']; ?></span></td>
                         <td>
                             <?php if ($bill['payment_status'] == 'Pending'): ?>
@@ -115,39 +107,7 @@ require_once '../includes/header.php';
                 </tbody>
             </table>
             </div>
-            <?php
-                $has_prev = $page > 1;
-                $has_next = $page < $total_pages;
-                $first_url = buildManagePaymentsPageUrl(1, $search_term);
-                $prev_url = buildManagePaymentsPageUrl($page - 1, $search_term);
-                $next_url = buildManagePaymentsPageUrl($page + 1, $search_term);
-                $last_url = buildManagePaymentsPageUrl($total_pages, $search_term);
-            ?>
-            <div class="pagination-controls" aria-label="Pagination">
-                <a class="page-btn icon-btn" href="<?php echo $has_prev ? $first_url : '#'; ?>" aria-label="First page" <?php if (!$has_prev) echo 'aria-disabled="true"'; ?>>
-                    <span class="icon">&laquo;</span>
-                    <span class="label">First</span>
-                </a>
-                <a class="page-btn icon-btn" href="<?php echo $has_prev ? $prev_url : '#'; ?>" aria-label="Previous page" <?php if (!$has_prev) echo 'aria-disabled="true"'; ?>>
-                    <span class="icon">&#8249;</span>
-                    <span class="label">Prev</span>
-                </a>
-                <form class="page-input" method="get" action="manage_payments.php">
-                    <?php if ($search_term !== ''): ?><input type="hidden" name="search" value="<?php echo htmlspecialchars($search_term); ?>"><?php endif; ?>
-                    <span class="input-label">Page</span>
-                    <input type="number" name="page" min="1" max="<?php echo $total_pages; ?>" value="<?php echo $page; ?>" aria-label="Current page">
-                    <span class="page-total">of <?php echo $total_pages; ?></span>
-                    <button type="submit" class="page-go-btn">Go</button>
-                </form>
-                <a class="page-btn icon-btn" href="<?php echo $has_next ? $next_url : '#'; ?>" aria-label="Next page" <?php if (!$has_next) echo 'aria-disabled="true"'; ?>>
-                    <span class="label">Next</span>
-                    <span class="icon">&#8250;</span>
-                </a>
-                <a class="page-btn icon-btn" href="<?php echo $has_next ? $last_url : '#'; ?>" aria-label="Last page" <?php if (!$has_next) echo 'aria-disabled="true"'; ?>>
-                    <span class="label">Last</span>
-                    <span class="icon">&raquo;</span>
-                </a>
-            </div>
+            <?php echo render_unified_pagination('manage_payments.php', (int)$page, (int)$total_pages, ['search' => $search_term], 'Manage Payments Pagination'); ?>
         </div>
     </div>
 <?php $stmt->close(); require_once '../includes/footer.php'; ?>
