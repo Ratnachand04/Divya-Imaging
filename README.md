@@ -98,15 +98,15 @@ Key files:
 ### Writer
 
 - Pending report workflow from bill items
-- DOCX template management and preview
-- Final report uploads and report views
+- In-site Word editor workflow with draft and upload actions
+- Uploaded report library and print views
 
 Key files:
 
 - `writer/dashboard.php`
-- `writer/templates.php`
-- `writer/templates_ajax.php`
-- `writer/upload_final_report.php`
+- `writer/write_reports.php`
+- `writer/fill_report.php`
+- `writer/view_reports.php`
 
 ### Superadmin
 
