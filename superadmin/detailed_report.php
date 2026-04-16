@@ -104,9 +104,10 @@ require_once '../includes/header.php';
                     <?php while($row = $result->fetch_assoc()): ?>
                         <?php
                             $is_completed = ($row['report_status'] == 'Completed');
-                            // Fix path for manager/superadmin context if needed, but templates/ is at root so ../templates is correct from superadmin/
                             $report_link = $is_completed ? "../templates/print_report.php?item_id=" . $row['bill_item_id'] : '#';
+                            $edit_link = "../writer/fill_report.php?item_id=" . $row['bill_item_id'];
                             $status_class = $is_completed ? 'status-paid' : 'status-pending'; // Using paid/pending classes for consistency
+                            $status_label = $is_completed ? 'Uploaded' : ($row['report_status'] ?: 'Pending');
                         ?>
                         <tr>
                             <td><?php echo htmlspecialchars($row['patient_uid']); ?></td>
@@ -115,14 +116,15 @@ require_once '../includes/header.php';
                             <td><?php echo htmlspecialchars($row['sub_test_name']); ?></td>
                             <td>
                                 <span class="<?php echo $status_class; ?>">
-                                    <?php echo htmlspecialchars($row['report_status'] ?: 'Pending'); ?>
+                                    <?php echo htmlspecialchars($status_label); ?>
                                 </span>
                             </td>
                             <td>
                                 <?php if ($is_completed): ?>
                                     <a href="<?php echo $report_link; ?>" target="_blank" class="btn-action btn-view">View Report</a>
+                                    <a href="<?php echo $edit_link; ?>" class="btn-action btn-view" style="margin-left:6px;">Open Editor</a>
                                 <?php else: ?>
-                                    <span class="text-muted">N/A</span>
+                                    <a href="<?php echo $edit_link; ?>" class="btn-action btn-view">Open Editor</a>
                                 <?php endif; ?>
                             </td>
                         </tr>
