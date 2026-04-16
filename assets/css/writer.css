@@ -1229,3 +1229,57 @@ body.role-writer .preview-frame {
 .management-container {
     flex: 1;
 }
+
+/* Keep writer pages on the shared fixed sidebar shell. */
+body.role-writer.app-layout .main-navbar {
+    top: var(--shell-header-height);
+    left: 0;
+    width: var(--shell-sidebar-width);
+    margin: 0;
+    border-radius: 0;
+    border: none;
+    border-right: 1px solid var(--nav-border);
+    background: linear-gradient(180deg, #fef1f6 0%, #fce7f1 100%);
+    padding: 0.95rem 0.75rem 1.15rem;
+    box-shadow: 8px 0 28px rgba(249, 168, 212, 0.3);
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+body.role-writer.app-layout .main-navbar ul {
+    display: flex;
+    grid-template-columns: none;
+    width: 100%;
+    padding: 0;
+    gap: 0.42rem;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+body.role-writer.app-layout .main-content {
+    padding: 0;
+    min-height: auto;
+}
+
+body.role-writer.app-layout .page-container,
+body.role-writer.app-layout .form-container,
+body.role-writer.app-layout .table-container,
+body.role-writer.app-layout .dashboard-container {
+    width: 100%;
+    max-width: none;
+    margin: 0 0 1rem;
+}
+
+body.role-writer.app-layout .table-responsive,
+body.role-writer.app-layout .upload-table-wrapper {
+    overflow-x: hidden !important;
+}
+
+body.role-writer.app-layout .upload-table,
+body.role-writer.app-layout .data-table,
+body.role-writer.app-layout .report-table {
+    min-width: 0 !important;
+    width: 100% !important;
+    table-layout: fixed;
+}

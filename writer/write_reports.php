@@ -4,6 +4,9 @@ $required_role = "writer";
 require_once '../includes/auth_check.php';
 require_once '../includes/header.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
+
+ensure_package_management_schema($conn);
 
 $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : date('Y-m-01');
 $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : date('Y-m-t');
@@ -107,12 +110,13 @@ if (!$show_main_test_column) {
 }
 
 if ($search_term !== '') {
-    $filters[] = "(p.name LIKE ? OR t.sub_test_name LIKE ? OR CAST(b.id AS CHAR) LIKE ?)";
+    $filters[] = "(p.name LIKE ? OR t.sub_test_name LIKE ? OR CAST(b.id AS CHAR) LIKE ? OR COALESCE(NULLIF(bi.package_name, ''), tp.package_name, '') LIKE ?)";
     $likeTerm = "%{$search_term}%";
     $params[] = $likeTerm;
     $params[] = $likeTerm;
     $params[] = $likeTerm;
-    $types .= 'sss';
+    $params[] = $likeTerm;
+    $types .= 'ssss';
 }
 
 $sql = "SELECT
@@ -125,11 +129,14 @@ $sql = "SELECT
             p.sex AS patient_sex,
             t.main_test_name,
             t.sub_test_name,
-            t.document AS template_path
+            t.document AS template_path,
+            bi.package_id,
+            COALESCE(NULLIF(bi.package_name, ''), tp.package_name) AS package_name
         FROM bill_items bi
         JOIN bills b ON bi.bill_id = b.id
         JOIN patients p ON b.patient_id = p.id
         JOIN tests t ON bi.test_id = t.id
+        LEFT JOIN test_packages tp ON tp.id = bi.package_id
         WHERE " . implode(' AND ', $filters) . "
         ORDER BY b.created_at DESC, bi.id DESC";
 
@@ -159,6 +166,7 @@ if ($stmt) {
             'age_gender' => $age_gender,
             'main_test' => $row['main_test_name'],
             'subtest' => $row['sub_test_name'],
+            'package_name' => $row['package_name'],
             'template_exists' => $templateInfo['exists'],
             'template_url' => $templateInfo['url'],
         ];
@@ -235,7 +243,16 @@ if ($stmt) {
                                 <td><?php echo htmlspecialchars($row['patient_name']); ?></td>
                                 <td><?php echo htmlspecialchars($row['age_gender']); ?></td>
                                 <?php if ($show_main_test_column): ?><td><?php echo htmlspecialchars($row['main_test']); ?></td><?php endif; ?>
-                                <td><?php echo htmlspecialchars($row['subtest']); ?></td>
+                                <td>
+                                    <?php
+                                        $subtest_label = (string)($row['subtest'] ?? '');
+                                        $package_label = trim((string)($row['package_name'] ?? ''));
+                                        if ($package_label !== '') {
+                                            $subtest_label .= ' [PACKAGE: ' . $package_label . ']';
+                                        }
+                                    ?>
+                                    <?php echo htmlspecialchars($subtest_label); ?>
+                                </td>
                                 <td>
                                     <?php if ($row['template_exists'] && !empty($row['bill_item_id'])): ?>
                                         <a href="download_report_template.php?item_id=<?php echo urlencode($row['bill_item_id']); ?>"

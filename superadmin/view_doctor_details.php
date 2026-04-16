@@ -134,7 +134,7 @@ while ($row = $result->fetch_assoc()) {
                                 <?php 
                                 $statusClass = 'status-pending';
                                 if ($row['payment_status'] === 'Paid') $statusClass = 'status-paid';
-                                elseif ($row['payment_status'] === 'Half Paid') $statusClass = 'status-partial';
+                                elseif ($row['payment_status'] === 'Partial Paid') $statusClass = 'status-partial';
                                 ?>
                                 <span class="<?php echo $statusClass; ?>"><?php echo $row['payment_status']; ?></span>
                             </td>

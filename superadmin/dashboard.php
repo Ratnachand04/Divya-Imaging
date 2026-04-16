@@ -3,7 +3,10 @@ $page_title = "Superadmin Dashboard";
 $required_role = "superadmin";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
 require_once '../includes/header.php';
+
+ensure_package_management_schema($conn);
 
 if (!function_exists('summarize_change_label')) {
     function summarize_change_label($action_type, $details) {
@@ -49,14 +52,14 @@ if (!function_exists('summarize_change_label')) {
 
 // 1. Test Count
 // Total Tests Performed (All time)
-$sql_total_tests = "SELECT COUNT(*) as count FROM bill_items bi JOIN bills b ON bi.bill_id = b.id WHERE bi.item_status = 0 AND b.bill_status != 'Void'";
+$sql_total_tests = "SELECT COUNT(*) as count FROM bill_items bi JOIN bills b ON bi.bill_id = b.id WHERE bi.item_status = 0 AND COALESCE(bi.item_type, 'test') <> 'package' AND b.bill_status != 'Void'";
 $total_tests = 0;
 if ($res = $conn->query($sql_total_tests)) {
     $total_tests = $res->fetch_assoc()['count'];
 }
 
 // Today's Tests & Revenue
-$sql_today_stats = "SELECT COUNT(bi.id) as test_count, SUM(b.net_amount) as revenue FROM bills b LEFT JOIN bill_items bi ON b.id = bi.bill_id AND bi.item_status = 0 WHERE b.bill_status != 'Void' AND DATE(b.created_at) = CURDATE()";
+$sql_today_stats = "SELECT COUNT(bi.id) as test_count, SUM(b.net_amount) as revenue FROM bills b LEFT JOIN bill_items bi ON b.id = bi.bill_id AND bi.item_status = 0 AND COALESCE(bi.item_type, 'test') <> 'package' WHERE b.bill_status != 'Void' AND DATE(b.created_at) = CURDATE()";
 $today_tests = 0;
 $today_revenue = 0;
 if ($res = $conn->query($sql_today_stats)) {
@@ -66,7 +69,7 @@ if ($res = $conn->query($sql_today_stats)) {
 }
 
 // Monthly Tests
-$sql_month_tests = "SELECT COUNT(*) as count FROM bill_items bi JOIN bills b ON bi.bill_id = b.id WHERE bi.item_status = 0 AND b.bill_status != 'Void' AND MONTH(b.created_at) = MONTH(CURDATE()) AND YEAR(b.created_at) = YEAR(CURDATE())";
+$sql_month_tests = "SELECT COUNT(*) as count FROM bill_items bi JOIN bills b ON bi.bill_id = b.id WHERE bi.item_status = 0 AND COALESCE(bi.item_type, 'test') <> 'package' AND b.bill_status != 'Void' AND MONTH(b.created_at) = MONTH(CURDATE()) AND YEAR(b.created_at) = YEAR(CURDATE())";
 $month_tests = 0;
 if ($res = $conn->query($sql_month_tests)) {
     $month_tests = $res->fetch_assoc()['count'];
@@ -109,7 +112,7 @@ if ($res = $conn->query($sql_active_docs_today)) {
 }
 
 // Tests linked to doctors today
-$sql_tests_today_doctors = "SELECT COUNT(bi.id) as count FROM bills b JOIN bill_items bi ON b.id = bi.bill_id AND bi.item_status = 0 WHERE b.bill_status != 'Void' AND b.referral_type = 'Doctor' AND DATE(b.created_at) = CURDATE()";
+$sql_tests_today_doctors = "SELECT COUNT(bi.id) as count FROM bills b JOIN bill_items bi ON b.id = bi.bill_id AND bi.item_status = 0 AND COALESCE(bi.item_type, 'test') <> 'package' WHERE b.bill_status != 'Void' AND b.referral_type = 'Doctor' AND DATE(b.created_at) = CURDATE()";
 $tests_today_doctors = 0;
 if ($res = $conn->query($sql_tests_today_doctors)) {
     $tests_today_doctors = $res->fetch_assoc()['count'];
@@ -167,7 +170,7 @@ $sql_top_doc = "
         COUNT(bi.id) AS total_tests
     FROM bills b
     JOIN referral_doctors rd ON b.referral_doctor_id = rd.id
-    LEFT JOIN bill_items bi ON bi.bill_id = b.id AND bi.item_status = 0
+    LEFT JOIN bill_items bi ON bi.bill_id = b.id AND bi.item_status = 0 AND COALESCE(bi.item_type, 'test') <> 'package'
     WHERE
         b.referral_type = 'Doctor'
         AND b.bill_status != 'Void'
@@ -278,7 +281,7 @@ $last_month_rev = 0;
 if ($res = $conn->query($sql_last_month)) {
     $last_month_rev = $res->fetch_assoc()['total'] ?? 0;
 }
-$sql_last_month_tests = "SELECT COUNT(*) as count FROM bill_items bi JOIN bills b ON bi.bill_id = b.id WHERE bi.item_status = 0 AND b.bill_status != 'Void' AND MONTH(b.created_at) = MONTH(CURDATE() - INTERVAL 1 MONTH) AND YEAR(b.created_at) = YEAR(CURDATE() - INTERVAL 1 MONTH)";
+$sql_last_month_tests = "SELECT COUNT(*) as count FROM bill_items bi JOIN bills b ON bi.bill_id = b.id WHERE bi.item_status = 0 AND COALESCE(bi.item_type, 'test') <> 'package' AND b.bill_status != 'Void' AND MONTH(b.created_at) = MONTH(CURDATE() - INTERVAL 1 MONTH) AND YEAR(b.created_at) = YEAR(CURDATE() - INTERVAL 1 MONTH)";
 $last_month_tests = 0;
 if ($res = $conn->query($sql_last_month_tests)) {
     $last_month_tests = $res->fetch_assoc()['count'];
@@ -382,77 +385,10 @@ $role_short_labels = [
 ];
 ?>
 
-<div class="bg-surface-bright font-body text-on-surface min-h-screen relative w-full overflow-x-hidden pt-16 md:pl-64">
+<div class="page-container font-body text-on-surface">
 
-<!-- Top Navigation Shell -->
-<header class="bg-white/90 backdrop-blur-xl flex justify-between items-center px-4 md:px-8 h-16 w-full fixed top-0 left-0 z-50 border-b border-primary/10">
-    <div class="flex items-center gap-8">
-        <span class="text-2xl font-black tracking-tighter text-primary">Divya Imaging</span>
-        <nav class="hidden md:flex items-center gap-6 font-['Manrope'] font-bold text-sm tracking-tight">
-            <a class="text-primary border-b-2 border-primary pb-1" href="dashboard.php">Analytics</a>
-            <a class="text-slate-500 font-medium hover:text-primary transition-colors" href="test_count.php">Diagnostics</a>
-            <a class="text-slate-500 font-medium hover:text-primary transition-colors" href="lists.php">Patients</a>
-            <a class="text-slate-500 font-medium hover:text-primary transition-colors" href="expenditure.php">Inventory</a>
-        </nav>
-    </div>
-    <div class="flex items-center gap-2 md:gap-4">
-        <a href="notifications.php" class="p-2 text-slate-500 hover:bg-primary/10 rounded-full transition-all flex">
-            <span class="material-symbols-outlined">notifications</span>
-        </a>
-        <a href="employees.php" class="p-2 text-slate-500 hover:bg-primary/10 rounded-full transition-all hidden sm:flex">
-            <span class="material-symbols-outlined">settings</span>
-        </a>
-        <div class="flex items-center gap-2 md:gap-3 ml-1 md:ml-2 pl-2 md:pl-4 border-l border-slate-200">
-            <div class="text-right hidden sm:block">
-                <p class="text-xs font-bold text-primary"><?php echo htmlspecialchars($_SESSION['username'] ?? 'Superadmin'); ?></p>
-                <p class="text-[10px] text-slate-400 uppercase tracking-widest">Master Control</p>
-            </div>
-            <img alt="User profile avatar" class="w-8 h-8 md:w-10 md:h-10 rounded-full object-cover ring-2 ring-primary/20" src="<?php echo $base_url; ?>/assets/images/logo.jpg"/>
-            <a href="<?php echo $base_url; ?>/logout.php" class="ml-1 md:ml-2 px-2 py-1 md:px-3 bg-primary text-white text-[10px] font-bold uppercase rounded-md hover:bg-pink-600 transition-colors">Logout</a>
-        </div>
-    </div>
-</header>
-
-<!-- Sidebar Shell -->
-<aside class="h-screen w-64 fixed left-0 top-0 flex flex-col bg-white border-r border-slate-100 shadow-xl z-40 hidden md:flex pt-16">
-    <div class="p-8 pb-4 border-b border-slate-100">
-        <h2 class="font-['Manrope'] font-extrabold text-primary text-xl">Divya Imaging</h2>
-        <p class="text-xs font-semibold text-slate-400">Clinical Precision</p>
-    </div>
-    <nav class="flex flex-col py-6 gap-2 flex-grow font-['Inter'] text-sm font-semibold overflow-y-auto">
-        <a class="bg-primary text-white rounded-r-full mr-4 px-6 py-3 flex items-center gap-3" href="dashboard.php">
-            <span class="material-symbols-outlined">dashboard</span> Dashboard
-        </a>
-        <a class="text-slate-600 mx-4 px-6 py-3 flex items-center gap-3 hover:bg-primary/5 hover:text-primary rounded-full transition-all" href="test_count.php">
-            <span class="material-symbols-outlined">biotech</span> MRI scans
-        </a>
-        <a class="text-slate-600 mx-4 px-6 py-3 flex items-center gap-3 hover:bg-primary/5 hover:text-primary rounded-full transition-all" href="lists.php">
-            <span class="material-symbols-outlined">query_stats</span> CT Pathology
-        </a>
-        <a class="text-slate-600 mx-4 px-6 py-3 flex items-center gap-3 hover:bg-primary/5 hover:text-primary rounded-full transition-all" href="view_doctors.php">
-            <span class="material-symbols-outlined">settings_accessibility</span> Radiology
-        </a>
-        <a class="text-slate-600 mx-4 px-6 py-3 flex items-center gap-3 hover:bg-primary/5 hover:text-primary rounded-full transition-all" href="detailed_report.php">
-            <span class="material-symbols-outlined">description</span> Lab Reports
-        </a>
-        <a class="text-slate-600 mx-4 px-6 py-3 flex items-center gap-3 hover:bg-primary/5 hover:text-primary rounded-full transition-all" href="expenditure.php">
-            <span class="material-symbols-outlined">payments</span> Financials
-        </a>
-    </nav>
-    <div class="p-4 border-t border-slate-100 font-['Inter'] text-sm font-semibold">
-        <a class="text-slate-600 mx-4 px-6 py-3 flex items-center gap-3 hover:bg-primary/5 hover:text-primary rounded-full transition-all" href="manage_calendar.php">
-            <span class="material-symbols-outlined">cloud_done</span> System Status
-        </a>
-        <a class="text-slate-600 mx-4 px-6 py-3 flex items-center gap-3 hover:bg-primary/5 hover:text-primary rounded-full transition-all" href="notifications.php">
-            <span class="material-symbols-outlined">help_outline</span> Help
-        </a>
-    </div>
-</aside>
-
-<!-- Main Content -->
-<main class="ml-0 md:ml-64 p-4 md:p-8 min-h-screen pt-20">
     <!-- Header Metrics -->
-    <div class="flex justify-between items-end mb-8">
+    <div class="sa-dashboard-header flex justify-between items-end mb-8">
         <div>
             <h1 class="font-headline text-2xl md:text-3xl font-extrabold text-slate-800 mb-1">Clinic Performance</h1>
             <p class="font-body text-xs md:text-sm text-slate-500 font-medium">Real-time clinical and operational telemetry</p>
@@ -701,45 +637,10 @@ $role_short_labels = [
             <span class="material-symbols-outlined absolute -bottom-10 -left-10 text-[200px] opacity-5 pointer-events-none">notifications</span>
         </a>
 
-    </div>
-</main>
-
-<!-- Footer Shell -->
-<footer class="w-full py-6 px-4 md:px-8 border-t border-slate-200 bg-white flex flex-col md:flex-row justify-between items-center ml-0 md:ml-64 gap-4 pb-20 md:pb-6">
-    <p class="font-['Inter'] text-[10px] uppercase tracking-widest text-slate-400 font-bold text-center md:text-left">
-        © <?php echo date('Y'); ?> Divya Imaging Center • System Status: <span class="text-tertiary">All Systems Operational</span>
-    </p>
-    <div class="flex flex-wrap justify-center gap-4 md:gap-8 font-['Inter'] text-[10px] uppercase tracking-widest font-black text-slate-400">
-        <a class="hover:text-primary transition-colors" href="#">Privacy Policy</a>
-        <a class="hover:text-primary transition-colors" href="#">Terms of Service</a>
-        <a class="hover:text-primary transition-colors" href="#">Security Audit</a>
-    </div>
-</footer>
-
-<!-- Mobile Navigation Shell -->
-<nav class="md:hidden fixed bottom-0 left-0 w-full bg-white/95 backdrop-blur-xl h-16 border-t border-slate-200 flex justify-around items-center z-50 px-4">
-    <a class="flex flex-col items-center text-primary" href="dashboard.php">
-        <span class="material-symbols-outlined">dashboard</span>
-        <span class="text-[10px] font-bold uppercase mt-1">Home</span>
-    </a>
-    <a class="flex flex-col items-center text-slate-400 hover:text-primary transition-colors" href="deep_analysis.php">
-        <span class="material-symbols-outlined">analytics</span>
-        <span class="text-[10px] font-bold uppercase mt-1">Stats</span>
-    </a>
-    <a class="flex flex-col items-center text-slate-400 hover:text-primary transition-colors" href="test_count.php">
-        <span class="material-symbols-outlined">medical_information</span>
-        <span class="text-[10px] font-bold uppercase mt-1">Tests</span>
-    </a>
-    <a class="flex flex-col items-center text-slate-400 hover:text-primary transition-colors" href="employees.php">
-        <span class="material-symbols-outlined">person</span>
-        <span class="text-[10px] font-bold uppercase mt-1">Admin</span>
-    </a>
-</nav>
-
-</div> <!-- End of bg-surface-bright wrapper -->
+    </div> <!-- End of bento-grid -->
+</div> <!-- End of page-container -->
 
 <!-- Dashboard JS -->
 <script src="<?php echo $base_url; ?>/assets/js/superadmin_dashboard.js?v=<?php echo time(); ?>"></script>
 
-<!-- Close the standard body and html tags from header.php if necessary -->
 <?php require_once '../includes/footer.php'; ?>

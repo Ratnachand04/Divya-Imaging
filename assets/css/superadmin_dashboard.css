@@ -1,12 +1,7 @@
 /* =====================================================
-   SuperAdmin Dashboard - Tailwind Bento Grid Design
+   SuperAdmin Dashboard - Bento Grid Design
+   Now uses the shared app shell (topbar + sidebar).
    ===================================================== */
-
-/* Hide shared header/navbar/footer from includes/header.php and includes/footer.php to allow full page takeover */
-body.role-superadmin .main-header,
-body.role-superadmin .main-navbar,
-body.role-superadmin .main-footer { display: none !important; }
-body.role-superadmin { background-color: #fdf4f7 !important; }
 
 /* Custom Font adjustments for Material Icons */
 .material-symbols-outlined {
@@ -20,16 +15,14 @@ body.role-superadmin { background-color: #fdf4f7 !important; }
     gap: 1.5rem;
 }
 
-/* Responsive Grid adjustment - target both div and a tags */
+/* Responsive Grid adjustment */
 @media (max-width: 768px) {
     .bento-grid > [class*="col-span"] { grid-column: span 12 !important; }
 }
 
 /* =====================================================
-   CRITICAL: Override superadmin.css broad selectors
+   Override superadmin.css broad selectors
    that break Tailwind color utilities on dashboard cards.
-   superadmin.css applies colors to ALL p, span, a, h1-h4
-   which conflicts with Tailwind's text-white etc.
    ===================================================== */
 
 /* Reset text colors inside the bento-grid to inherit from Tailwind */
@@ -85,12 +78,12 @@ body.role-superadmin { background-color: #fdf4f7 !important; }
     color: inherit !important;
 }
 
-/* Specific opacity overrides - some elements need reduced opacity */
+/* Specific opacity overrides */
 .bento-grid [class*="opacity-"] {
     color: inherit !important;
 }
 
-/* Restore specific Tailwind text color utilities that get overridden */
+/* Restore specific Tailwind text color utilities */
 .bento-grid .text-primary {
     color: #e91e63 !important;
 }
@@ -110,7 +103,7 @@ body.role-superadmin { background-color: #fdf4f7 !important; }
     color: #94a3b8 !important;
 }
 
-/* White card (Doctors card) needs dark text */
+/* White card needs dark text */
 .bento-grid > a.bg-white,
 .bento-grid > div.bg-white {
     color: #191c1e !important;
@@ -127,32 +120,7 @@ body.role-superadmin { background-color: #fdf4f7 !important; }
 .bento-grid > a.bg-white .text-slate-400 { color: #94a3b8 !important; }
 .bento-grid > a.bg-white .text-primary { color: #e91e63 !important; }
 
-/* Fix the header section above bento grid */
-.role-superadmin .font-headline.text-slate-800 { color: #1e293b !important; }
-.role-superadmin .font-body.text-slate-500 { color: #64748b !important; }
-
-/* Top nav overrides */
-header.fixed .text-primary { color: #e91e63 !important; }
-header.fixed .text-slate-500 { color: #64748b !important; }
-header.fixed .text-slate-400 { color: #94a3b8 !important; }
-header.fixed a { color: inherit !important; text-decoration: none !important; }
-header.fixed a:hover { text-decoration: none !important; }
-
-/* Sidebar overrides */
-aside.fixed a { text-decoration: none !important; }
-aside.fixed .text-slate-600 { color: #475569 !important; }
-aside.fixed .text-slate-400 { color: #94a3b8 !important; }
-aside.fixed .text-primary { color: #e91e63 !important; }
-aside.fixed .bg-primary { color: white !important; }
-aside.fixed .bg-primary span { color: white !important; }
-
-/* Footer overrides */
-footer .text-slate-400 { color: #94a3b8 !important; }
-footer .text-tertiary { color: #10b981 !important; }
-footer a { color: inherit !important; text-decoration: none !important; }
-footer a:hover { color: #e91e63 !important; }
-
-/* Mobile nav overrides */
-nav.fixed a { text-decoration: none !important; }
-nav.fixed .text-primary { color: #e91e63 !important; }
-nav.fixed .text-slate-400 { color: #94a3b8 !important; }
+/* Dashboard header text inside the shared shell */
+.sa-dashboard-header .font-headline { color: #1e293b !important; }
+.sa-dashboard-header .font-body { color: #64748b !important; }
+.sa-dashboard-header .text-primary { color: #e91e63 !important; }

@@ -3,6 +3,9 @@ $page_title = "Writer Dashboard";
 $required_role = "writer";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
+
+ensure_package_management_schema($conn);
 
 $pending_uploads = [];
 $uploadTableExists = false;
@@ -69,6 +72,7 @@ $selectColumns = "SELECT
     p.sex AS patient_sex,
     bi.reporting_doctor,
     t.sub_test_name AS test_name,
+    COALESCE(NULLIF(bi.package_name, ''), tp.package_name) AS package_name,
     b.created_at AS bill_created_at";
 $joinClause = '';
 
@@ -93,11 +97,12 @@ $where_types = 'ss';
 
 if ($search_term !== '') {
     $search_like = '%' . $search_term . '%';
-    $where_clauses[] = "(CAST(b.id AS CHAR) LIKE ? OR p.name LIKE ? OR t.sub_test_name LIKE ?)";
+    $where_clauses[] = "(CAST(b.id AS CHAR) LIKE ? OR p.name LIKE ? OR t.sub_test_name LIKE ? OR COALESCE(NULLIF(bi.package_name, ''), tp.package_name, '') LIKE ?)";
     $where_params[] = $search_like;
     $where_params[] = $search_like;
     $where_params[] = $search_like;
-    $where_types .= 'sss';
+    $where_params[] = $search_like;
+    $where_types .= 'ssss';
 }
 
 $where_sql = implode(' AND ', $where_clauses);
@@ -107,6 +112,7 @@ $countSql = "SELECT COUNT(*) AS total
     JOIN bills b ON bi.bill_id = b.id
     JOIN patients p ON b.patient_id = p.id
     JOIN tests t ON bi.test_id = t.id
+    LEFT JOIN test_packages tp ON tp.id = bi.package_id
     $joinClause
     WHERE $where_sql";
 
@@ -139,6 +145,7 @@ $dataSql = $selectColumns . "
     JOIN bills b ON bi.bill_id = b.id
     JOIN patients p ON b.patient_id = p.id
     JOIN tests t ON bi.test_id = t.id
+    LEFT JOIN test_packages tp ON tp.id = bi.package_id
     $joinClause
     WHERE $where_sql
     ORDER BY b.created_at DESC
@@ -158,6 +165,10 @@ if ($data_stmt = $conn->prepare($dataSql)) {
             $age = isset($row['patient_age']) ? trim((string)$row['patient_age']) : '';
             $sex = isset($row['patient_sex']) ? trim((string)$row['patient_sex']) : '';
             $row['age_gender'] = trim($age . ($age !== '' && $sex !== '' ? ' / ' : '') . $sex);
+            $package_name = trim((string)($row['package_name'] ?? ''));
+            if ($package_name !== '') {
+                $row['test_name'] = (string)($row['test_name'] ?? '') . ' [PACKAGE: ' . $package_name . ']';
+            }
             $pending_uploads[] = $row;
         }
         $pendingResult->free();
@@ -298,41 +309,7 @@ require_once '../includes/header.php';
                 <div class="pagination-info">
                     Showing <?php echo $showing_start; ?> - <?php echo $showing_end; ?> of <?php echo number_format($total_records); ?> pending item<?php echo ($total_records === 1) ? '' : 's'; ?>
                 </div>
-                <?php if ($total_pages > 1): ?>
-                <div class="writer-pagination">
-                    <?php
-                    $window = 2;
-                    $start_loop = max(1, $page - $window);
-                    $end_loop = min($total_pages, $page + $window);
-                    ?>
-                    <?php if ($page > 1): ?>
-                        <a class="page-link" href="<?php echo htmlspecialchars('dashboard.php?' . http_build_query(array_merge($pagination_query_params, ['page' => $page - 1]))); ?>">Prev</a>
-                    <?php else: ?>
-                        <span class="page-link disabled">Prev</span>
-                    <?php endif; ?>
-
-                    <?php if ($start_loop > 1): ?>
-                        <a class="page-link" href="<?php echo htmlspecialchars('dashboard.php?' . http_build_query(array_merge($pagination_query_params, ['page' => 1]))); ?>">1</a>
-                        <?php if ($start_loop > 2): ?><span class="page-ellipsis">…</span><?php endif; ?>
-                    <?php endif; ?>
-
-                    <?php for ($i = $start_loop; $i <= $end_loop; $i++): ?>
-                        <?php $is_active = ($i === $page); ?>
-                        <a class="page-link<?php echo $is_active ? ' active' : ''; ?>" href="<?php echo htmlspecialchars('dashboard.php?' . http_build_query(array_merge($pagination_query_params, ['page' => $i]))); ?>"><?php echo $i; ?></a>
-                    <?php endfor; ?>
-
-                    <?php if ($end_loop < $total_pages): ?>
-                        <?php if ($end_loop < $total_pages - 1): ?><span class="page-ellipsis">…</span><?php endif; ?>
-                        <a class="page-link" href="<?php echo htmlspecialchars('dashboard.php?' . http_build_query(array_merge($pagination_query_params, ['page' => $total_pages]))); ?>"><?php echo $total_pages; ?></a>
-                    <?php endif; ?>
-
-                    <?php if ($page < $total_pages): ?>
-                        <a class="page-link" href="<?php echo htmlspecialchars('dashboard.php?' . http_build_query(array_merge($pagination_query_params, ['page' => $page + 1]))); ?>">Next</a>
-                    <?php else: ?>
-                        <span class="page-link disabled">Next</span>
-                    <?php endif; ?>
-                </div>
-                <?php endif; ?>
+                <?php echo render_unified_pagination('dashboard.php', (int)$page, (int)$total_pages, $pagination_query_params, 'Writer Dashboard Pagination'); ?>
             </div>
         <?php else: ?>
             <div class="upload-empty-state">

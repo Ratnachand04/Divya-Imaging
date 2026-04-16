@@ -3,6 +3,9 @@ $page_title = "View Reports";
 $required_role = "writer";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
+
+ensure_package_management_schema($conn);
 
 function format_datetime_label(?string $value): ?string {
     if (empty($value)) {
@@ -45,6 +48,7 @@ if ($finalReportTableExists) {
                 p.sex AS patient_sex,
                 t.main_test_name,
                 t.sub_test_name AS test_name,
+                COALESCE(NULLIF(bi.package_name, ''), tp.package_name) AS package_name,
                 bi.report_status,
                 bi.updated_at AS report_written_at,
                 wfr.file_path,
@@ -56,6 +60,7 @@ if ($finalReportTableExists) {
             JOIN bills b ON bi.bill_id = b.id
             JOIN patients p ON b.patient_id = p.id
             JOIN tests t ON bi.test_id = t.id
+            LEFT JOIN test_packages tp ON tp.id = bi.package_id
             JOIN writer_final_reports wfr ON wfr.bill_item_id = bi.id
             LEFT JOIN (
                 SELECT
@@ -100,7 +105,7 @@ if ($finalReportTableExists) {
                 'patient_name' => $row['patient_name'],
                 'test_name' => trim(($row['main_test_name'] ?? '') !== ''
                     ? ($row['main_test_name'] . ' • ' . $row['test_name'])
-                    : $row['test_name']),
+                    : $row['test_name']) . (!empty($row['package_name']) ? ' [PACKAGE: ' . $row['package_name'] . ']' : ''),
                 'age_gender' => $age_gender,
                 'status' => $row['report_status'],
                 'report_written_at' => $row['report_written_at'],

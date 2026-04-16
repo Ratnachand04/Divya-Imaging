@@ -388,25 +388,21 @@ $delta_text = $revenue_delta === null ? 'No baseline' : (sprintf('%+0.1f%%', $re
 
 <style>
 .monthly-analysis-bg {
-    min-height: 100vh;
     width: 100%;
-    background: linear-gradient(180deg, var(--bg-secondary, #fef3f7) 0%, var(--bg-muted, #ffe4f1) 100%);
-    padding: clamp(1rem, 4vw, 3rem);
 }
 .monthly-analysis-container {
     display: flex;
     flex-direction: column;
     gap: clamp(1rem, 2.5vw, 2rem);
     width: 100%;
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: clamp(1.25rem, 3vw, 2.5rem);
-    min-height: calc(100vh - 180px);
+    max-width: none;
+    padding: clamp(1rem, 1.6vw, 1.5rem);
     box-sizing: border-box;
     flex: 1 1 auto;
     background: var(--bg-primary, #ffffff);
-    border-radius: 22px;
-    box-shadow: 0 25px 60px rgba(15, 23, 42, 0.08);
+    border-radius: 16px;
+    border: 1px solid var(--border-light);
+    box-shadow: var(--shadow-sm);
 }
 .monthly-analysis-container .analysis-wrapper {
     display: flex;
@@ -443,22 +439,10 @@ $delta_text = $revenue_delta === null ? 'No baseline' : (sprintf('%+0.1f%%', $re
 .insight-card .value.negative {
     color: #d93025;
 }
-@media (max-width: 992px) {
-    .monthly-analysis-bg {
-        padding: clamp(0.75rem, 5vw, 2rem);
-    }
-    .monthly-analysis-container {
-        padding: clamp(1rem, 4vw, 1.75rem);
-    }
-}
 @media (max-width: 640px) {
-    .monthly-analysis-bg {
-        padding: 0.75rem;
-    }
     .monthly-analysis-container {
         gap: 1rem;
         padding: 1rem;
-        border-radius: 16px;
     }
     .monthly-analysis-container .filter-card .filter-group {
         flex-direction: column;
