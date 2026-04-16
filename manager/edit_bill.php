@@ -69,7 +69,9 @@ require_once '../includes/header.php';
                     <option value="Cash" <?php if($bill['payment_mode'] == 'Cash') echo 'selected'; ?>>Cash</option>
                     <option value="Card" <?php if($bill['payment_mode'] == 'Card') echo 'selected'; ?>>Card</option>
                     <option value="UPI" <?php if($bill['payment_mode'] == 'UPI') echo 'selected'; ?>>UPI</option>
-                    <option value="Other" <?php if($bill['payment_mode'] == 'Other') echo 'selected'; ?>>Other</option>
+                    <option value="Cash + Card" <?php if($bill['payment_mode'] == 'Cash + Card') echo 'selected'; ?>>Cash + Card</option>
+                    <option value="UPI + Cash" <?php if($bill['payment_mode'] == 'UPI + Cash') echo 'selected'; ?>>UPI + Cash</option>
+                    <option value="Card + UPI" <?php if($bill['payment_mode'] == 'Card + UPI') echo 'selected'; ?>>Card + UPI</option>
                 </select>
             </div>
         </fieldset>

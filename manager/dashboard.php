@@ -71,13 +71,49 @@ require_once '../includes/header.php';
                 <p id="kpi-total-revenue">₹ 0.00</p>
             </a>
         </div>
+        <div class="summary-card">
+            <h3>Total Packages</h3>
+            <p id="kpi-total-packages">0</p>
+        </div>
+        <div class="summary-card">
+            <h3>Active Packages</h3>
+            <p id="kpi-active-packages">0</p>
+        </div>
+        <div class="summary-card">
+            <h3>Packages Sold</h3>
+            <p id="kpi-packages-sold">0</p>
+        </div>
+        <div class="summary-card">
+            <h3>Package Revenue</h3>
+            <p id="kpi-package-revenue">₹ 0.00</p>
+        </div>
+        <div class="summary-card">
+            <h3>Most Sold Package</h3>
+            <p id="kpi-most-sold-package">N/A</p>
+        </div>
     </div>
 
-    <div class="charts-section">
-        <div class="chart-container"><h3>Top 5 Test Categories</h3><canvas id="topTestCategoriesChart"></canvas></div>
-        <div class="chart-container"><h3>Referral Sources</h3><canvas id="referralSourceChart"></canvas></div>
-        <div class="chart-container"><h3>Top 5 Referring Doctors (by Patients)</h3><canvas id="topDoctorsChart"></canvas></div>
-        <div class="chart-container"><h3>Revenue by Payment Method</h3><canvas id="paymentModeChart"></canvas></div>
+    <div class="charts-section manager-charts-grid">
+        <div class="chart-container">
+            <h3>Top 5 Test Categories</h3>
+            <div class="chart-canvas-wrap"><canvas id="topTestCategoriesChart"></canvas></div>
+        </div>
+        <div class="chart-container">
+            <h3>Referral Sources</h3>
+            <div class="chart-canvas-wrap"><canvas id="referralSourceChart"></canvas></div>
+        </div>
+        <div class="chart-container">
+            <h3>Top 5 Referring Doctors (by Patients)</h3>
+            <div class="chart-canvas-wrap"><canvas id="topDoctorsChart"></canvas></div>
+        </div>
+        <div class="chart-container">
+            <h3>Revenue by Payment Method</h3>
+            <div class="chart-canvas-wrap"><canvas id="paymentModeChart"></canvas></div>
+        </div>
+        <div class="chart-container">
+            <h3>Top Package Sales</h3>
+            <div class="chart-canvas-wrap"><canvas id="topPackagesChart"></canvas></div>
+        </div>
     </div>
 
     <div class="manager-settings-widget" aria-label="Dashboard Settings">
@@ -248,6 +284,11 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('kpi-total-bills').textContent = data.kpis.total_bills || 0;
         document.getElementById('kpi-total-tests').textContent = data.kpis.tests_performed || 0;
         document.getElementById('kpi-total-revenue').textContent = `₹ ${parseFloat(data.kpis.total_revenue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        document.getElementById('kpi-total-packages').textContent = data.kpis.total_packages || 0;
+        document.getElementById('kpi-active-packages').textContent = data.kpis.active_packages || 0;
+        document.getElementById('kpi-packages-sold').textContent = data.kpis.packages_sold || 0;
+        document.getElementById('kpi-package-revenue').textContent = `₹ ${parseFloat(data.kpis.package_revenue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        document.getElementById('kpi-most-sold-package').textContent = data.kpis.most_sold_package || 'N/A';
         
         // --- NEW: Update the Pending Bills KPI ---
         document.getElementById('kpi-pending-bills').textContent = data.kpis.pending_bills_count || 0;
@@ -280,6 +321,13 @@ document.addEventListener('DOMContentLoaded', function() {
         charts.paymentMode = new Chart(
             document.getElementById('paymentModeChart'),
             chartConfigs.bar({ labels: paymentModes.labels, values: paymentModes.data, label: 'Revenue', color: '#4e73df', formatter: formatCurrency }, null)
+        );
+
+        const packageSales = data.charts.package_sales || { labels: [], data: [] };
+        if (charts.topPackages) charts.topPackages.destroy();
+        charts.topPackages = new Chart(
+            document.getElementById('topPackagesChart'),
+            chartConfigs.bar({ labels: packageSales.labels, values: packageSales.data, label: 'Packages Sold', color: '#10b981', indexAxis: 'y', formatter: formatNumber }, null)
         );
         
         updateKpiLinks();

@@ -3,6 +3,9 @@ $page_title = "Detailed Analytics";
 $required_role = "manager"; //
 require_once '../includes/auth_check.php'; //
 require_once '../includes/db_connect.php'; //
+require_once '../includes/functions.php';
+
+ensure_bill_payment_split_columns($conn);
 
 // --- 1. GET AND PREPARE FILTERS & PAGINATION ---
 $today_date = date('Y-m-d'); //
@@ -14,7 +17,8 @@ $receptionist_id = isset($_GET['receptionist_id']) && $_GET['receptionist_id'] !
 $main_test = isset($_GET['main_test']) ? $_GET['main_test'] : 'all'; //
 $sub_test_id = isset($_GET['sub_test']) && $_GET['sub_test'] !== 'all' ? (int)$_GET['sub_test'] : 'all'; //
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1; //
-$records_per_page = 20; //
+$allowed_per_page = [20, 50, 100];
+$records_per_page = isset($_GET['per_page']) && in_array((int)$_GET['per_page'], $allowed_per_page) ? (int)$_GET['per_page'] : 20; //
 $offset = ($page - 1) * $records_per_page; //
 
 $showReferredByColumn = true; //
@@ -65,9 +69,10 @@ $stmt_count->close(); //
 // This query remains the same as the previous correct version
 $data_query = "
     SELECT
-        b.id as bill_id, b.invoice_number, p.name as patient_name, b.created_at,
+        b.id as bill_id, b.invoice_number, p.id as patient_db_id, p.uid as patient_uid, p.name as patient_name, b.created_at,
         u.username as receptionist_name, --
         b.gross_amount, b.net_amount, b.discount, b.discount_by,
+        b.payment_mode, b.cash_amount, b.card_amount, b.upi_amount, b.other_amount,
         b.referral_type, b.referral_source_other, rd.doctor_name, b.referral_doctor_id, --
         t.default_payable_amount,
         t.main_test_name, t.sub_test_name, t.price as test_price,
@@ -143,7 +148,7 @@ $all_tests_by_category = []; //
 while($row = $all_tests_result->fetch_assoc()) { $all_tests_by_category[$row['main_test_name']][] = ['id' => $row['id'], 'name' => $row['sub_test_name']]; } //
 
 // --- Colspan (Existing Code) ---
-$colspan = 8; // base columns always shown
+$colspan = 9; // base columns always shown (S.No, Bill ID, Patient ID, Patient, Item Discount, Test Total, Prof Charges, Date, Actions)
 if ($showReferredByColumn) { $colspan++; } //
 if ($showReceptionistColumn) { $colspan++; } //
 if ($showMainTestColumn) { $colspan++; } //
@@ -260,9 +265,9 @@ require_once '../includes/header.php'; //
         </div>
     </form>
     <?php if(!empty($active_filters)): ?>
-    <div class="active-filters" style="margin-top: 1.5rem; padding: 10px; background-color: #e9ecef; border-radius: 8px;">
-        <strong style="margin-right: 10px;">Active Filters:</strong>
-        <?php foreach($active_filters as $filter): ?><span style="display: inline-block; background-color: #007bff; color: white; padding: 5px 10px; border-radius: 15px; margin: 2px; font-size: 0.9em;"><?php echo $filter; ?></span><?php endforeach; ?>
+    <div class="active-filters analytics-active-filters">
+        <strong>Active Filters:</strong>
+        <?php foreach($active_filters as $filter): ?><span class="analytics-filter-tag"><?php echo $filter; ?></span><?php endforeach; ?>
     </div>
     <?php endif; ?>
     <div class="summary-cards">
@@ -281,59 +286,210 @@ require_once '../includes/header.php'; //
             <?php if ($receptionist_id !== 'all'): ?><div class="summary-card"><h3>Selected Receptionist</h3><p><?php echo htmlspecialchars($selectedReceptionistName ?? ''); ?></p></div><?php endif; ?>
         <?php endif; ?>
     </div>
-    <div class="table-responsive">
-    <table class="data-table" id="analytics-table">
-         <thead>
+    <div class="table-responsive analytics-table-shell">
+    <div class="analytics-entries-control">
+        <label>Show
+            <select id="analytics-per-page">
+                <option value="20" <?php if($records_per_page == 20) echo 'selected'; ?>>20</option>
+                <option value="50" <?php if($records_per_page == 50) echo 'selected'; ?>>50</option>
+                <option value="100" <?php if($records_per_page == 100) echo 'selected'; ?>>100</option>
+            </select>
+            entries
+        </label>
+        <button type="button" class="btn-apply-entries" id="btn-apply-entries">Apply</button>
+    </div>
+    <table class="data-table custom-table" id="analytics-table">
+        <colgroup>
+            <col style="width: 11%;">
+            <col style="width: 20%;">
+            <col style="width: 25%;">
+            <col style="width: 10%;">
+            <col style="width: 8%;">
+            <col style="width: 9%;">
+            <col style="width: 9%;">
+            <col style="width: 14%;">
+            <col style="width: 8%;">
+        </colgroup>
+        <thead>
             <tr>
-                <th>S.No.</th><th>Bill ID</th><th>Patient</th>
-                <?php if ($showReceptionistColumn): ?><th>Receptionist</th><?php endif; ?>
-                <?php if ($showReferredByColumn): ?><th>Referred By</th><?php endif; ?>
-                <?php if ($showMainTestColumn): ?><th>Main Test</th><?php endif; ?>
-                <?php if ($showSubTestColumn): ?><th>Sub Test</th><?php endif; ?>
-                <th>Item Discount</th>
-                <th>Test Total (₹)</th>
-                <th>Professional Charges (₹)</th><th>Date</th>
-                <th class="action-header">Actions</th>
+                <th class="col-bill">Bill</th>
+                <th class="col-patient">Patient</th>
+                <th class="col-test-details">Test Details</th>
+                <th class="col-amount col-gross">GROSS AMOUNT</th>
+                <th class="col-amount col-discount">Item Disc.</th>
+                <th class="col-amount col-testtotal">Test Total</th>
+                <th class="col-amount col-profcharge">PROF. CHARGE</th>
+                <th class="col-payment-mode">PAYMENT MODE</th>
+                <th class="action-header col-actions">Actions</th>
             </tr>
         </thead>
         <tbody>
-            <?php
-            // ****** Table Body Generation Logic (remains same as previous correct version) ******
-            if (!empty($report_data)):
-                $start_num = ($page - 1) * $records_per_page + 1; //
-                $current_bill_id = null; //
+            <?php if (!empty($report_data)): ?>
+                <?php
+                    $current_bill_id = null;
+                    $display_gross_total = 0.0;
+                    $display_item_discount_total = 0.0;
+                    $display_test_total_total = 0.0;
+                    $display_prof_charge_total = 0.0;
 
-                foreach($report_data as $row): //
-                    $is_first_row_for_bill = ($row['bill_id'] !== $current_bill_id); //
-                    $row_class = $is_first_row_for_bill ? 'bill-start' : 'bill-continue'; //
+                    foreach($report_data as $row):
+                        $is_first_row_for_bill = ($row['bill_id'] !== $current_bill_id);
+                        $row_class = $is_first_row_for_bill ? 'bill-start' : 'bill-continue';
+                        $payable_for_this_row = calculateDoctorProfessionalCharge($row);
 
-                    // Calculate payable amount with new business rule
-                    $payable_for_this_row = calculateDoctorProfessionalCharge($row);
-            ?>
-            <tr class="<?php echo $row_class; ?>">
-                 <td><?php echo $start_num++; ?></td>
-                 <td class="<?php echo $is_first_row_for_bill ? '' : 'merged-cell'; ?>"><?php if ($is_first_row_for_bill) echo htmlspecialchars($row['bill_id']); else echo '&nbsp;'; ?></td>
-                 <td class="<?php echo $is_first_row_for_bill ? '' : 'merged-cell'; ?>"><?php if ($is_first_row_for_bill) echo htmlspecialchars($row['patient_name']); else echo '&nbsp;'; ?></td>
-                 <?php if ($showReceptionistColumn): ?><td class="<?php echo $is_first_row_for_bill ? '' : 'merged-cell'; ?>"><?php if ($is_first_row_for_bill) echo htmlspecialchars($row['receptionist_name']); else echo '&nbsp;'; ?></td><?php endif; ?>
-                 <?php if ($showReferredByColumn): ?>
-                    <td class="<?php echo $is_first_row_for_bill ? '' : 'merged-cell'; ?>"><?php if ($is_first_row_for_bill) { if ($row['referral_type'] == 'Doctor' && !empty($row['doctor_name'])) { echo htmlspecialchars($row['doctor_name']); } elseif ($row['referral_type'] == 'Other') { echo 'Other (' . htmlspecialchars($row['referral_source_other']) . ')'; } else { echo 'Self'; } } else { echo '&nbsp;'; } ?></td>
-                <?php endif; ?>
-                <?php if ($showMainTestColumn): ?><td><?php echo htmlspecialchars($row['main_test_name'] ?? ''); ?></td><?php endif; ?>
-                <?php if ($showSubTestColumn): ?><td><?php echo htmlspecialchars($row['sub_test_name'] ?? ''); ?></td><?php endif; ?>
-                <td><?php $item_discount = (float)($row['item_discount'] ?? 0); echo number_format($item_discount, 2); if ($item_discount > 0) { echo ($row['discount_by'] === 'Doctor') ? ' (D)' : ' (C)'; } ?></td>
-                <td><?php $test_total = (float)$row['test_price'] + (float)$row['screening_amount']; echo number_format($test_total, 2); if ($row['screening_amount'] > 0) { echo ' (+' . number_format($row['screening_amount'], 2) . ' screening)'; } ?></td>
-                <td><?php echo number_format($payable_for_this_row, 2); ?></td>
-                 <td class="<?php echo $is_first_row_for_bill ? '' : 'merged-cell'; ?>"><?php if ($is_first_row_for_bill) echo date('d-m-Y', strtotime($row['created_at'])); else echo '&nbsp;'; ?></td>
-                <td class="action-cell"><form action="delete_bill_item.php" method="POST" style="display:inline;"><input type="hidden" name="bill_item_id" value="<?php echo $row['bill_item_id']; ?>"><button type="submit" class="btn-action btn-danger" onclick="return confirm('Are you sure you want to hide this test from the report?');">Delete</button></form></td>
-            </tr>
-            <?php
-                    $current_bill_id = $row['bill_id']; //
-                endforeach;
-            endif; ?>
+                        $bill_id_text = (string)$row['bill_id'];
+                        $bill_date_text = date('d-m-Y', strtotime((string)$row['created_at']));
+                        $patient_name_text = (string)($row['patient_name'] ?? '');
+                        $patient_uid_text = (string)($row['patient_uid'] ?? ('P' . $row['patient_db_id']));
+                        $main_test_text = (string)($row['main_test_name'] ?? '');
+                        $sub_test_text = (string)($row['sub_test_name'] ?? '');
+
+                        $referred_by_text = 'Ref: Self';
+                        if (($row['referral_type'] ?? '') === 'Doctor' && !empty($row['doctor_name'])) {
+                            $referred_by_text = 'Ref: ' . (string)$row['doctor_name'];
+                        } elseif (($row['referral_type'] ?? '') === 'Other') {
+                            $other_ref = trim((string)($row['referral_source_other'] ?? ''));
+                            $referred_by_text = $other_ref !== '' ? ('Ref: Other (' . $other_ref . ')') : 'Ref: Other';
+                        }
+
+                        $item_discount = (float)($row['item_discount'] ?? 0);
+                        $discount_source = '';
+                        if ($item_discount > 0) {
+                            $discount_source = (($row['discount_by'] ?? '') === 'Doctor') ? 'D' : 'C';
+                        }
+                        $screening_amount = (float)($row['screening_amount'] ?? 0);
+                        $test_total = (float)($row['test_price'] ?? 0) + $screening_amount;
+                        $bill_gross_amount = (float)($row['gross_amount'] ?? 0);
+
+                        $payment_mode_label = format_payment_mode_display($row, false);
+                        $payment_mode_badge_class = 'mode-other';
+                        $normalized_payment_mode = strtolower(str_replace([' ', '-', '+'], '', (string)$payment_mode_label));
+                        if (strpos((string)$payment_mode_label, '+') !== false) {
+                            $payment_mode_badge_class = 'mode-mixed';
+                        } elseif ($normalized_payment_mode === 'cash') {
+                            $payment_mode_badge_class = 'mode-cash';
+                        } elseif ($normalized_payment_mode === 'card') {
+                            $payment_mode_badge_class = 'mode-card';
+                        } elseif ($normalized_payment_mode === 'upi') {
+                            $payment_mode_badge_class = 'mode-upi';
+                        }
+
+                        $payment_breakdown_parts = [];
+                        $cash_amount = (float)($row['cash_amount'] ?? 0);
+                        $card_amount = (float)($row['card_amount'] ?? 0);
+                        $upi_amount = (float)($row['upi_amount'] ?? 0);
+                        $other_amount = (float)($row['other_amount'] ?? 0);
+                        if ($cash_amount > 0.01) {
+                            $payment_breakdown_parts[] = 'Cash: ₹' . number_format($cash_amount, 2);
+                        }
+                        if ($card_amount > 0.01) {
+                            $payment_breakdown_parts[] = 'Card: ₹' . number_format($card_amount, 2);
+                        }
+                        if ($upi_amount > 0.01) {
+                            $payment_breakdown_parts[] = 'UPI: ₹' . number_format($upi_amount, 2);
+                        }
+                        if ($other_amount > 0.01) {
+                            $payment_breakdown_parts[] = 'Other: ₹' . number_format($other_amount, 2);
+                        }
+                        $payment_breakdown = implode(' | ', $payment_breakdown_parts);
+                        $show_payment_breakdown = count($payment_breakdown_parts) > 1;
+
+                        if ($is_first_row_for_bill) {
+                            $display_gross_total += $bill_gross_amount;
+                        }
+                        $display_item_discount_total += $item_discount;
+                        $display_test_total_total += $test_total;
+                        $display_prof_charge_total += $payable_for_this_row;
+                ?>
+                <tr class="<?php echo $row_class; ?>">
+                    <td class="col-bill <?php echo $is_first_row_for_bill ? '' : 'merged-cell'; ?>">
+                        <?php if ($is_first_row_for_bill): ?>
+                            <a class="bill-detail-link" href="preview_bill.php?bill_id=<?php echo urlencode($bill_id_text); ?>" target="_blank" rel="noopener" title="Open bill preview for Bill #<?php echo htmlspecialchars($bill_id_text, ENT_QUOTES); ?>">#<?php echo htmlspecialchars($bill_id_text); ?></a>
+                            <span class="bill-meta-line"><?php echo htmlspecialchars($bill_date_text); ?></span>
+                            <?php if ($showReceptionistColumn): ?>
+                                <span class="bill-meta-line">By: <?php echo htmlspecialchars((string)$row['receptionist_name']); ?></span>
+                            <?php endif; ?>
+                        <?php else: ?>
+                            &nbsp;
+                        <?php endif; ?>
+                    </td>
+                    <td class="col-patient <?php echo $is_first_row_for_bill ? '' : 'merged-cell'; ?>">
+                        <?php if ($is_first_row_for_bill): ?>
+                            <span class="patient-name"><?php echo htmlspecialchars($patient_name_text); ?></span>
+                            <span class="patient-ref"><?php echo htmlspecialchars($referred_by_text); ?></span>
+                            <span class="patient-uid"><?php echo htmlspecialchars($patient_uid_text); ?></span>
+                        <?php else: ?>
+                            &nbsp;
+                        <?php endif; ?>
+                    </td>
+                    <td class="col-test-details">
+                        <span class="test-main"><?php echo htmlspecialchars($main_test_text); ?></span>
+                        <span class="test-sub"><?php echo htmlspecialchars($sub_test_text); ?></span>
+                        <?php if ($screening_amount > 0.0): ?>
+                            <span class="screening-note">+ Screening: ₹<?php echo number_format($screening_amount, 2); ?></span>
+                        <?php endif; ?>
+                    </td>
+                    <td class="cell-amount col-gross <?php echo $is_first_row_for_bill ? '' : 'merged-cell'; ?>">
+                        <?php if ($is_first_row_for_bill): ?>
+                            ₹<?php echo number_format($bill_gross_amount, 2); ?>
+                        <?php else: ?>
+                            &nbsp;
+                        <?php endif; ?>
+                    </td>
+                    <td class="cell-amount col-discount">
+                        ₹<?php echo number_format($item_discount, 2); ?>
+                        <?php if ($discount_source !== ''): ?>
+                            <span class="discount-tag">(<?php echo $discount_source; ?>)</span>
+                        <?php endif; ?>
+                    </td>
+                    <td class="cell-amount col-testtotal">₹<?php echo number_format($test_total, 2); ?></td>
+                    <td class="cell-amount col-profcharge">₹<?php echo number_format($payable_for_this_row, 2); ?></td>
+                    <td class="col-payment-mode <?php echo $is_first_row_for_bill ? '' : 'merged-cell'; ?>">
+                        <?php if ($is_first_row_for_bill): ?>
+                            <span class="payment-mode-pill <?php echo htmlspecialchars($payment_mode_badge_class); ?>"><?php echo htmlspecialchars($payment_mode_label); ?></span>
+                            <?php if ($show_payment_breakdown): ?>
+                                <span class="payment-mode-breakdown"><?php echo htmlspecialchars($payment_breakdown); ?></span>
+                            <?php endif; ?>
+                        <?php else: ?>
+                            &nbsp;
+                        <?php endif; ?>
+                    </td>
+                    <td class="action-cell col-actions">
+                        <form action="delete_bill_item.php" method="POST" class="analytics-delete-form">
+                            <input type="hidden" name="bill_item_id" value="<?php echo (int)$row['bill_item_id']; ?>">
+                            <button type="submit" class="btn-action btn-danger" onclick="return confirm('Are you sure you want to hide this test from the report?');">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                <?php
+                        $current_bill_id = $row['bill_id'];
+                    endforeach;
+                ?>
+            <?php else: ?>
+                <tr>
+                    <td colspan="9" style="text-align: center;">No records found for the selected filters.</td>
+                </tr>
+            <?php endif; ?>
         </tbody>
+        <?php if (!empty($report_data)): ?>
+        <tfoot>
+            <tr class="analytics-total-row">
+                <th colspan="3" class="analytics-total-label">Filtered Totals</th>
+                <th class="col-amount col-gross">₹<?php echo number_format($display_gross_total, 2); ?></th>
+                <th class="col-amount col-discount">₹<?php echo number_format($display_item_discount_total, 2); ?></th>
+                <th class="col-amount col-testtotal">₹<?php echo number_format($display_test_total_total, 2); ?></th>
+                <th class="col-amount col-profcharge">₹<?php echo number_format($display_prof_charge_total, 2); ?></th>
+                <th class="col-payment-mode">—</th>
+                <th class="col-actions">&nbsp;</th>
+            </tr>
+        </tfoot>
+        <?php endif; ?>
     </table>
     </div>
-    <div class="pagination"><?php $query_params = $_GET; for ($i = 1; $i <= $total_pages; $i++) { $query_params['page'] = $i; $link = 'analytics.php?' . http_build_query($query_params); $active_class = ($i == $page) ? 'active' : ''; echo "<a href='{$link}' class='{$active_class}'>{$i}</a> "; } ?></div> </div>
+
+    <?php echo render_unified_pagination('analytics.php', (int)$page, (int)$total_pages, $_GET, 'Analytics Pagination'); ?>
+</div>
+
 <script>
 // ... (All existing JavaScript code remains unchanged) ...
 document.addEventListener('DOMContentLoaded', function() {
@@ -464,6 +620,19 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     updateExportLink(); //
+
+    // Custom entries control (replaces DataTables length control)
+    const perPageSelect = document.getElementById('analytics-per-page');
+    const applyEntriesBtn = document.getElementById('btn-apply-entries');
+    if (perPageSelect && applyEntriesBtn) {
+        applyEntriesBtn.addEventListener('click', function() {
+            const val = perPageSelect.value;
+            const url = new URL(window.location.href);
+            url.searchParams.set('per_page', val);
+            url.searchParams.delete('page');
+            window.location.href = url.toString();
+        });
+    }
 });
 </script>
 

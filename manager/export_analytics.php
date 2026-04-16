@@ -2,6 +2,9 @@
 $required_role = "manager";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
+
+ensure_bill_payment_split_columns($conn);
 
 $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : date('Y-m-01');
 $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : date('Y-m-t');
@@ -126,6 +129,11 @@ $data_query = "SELECT
         COALESCE(bis.screening_amount, 0) AS screening_amount,
         COALESCE(bi.discount_amount, 0) AS item_discount,
         b.discount_by,
+        b.payment_mode,
+        b.cash_amount,
+        b.card_amount,
+        b.upi_amount,
+        b.other_amount,
         t.default_payable_amount,
         dtp.payable_amount AS specific_payable_amount
     " . $base_query_from . $where_sql . " ORDER BY b.id DESC, bi.id ASC";
@@ -158,6 +166,7 @@ if ($showSubTestColumn) { $headerRow[] = 'Sub Test'; }
 $headerRow[] = 'Item Discount (₹)';
 $headerRow[] = 'Test Total (₹)';
 $headerRow[] = 'Doctor Payable (₹)';
+$headerRow[] = 'Payment Mode';
 $headerRow[] = 'Date';
 fputcsv($output, $headerRow);
 
@@ -173,6 +182,9 @@ while ($row = $result->fetch_assoc()) {
     $test_total = (float)$row['test_price'] + (float)$row['screening_amount'];
     $item_discount = (float)$row['item_discount'];
     $doctor_payable = calculateDoctorProfessionalCharge($row);
+    $payment_mode_display = function_exists('format_payment_mode_display')
+        ? format_payment_mode_display($row)
+        : (string)($row['payment_mode'] ?? '');
 
     $csvRow = [$serial++, $row['bill_id'], $row['patient_name']];
     if ($showReceptionistColumn) { $csvRow[] = $row['receptionist_name']; }
@@ -182,6 +194,7 @@ while ($row = $result->fetch_assoc()) {
     $csvRow[] = number_format($item_discount, 2, '.', '');
     $csvRow[] = number_format($test_total, 2, '.', '');
     $csvRow[] = number_format($doctor_payable, 2, '.', '');
+    $csvRow[] = $payment_mode_display;
     $csvRow[] = date('d-m-Y', strtotime($row['created_at']));
     fputcsv($output, $csvRow);
 }

@@ -125,7 +125,7 @@ require_once '../includes/header.php';
 
 
 <div class="page-container">
-    <div style="display: flex; justify-content: space-between; align-items: center;">
+    <div class="dashboard-header">
         <h1>Manage Referring Doctors</h1>
         <button id="toggle-form-btn" class="btn-submit"><?php echo $is_editing ? 'Close Form' : 'Add New Doctor'; ?></button>
     </div>
@@ -153,7 +153,7 @@ require_once '../includes/header.php';
                 </div>
                  <div class="form-row">
                     <div class="form-group">
-                        <label style="margin-top:2rem;"><input type="checkbox" name="is_active" value="1" <?php echo (isset($edit_doctor) && $edit_doctor['is_active']) || !isset($edit_doctor) ? 'checked' : ''; ?>> Active</label>
+                        <label class="doctor-active-toggle"><input type="checkbox" name="is_active" value="1" <?php echo (isset($edit_doctor) && $edit_doctor['is_active']) || !isset($edit_doctor) ? 'checked' : ''; ?>> Active</label>
                     </div>
                  </div>
             </fieldset>
