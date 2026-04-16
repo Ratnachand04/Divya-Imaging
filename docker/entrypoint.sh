@@ -139,6 +139,37 @@ WHERE role = 'developer';
 EOSQL
 echo "[DB] Platform admin credentials enforced (username: ${PLATFORM_USERNAME})."
 
+is_private_or_loopback_ip() {
+    local ip="$1"
+    if [ -z "$ip" ]; then
+        return 0
+    fi
+
+    if [[ "$ip" =~ ^127\. ]] || [[ "$ip" =~ ^10\. ]] || [[ "$ip" =~ ^192\.168\. ]] || [[ "$ip" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]] || [[ "$ip" =~ ^169\.254\. ]]; then
+        return 0
+    fi
+
+    return 1
+}
+
+PUBLIC_EXPOSURE_MODE="true"
+if [ "${DUAL_IP_BIND:-false}" != "true" ]; then
+    PUBLIC_EXPOSURE_MODE="false"
+fi
+
+# Optional: run WAN probe checks during startup.
+# Keep disabled by default so ports become available quickly.
+STARTUP_NETWORK_PROBES="${STARTUP_NETWORK_PROBES:-false}"
+
+# Local/private deployments do not need WAN diagnostics or dynamic Apache reloads.
+if [ "${APACHE_SERVER_NAME}" = "localhost" ] || [ "${APACHE_SERVER_NAME}" = "127.0.0.1" ]; then
+    PUBLIC_EXPOSURE_MODE="false"
+elif echo "${APACHE_SERVER_NAME}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+    if is_private_or_loopback_ip "${APACHE_SERVER_NAME}"; then
+        PUBLIC_EXPOSURE_MODE="false"
+    fi
+fi
+
 # ---- 4. Auto-detect IPs ----
 echo "[IP] Detecting network configuration..."
 
@@ -149,21 +180,26 @@ fi
 echo "[IP] Local IP: ${LOCAL_IP}"
 
 # Detect public IP using multiple services (fallback chain)
-if [ -z "${PUBLIC_IP}" ]; then
-    for svc in "https://api.ipify.org" "https://ifconfig.me" "https://icanhazip.com" "https://checkip.amazonaws.com"; do
-        PUBLIC_IP=$(curl -s --max-time 5 "$svc" 2>/dev/null | tr -d '[:space:]')
-        if echo "$PUBLIC_IP" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "[IP] Public IP detected via $svc: ${PUBLIC_IP}"
-            break
-        fi
-        PUBLIC_IP=""
-    done
-fi
+if [ "${PUBLIC_EXPOSURE_MODE}" = "true" ]; then
+    if [ -z "${PUBLIC_IP}" ]; then
+        for svc in "https://api.ipify.org" "https://ifconfig.me" "https://icanhazip.com" "https://checkip.amazonaws.com"; do
+            PUBLIC_IP=$(curl -s --max-time 5 "$svc" 2>/dev/null | tr -d '[:space:]')
+            if echo "$PUBLIC_IP" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+                echo "[IP] Public IP detected via $svc: ${PUBLIC_IP}"
+                break
+            fi
+            PUBLIC_IP=""
+        done
+    fi
 
-if [ -n "${PUBLIC_IP}" ]; then
-    echo "[IP] Public IP: ${PUBLIC_IP}"
+    if [ -n "${PUBLIC_IP}" ]; then
+        echo "[IP] Public IP: ${PUBLIC_IP}"
+    else
+        echo "[IP] WARNING: Could not detect public IP from any service"
+    fi
 else
-    echo "[IP] WARNING: Could not detect public IP from any service"
+    PUBLIC_IP=""
+    echo "[IP] Public exposure mode: disabled (local/private deployment)."
 fi
 
 # ---- 5. Port Auto-Scan on both IPs ----
@@ -205,11 +241,18 @@ for port in ${HTTP_PORT} ${HTTPS_PORT} ${DATABASE_PORT}; do
 done
 
 # Public IP port scan: test reachability using external callback
-if [ -n "${PUBLIC_IP}" ]; then
+if [ "${PUBLIC_EXPOSURE_MODE}" = "true" ] && [ "${STARTUP_NETWORK_PROBES}" = "true" ] && [ -n "${PUBLIC_IP}" ]; then
     for port in ${HTTP_PORT} ${HTTPS_PORT}; do
         echo -n "[PORT-SCAN]   Public ${PUBLIC_IP}:${port} -> "
-        # We try a curl HEAD to our own public IP + port to see if we're reachable
-        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://${PUBLIC_IP}:${port}/" 2>/dev/null || echo "000")
+        # We try a request to our own public IP + port to see if we're reachable.
+        scheme="http"
+        if [ "${port}" = "${HTTPS_PORT}" ]; then
+            scheme="https"
+        fi
+        HTTP_CODE=$(curl -k -s -o /dev/null -w "%{http_code}" --max-time 5 "${scheme}://${PUBLIC_IP}:${port}/" 2>/dev/null || true)
+        if [ -z "${HTTP_CODE}" ]; then
+            HTTP_CODE="000"
+        fi
         if [ "$HTTP_CODE" != "000" ]; then
             echo "OPEN (HTTP ${HTTP_CODE})"
             PORT_SCAN_RESULTS="${PORT_SCAN_RESULTS}public:${port}=open;"
@@ -227,7 +270,7 @@ echo "[DIAG] Running public IP diagnostics..."
 
 DIAG_SUMMARY=""
 
-if [ -n "${PUBLIC_IP}" ]; then
+if [ "${PUBLIC_EXPOSURE_MODE}" = "true" ] && [ "${STARTUP_NETWORK_PROBES}" = "true" ] && [ -n "${PUBLIC_IP}" ]; then
     # Test 1: Can we reach our own public IP? (hairpin NAT test)
     echo -n "[DIAG]   Hairpin NAT test... "
     HAIRPIN=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://${PUBLIC_IP}:${HTTP_PORT}/" 2>/dev/null || echo "000")
@@ -282,9 +325,15 @@ if [ -n "${PUBLIC_IP}" ]; then
         echo "SKIP (could not verify)"
         DIAG_SUMMARY="${DIAG_SUMMARY}ip_consistent=unknown;"
     fi
-else
+elif [ "${PUBLIC_EXPOSURE_MODE}" = "true" ] && [ "${STARTUP_NETWORK_PROBES}" = "true" ]; then
     DIAG_SUMMARY="no_public_ip;"
     log_port_scan "startup_check" "" 0 "error" "No public IP detected at startup" "All external IP detection services failed. Check internet connectivity or set PUBLIC_IP manually in .env"
+elif [ "${PUBLIC_EXPOSURE_MODE}" = "true" ]; then
+    DIAG_SUMMARY="public_diagnostics_deferred;"
+    PORT_SCAN_RESULTS="${PORT_SCAN_RESULTS}public:${HTTP_PORT}=deferred;public:${HTTPS_PORT}=deferred;"
+    log_port_scan "startup_check" "${PUBLIC_IP}" 0 "warning" "Startup WAN diagnostics deferred" "Set STARTUP_NETWORK_PROBES=true to run WAN probes during startup."
+else
+    DIAG_SUMMARY="public_diagnostics_disabled;"
 fi
 
 # Store results in database
@@ -417,11 +466,8 @@ if [ "${ENABLE_SSL}" = "true" ]; then
     if [ -f "$CERT_FILE" ] && [ -f "$KEY_FILE" ]; then
         echo "[SSL] Found SSL certificates, enabling HTTPS..."
         a2ensite default-ssl.conf 2>/dev/null || true
-        
-        sed -i 's/# RewriteCond %{HTTPS} off/RewriteCond %{HTTPS} off/' "$VHOST_FILE"
-        sed -i 's/# RewriteRule \^(.\*)$ https/RewriteRule ^(.*)$ https/' "$VHOST_FILE"
-        
-        echo "[SSL] HTTPS redirect enabled"
+
+        echo "[SSL] HTTPS enabled on port ${HTTPS_PORT}; HTTP on port ${HTTP_PORT} remains available."
     else
         echo "[SSL] Generating self-signed certificate..."
         mkdir -p /etc/apache2/ssl
@@ -439,6 +485,7 @@ if [ "${ENABLE_SSL}" = "true" ]; then
         
         a2ensite default-ssl.conf 2>/dev/null || true
         echo "[SSL] Self-signed certificate generated (SAN: ${SAN_ENTRIES})"
+        echo "[SSL] HTTPS enabled on port ${HTTPS_PORT}; HTTP on port ${HTTP_PORT} remains available."
     fi
 else
     echo "[SSL] SSL is DISABLED (HTTP only)"
@@ -474,12 +521,20 @@ if command -v crontab &>/dev/null; then
 fi
 
 # ---- 11. Start Public IP Monitor (background) ----
-if [ "${DUAL_IP_BIND}" = "true" ] && [ "${IP_CHECK_INTERVAL:-0}" -gt 0 ] 2>/dev/null; then
+if [ "${PUBLIC_EXPOSURE_MODE}" = "true" ] && [ "${DUAL_IP_BIND:-false}" = "true" ] && [ "${IP_CHECK_INTERVAL:-0}" -gt 0 ] 2>/dev/null; then
     echo "[IP-MONITOR] Starting public IP monitor + port scanner (interval: ${IP_CHECK_INTERVAL}s)..."
     /usr/local/bin/ip-monitor.sh &
+else
+    echo "[IP-MONITOR] Skipped for local/private mode."
 fi
 
-# ---- 12. Print access info ----
+# ---- 12. Write readiness marker ----
+READY_DIR="/var/www/html/health"
+READY_FILE="${READY_DIR}/ready.txt"
+mkdir -p "${READY_DIR}"
+date -u "+ready %Y-%m-%dT%H:%M:%SZ" > "${READY_FILE}"
+
+# ---- 13. Print access info ----
 echo ""
 echo "============================================"
 echo "  Website Ready!"
@@ -511,5 +566,5 @@ echo "  DIAGNOSTICS: ${DIAG_SUMMARY:-none}"
 echo "============================================"
 echo ""
 
-# ---- 13. Start Apache ----
+# ---- 14. Start Apache ----
 exec "$@"
