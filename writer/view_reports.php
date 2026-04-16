@@ -5,8 +5,6 @@ require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
 require_once '../includes/functions.php';
 
-ensure_package_management_schema($conn);
-
 function format_datetime_label(?string $value): ?string {
     if (empty($value)) {
         return null;
@@ -20,6 +18,7 @@ function format_datetime_label(?string $value): ?string {
 
 $reports = [];
 $error_message = '';
+$patient_uid_expression = get_patient_identifier_expression($conn, 'p');
 
 $printLogTableSql = "CREATE TABLE IF NOT EXISTS writer_report_print_logs (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -31,101 +30,76 @@ $printLogTableSql = "CREATE TABLE IF NOT EXISTS writer_report_print_logs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
 $conn->query($printLogTableSql);
 
-$finalReportTableExists = false;
-$tableCheck = $conn->query("SHOW TABLES LIKE 'writer_final_reports'");
-if ($tableCheck instanceof mysqli_result) {
-    $finalReportTableExists = $tableCheck->num_rows > 0;
-    $tableCheck->free();
-}
+$sql = "SELECT
+            bi.id AS bill_item_id,
+            b.id AS bill_id,
+            {$patient_uid_expression} AS patient_uid,
+            p.name AS patient_name,
+            p.age AS patient_age,
+            p.sex AS patient_sex,
+            t.main_test_name,
+            t.sub_test_name AS test_name,
+            bi.updated_at AS completed_at,
+            pr.print_count,
+            pr.last_printed_at,
+            pr.printed_history
+        FROM bill_items bi
+        JOIN bills b ON bi.bill_id = b.id
+        JOIN patients p ON b.patient_id = p.id
+        JOIN tests t ON bi.test_id = t.id
+        LEFT JOIN (
+            SELECT
+                bill_item_id,
+                COUNT(*) AS print_count,
+                MAX(printed_at) AS last_printed_at,
+                GROUP_CONCAT(printed_at ORDER BY printed_at ASC SEPARATOR '||') AS printed_history
+            FROM writer_report_print_logs
+            GROUP BY bill_item_id
+        ) pr ON pr.bill_item_id = bi.id
+        WHERE COALESCE(bi.report_status, 'Pending') = 'Completed'
+          AND COALESCE(TRIM(bi.report_content), '') != ''
+          AND b.bill_status != 'Void'
+        ORDER BY bi.updated_at DESC, bi.id DESC
+        LIMIT 250";
 
-if ($finalReportTableExists) {
-    $sql = "SELECT
-                bi.id AS bill_item_id,
-                b.id AS bill_id,
-                p.uid AS patient_uid,
-                p.name AS patient_name,
-                p.age AS patient_age,
-                p.sex AS patient_sex,
-                t.main_test_name,
-                t.sub_test_name AS test_name,
-                COALESCE(NULLIF(bi.package_name, ''), tp.package_name) AS package_name,
-                bi.report_status,
-                bi.updated_at AS report_written_at,
-                wfr.file_path,
-                wfr.uploaded_at,
-                pr.print_count,
-                pr.last_printed_at,
-                pr.printed_history
-            FROM bill_items bi
-            JOIN bills b ON bi.bill_id = b.id
-            JOIN patients p ON b.patient_id = p.id
-            JOIN tests t ON bi.test_id = t.id
-            LEFT JOIN test_packages tp ON tp.id = bi.package_id
-            JOIN writer_final_reports wfr ON wfr.bill_item_id = bi.id
-            LEFT JOIN (
-                SELECT
-                    bill_item_id,
-                    COUNT(*) AS print_count,
-                    MAX(printed_at) AS last_printed_at,
-                    GROUP_CONCAT(printed_at ORDER BY printed_at ASC SEPARATOR '||') AS printed_history
-                FROM writer_report_print_logs
-                GROUP BY bill_item_id
-            ) pr ON pr.bill_item_id = bi.id
-            WHERE COALESCE(bi.report_status, 'Pending') = 'Completed'
-            ORDER BY wfr.uploaded_at DESC, bi.id DESC
-            LIMIT 200";
+$result = $conn->query($sql);
+if ($result instanceof mysqli_result) {
+    while ($row = $result->fetch_assoc()) {
+        $age = isset($row['patient_age']) ? trim((string)$row['patient_age']) : '';
+        $sex = isset($row['patient_sex']) ? trim((string)$row['patient_sex']) : '';
+        $age_gender = trim($age . ($age !== '' && $sex !== '' ? ' / ' : '') . $sex);
 
-    $result = $conn->query($sql);
-    if ($result instanceof mysqli_result) {
-        while ($row = $result->fetch_assoc()) {
-            $age = isset($row['patient_age']) ? trim((string)$row['patient_age']) : '';
-            $sex = isset($row['patient_sex']) ? trim((string)$row['patient_sex']) : '';
-            $age_gender = trim($age . ($age !== '' && $sex !== '' ? ' / ' : '') . $sex);
-
-            $filePath = isset($row['file_path']) ? str_replace('\\', '/', $row['file_path']) : '';
-            $publicFileUrl = $filePath !== '' ? '../' . ltrim($filePath, '/') : '';
-            $absoluteFile = $filePath !== ''
-                ? dirname(__DIR__) . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $filePath)
-                : '';
-            $fileExists = $absoluteFile !== '' && is_file($absoluteFile);
-
-            $printedHistoryLabels = [];
-            if (!empty($row['printed_history'])) {
-                foreach (explode('||', $row['printed_history']) as $printEntry) {
-                    $label = format_datetime_label($printEntry);
-                    if ($label) {
-                        $printedHistoryLabels[] = $label;
-                    }
+        $printedHistoryLabels = [];
+        if (!empty($row['printed_history'])) {
+            foreach (explode('||', $row['printed_history']) as $printEntry) {
+                $label = format_datetime_label($printEntry);
+                if ($label) {
+                    $printedHistoryLabels[] = $label;
                 }
             }
-
-            $reports[] = [
-                'bill_item_id' => (int)$row['bill_item_id'],
-                'patient_uid' => $row['patient_uid'],
-                'patient_name' => $row['patient_name'],
-                'test_name' => trim(($row['main_test_name'] ?? '') !== ''
-                    ? ($row['main_test_name'] . ' • ' . $row['test_name'])
-                    : $row['test_name']) . (!empty($row['package_name']) ? ' [PACKAGE: ' . $row['package_name'] . ']' : ''),
-                'age_gender' => $age_gender,
-                'status' => $row['report_status'],
-                'report_written_at' => $row['report_written_at'],
-                'report_written_label' => format_datetime_label($row['report_written_at']),
-                'uploaded_at' => $row['uploaded_at'],
-                'uploaded_label' => format_datetime_label($row['uploaded_at']),
-                'file_url' => $publicFileUrl,
-                'file_exists' => $fileExists,
-                'print_count' => isset($row['print_count']) ? (int)$row['print_count'] : 0,
-                'last_printed_at' => $row['last_printed_at'],
-                'last_printed_label' => format_datetime_label($row['last_printed_at']),
-                'printed_history' => $printedHistoryLabels,
-            ];
         }
-        $result->free();
-    } else {
-        $error_message = 'Unable to load completed reports right now. Please refresh in a moment.';
+
+        $itemId = (int)$row['bill_item_id'];
+        $reports[] = [
+            'bill_item_id' => $itemId,
+            'patient_uid' => $row['patient_uid'],
+            'patient_name' => $row['patient_name'],
+            'test_name' => trim(($row['main_test_name'] ?? '') !== ''
+                ? ($row['main_test_name'] . ' • ' . $row['test_name'])
+                : $row['test_name']),
+            'age_gender' => $age_gender,
+            'completed_label' => format_datetime_label($row['completed_at']),
+            'print_count' => isset($row['print_count']) ? (int)$row['print_count'] : 0,
+            'last_printed_at' => $row['last_printed_at'],
+            'last_printed_label' => format_datetime_label($row['last_printed_at']),
+            'printed_history' => $printedHistoryLabels,
+            'view_url' => '../templates/print_report.php?item_id=' . urlencode((string)$itemId),
+            'edit_url' => 'fill_report.php?item_id=' . urlencode((string)$itemId),
+        ];
     }
+    $result->free();
 } else {
-    $error_message = 'No final report uploads found yet. Upload a report from the dashboard to populate this list.';
+    $error_message = 'Unable to load uploaded reports right now. Please refresh in a moment.';
 }
 
 require_once '../includes/header.php';
@@ -135,7 +109,7 @@ require_once '../includes/header.php';
     <div class="dashboard-header">
         <div>
             <h1>Report Library</h1>
-            <p class="description">Review completed uploads, open the final documents, and inspect the full reporting timeline.</p>
+            <p class="description">Review uploaded reports saved in the in-site Word editor, open printable view, and edit anytime.</p>
         </div>
         <div class="page-actions">
             <a class="btn-secondary" href="dashboard.php">Back to Dashboard</a>
@@ -148,11 +122,11 @@ require_once '../includes/header.php';
 
     <?php if (empty($reports)): ?>
         <div class="reports-placeholder">
-            No completed uploads yet. Once a report is drafted, uploaded, and signed off, it will appear in this list for quick reference.
+            No uploaded reports yet. Once a report is uploaded from the Word workspace, it will appear here.
         </div>
     <?php else: ?>
         <div class="report-table-card">
-            <h2>Completed & Uploaded Reports</h2>
+            <h2>Uploaded Reports</h2>
             <div class="report-table-wrapper">
                 <table class="report-table">
                     <thead>
@@ -177,19 +151,16 @@ require_once '../includes/header.php';
                                         <span class="status-pill <?php echo $report['last_printed_at'] ? 'is-printed' : 'is-complete'; ?>">
                                             <?php echo $report['last_printed_at'] ? 'Printed' : 'Uploaded'; ?>
                                         </span>
-                                        <?php if ($report['uploaded_label']): ?>
-                                            <small>Uploaded: <?php echo htmlspecialchars($report['uploaded_label']); ?></small>
+                                        <?php if ($report['completed_label']): ?>
+                                            <small>Uploaded: <?php echo htmlspecialchars($report['completed_label']); ?></small>
                                         <?php endif; ?>
                                         <?php if ($report['last_printed_label']): ?>
                                             <small>Last printed: <?php echo htmlspecialchars($report['last_printed_label']); ?></small>
                                         <?php endif; ?>
-                                        <?php if ($report['file_exists'] && $report['file_url'] !== ''): ?>
-                                            <a class="btn-view-report" href="<?php echo htmlspecialchars($report['file_url']); ?>" target="_blank" rel="noopener">
-                                                View Report
-                                            </a>
-                                        <?php else: ?>
-                                            <small>File unavailable on server.</small>
-                                        <?php endif; ?>
+                                        <div style="display:flex;gap:0.45rem;flex-wrap:wrap;">
+                                            <a class="btn-view-report" href="<?php echo htmlspecialchars($report['view_url']); ?>" target="_blank" rel="noopener">View Report</a>
+                                            <a class="btn-timeline" href="<?php echo htmlspecialchars($report['edit_url']); ?>">Edit in Word App</a>
+                                        </div>
                                     </div>
                                 </td>
                                 <td>
@@ -200,8 +171,7 @@ require_once '../includes/header.php';
                                         data-patient="<?php echo htmlspecialchars($report['patient_name']); ?>"
                                         data-test="<?php echo htmlspecialchars($report['test_name']); ?>"
                                         data-age="<?php echo htmlspecialchars($report['age_gender']); ?>"
-                                        data-written="<?php echo htmlspecialchars($report['report_written_label'] ?? ''); ?>"
-                                        data-uploaded="<?php echo htmlspecialchars($report['uploaded_label'] ?? ''); ?>"
+                                        data-completed="<?php echo htmlspecialchars($report['completed_label'] ?? ''); ?>"
                                         data-printed="<?php echo htmlspecialchars($report['last_printed_label'] ?? ''); ?>"
                                         data-print-count="<?php echo (int)$report['print_count']; ?>"
                                         data-printed-history="<?php echo htmlspecialchars(implode('||', $report['printed_history']), ENT_QUOTES); ?>">
@@ -232,17 +202,10 @@ require_once '../includes/header.php';
         <div class="timeline-steps">
             <div class="timeline-step">
                 <div>
-                    <h4>Report Written</h4>
-                    <p>Timestamp captured when the draft was saved.</p>
+                    <h4>Uploaded In Word App</h4>
+                    <p>Timestamp captured when the writer uploaded this report.</p>
                 </div>
-                <strong id="timelineWritten">—</strong>
-            </div>
-            <div class="timeline-step">
-                <div>
-                    <h4>Final Report Uploaded</h4>
-                    <p>Shows when the signed document was attached.</p>
-                </div>
-                <strong id="timelineUploaded">—</strong>
+                <strong id="timelineCompleted">—</strong>
             </div>
             <div class="timeline-step">
                 <div>
@@ -265,8 +228,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const patientEl = document.getElementById('timelinePatient');
     const testEl = document.getElementById('timelineTest');
     const ageEl = document.getElementById('timelineAge');
-    const writtenEl = document.getElementById('timelineWritten');
-    const uploadedEl = document.getElementById('timelineUploaded');
+    const completedEl = document.getElementById('timelineCompleted');
     const printedEl = document.getElementById('timelinePrinted');
     const historyEl = document.getElementById('timelineHistory');
 
@@ -274,8 +236,7 @@ document.addEventListener('DOMContentLoaded', function () {
         patientEl.textContent = button.dataset.patient || '—';
         testEl.textContent = button.dataset.test || '—';
         ageEl.textContent = button.dataset.age || '—';
-        writtenEl.textContent = button.dataset.written || 'Awaiting draft completion';
-        uploadedEl.textContent = button.dataset.uploaded || 'Awaiting upload';
+        completedEl.textContent = button.dataset.completed || 'Awaiting upload';
         printedEl.textContent = button.dataset.printed || 'Not printed yet';
 
         historyEl.innerHTML = '';
