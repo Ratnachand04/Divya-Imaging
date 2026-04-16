@@ -10,7 +10,7 @@ if ($userId <= 0) {
     exit;
 }
 
-$stmt = $conn->prepare("SELECT username, role FROM users WHERE id = ? LIMIT 1");
+$stmt = $conn->prepare("SELECT username, role, COALESCE(NULLIF(full_name, ''), '') AS full_name FROM users WHERE id = ? LIMIT 1");
 $stmt->bind_param('i', $userId);
 $stmt->execute();
 $user = $stmt->get_result()->fetch_assoc();
@@ -24,6 +24,13 @@ if (!$user) {
 
 if (in_array($user['role'], ['superadmin', 'platform_admin', 'developer'], true)) {
     $_SESSION['feedback'] = "<div class='error-banner'>You cannot delete this account.</div>";
+    header('Location: employee_access.php');
+    exit;
+}
+
+$allowedRoles = ['receptionist', 'accountant', 'writer', 'manager'];
+if (!in_array((string)$user['role'], $allowedRoles, true) || (string)$user['full_name'] !== '') {
+    $_SESSION['feedback'] = "<div class='error-banner'>This record is employee-details only and has no access credentials to delete.</div>";
     header('Location: employee_access.php');
     exit;
 }

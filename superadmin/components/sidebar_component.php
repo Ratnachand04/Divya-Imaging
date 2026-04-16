@@ -1,6 +1,7 @@
 <?php
 $sa_menu_items = [
     ['label' => 'Dashboard', 'href' => 'dashboard.php', 'icon' => 'fa-th-large'],
+    ['label' => 'Analysis', 'href' => 'analysis.php', 'icon' => 'fa-chart-line'],
     ['label' => 'Scans', 'href' => 'scans.php', 'icon' => 'fa-x-ray'],
     ['label' => 'Doctors', 'href' => 'view_doctors.php', 'icon' => 'fa-user-md'],
     ['label' => 'Radiology', 'href' => 'test_count.php', 'icon' => 'fa-radiation'],

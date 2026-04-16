@@ -7,7 +7,7 @@ require_once '../includes/header.php';
 
 $sa_active_page = 'employees.php';
 
-$users_result = $conn->query("SELECT id, COALESCE(NULLIF(full_name, ''), username) AS full_name, COALESCE(NULLIF(employee_role, ''), role) AS display_role, COALESCE(account_details, '') AS account_details, document_path FROM users WHERE role NOT IN ('superadmin', 'platform_admin', 'developer') ORDER BY full_name ASC, username ASC");
+$users_result = $conn->query("SELECT id, COALESCE(NULLIF(full_name, ''), username) AS full_name, COALESCE(NULLIF(employee_role, ''), role) AS display_role, COALESCE(account_details, '') AS account_details, document_path FROM users WHERE role NOT IN ('superadmin', 'platform_admin', 'developer') AND COALESCE(NULLIF(full_name, ''), '') != '' ORDER BY full_name ASC, username ASC");
 ?>
 
 <link rel="stylesheet" href="<?php echo $base_url; ?>/assets/css/superadmin_shell.css?v=<?php echo time(); ?>">
