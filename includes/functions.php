@@ -207,6 +207,142 @@ function app_settings_set(
 }
 
 /**
+ * Returns the fixed reporting radiologist list used across manager and writer pages.
+ *
+ * @return array<int, string>
+ */
+function get_reporting_radiologist_list(): array {
+    return [
+        'Dr. G. Mamatha MD (RD)',
+        'Dr. G. Sri Kanth DMRD',
+        'Dr. P. Madhu Babu MD',
+        'Dr. Sahithi Chowdary',
+        'Dr. SVN. Vamsi Krishna MD(RD)',
+        'Dr. T. Koushik MD(RD)',
+        'Dr. T. Rajeshwar Rao MD DMRD',
+    ];
+}
+
+/**
+ * Detects patient identifier columns available in current schema.
+ *
+ * @param mysqli $conn The database connection object.
+ * @return array{uid: bool, registration_id: bool}
+ */
+function get_patient_identifier_columns(mysqli $conn): array {
+    static $cached = null;
+
+    if ($cached !== null) {
+        return $cached;
+    }
+
+    $cached = [
+        'uid' => false,
+        'registration_id' => false,
+    ];
+
+    $result = $conn->query("SHOW COLUMNS FROM patients");
+    if ($result instanceof mysqli_result) {
+        while ($row = $result->fetch_assoc()) {
+            $field = isset($row['Field']) ? (string)$row['Field'] : '';
+            if ($field === 'uid' || $field === 'registration_id') {
+                $cached[$field] = true;
+            }
+        }
+        $result->free();
+    }
+
+    return $cached;
+}
+
+/**
+ * Resolves the writable patient identifier column name.
+ *
+ * @param mysqli $conn The database connection object.
+ * @return string
+ * @throws Exception When neither uid nor registration_id exists.
+ */
+function get_patient_identifier_insert_column(mysqli $conn): string {
+    $columns = get_patient_identifier_columns($conn);
+    if ($columns['uid']) {
+        return 'uid';
+    }
+    if ($columns['registration_id']) {
+        return 'registration_id';
+    }
+
+    throw new Exception('Patients table is missing identifier column (uid/registration_id).');
+}
+
+/**
+ * Builds a SQL expression for patient identifier lookup in SELECT/WHERE queries.
+ *
+ * @param mysqli $conn The database connection object.
+ * @param string $tableAlias SQL alias for patients table.
+ * @return string
+ */
+function get_patient_identifier_expression(mysqli $conn, string $tableAlias = 'p'): string {
+    $alias = preg_replace('/[^A-Za-z0-9_]/', '', $tableAlias);
+    if ($alias === '') {
+        $alias = 'p';
+    }
+
+    $columns = get_patient_identifier_columns($conn);
+    if ($columns['uid'] && $columns['registration_id']) {
+        return "COALESCE(NULLIF({$alias}.uid, ''), NULLIF({$alias}.registration_id, ''))";
+    }
+    if ($columns['uid']) {
+        return "{$alias}.uid";
+    }
+    if ($columns['registration_id']) {
+        return "{$alias}.registration_id";
+    }
+
+    return "CAST({$alias}.id AS CHAR)";
+}
+
+/**
+ * Generates the next patient identifier using whichever identifier column exists.
+ *
+ * @param mysqli $conn The database connection object.
+ * @return string
+ * @throws Exception On query errors.
+ */
+function generate_next_patient_identifier(mysqli $conn): string {
+    $column = get_patient_identifier_insert_column($conn);
+    $year = date('Y');
+    $prefix = 'DC' . $year;
+
+    $sql = "SELECT `{$column}` AS patient_code FROM patients WHERE `{$column}` LIKE CONCAT(?, '%') ORDER BY `{$column}` DESC LIMIT 1 FOR UPDATE";
+    $stmt = $conn->prepare($sql);
+    if (!$stmt) {
+        throw new Exception('Unable to prepare patient identifier query: ' . $conn->error);
+    }
+
+    $stmt->bind_param('s', $prefix);
+    if (!$stmt->execute()) {
+        $err = $stmt->error;
+        $stmt->close();
+        throw new Exception('Unable to fetch latest patient identifier: ' . $err);
+    }
+
+    $result = $stmt->get_result();
+    $latest = $result ? $result->fetch_assoc() : null;
+    $stmt->close();
+
+    $next_number = 1;
+    $latestCode = ($latest && isset($latest['patient_code'])) ? (string)$latest['patient_code'] : '';
+    if ($latestCode !== '' && strpos($latestCode, $prefix) === 0) {
+        $suffix = substr($latestCode, strlen($prefix));
+        if ($suffix !== '' && ctype_digit($suffix)) {
+            $next_number = (int)$suffix + 1;
+        }
+    }
+
+    return $prefix . str_pad((string)$next_number, 4, '0', STR_PAD_LEFT);
+}
+
+/**
  * Ensures patient uid schema exists and is enforced.
  *
  * @param mysqli $conn The database connection object.

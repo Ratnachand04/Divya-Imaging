@@ -200,7 +200,7 @@ $home_link = ($role === 'manager') ? $base_url . '/manager/dashboard.php' : $bas
             <?php elseif ($role === 'writer'): ?>
                 <li><a href="dashboard.php" class="<?php echo ($current_page == 'dashboard.php') ? 'active' : ''; ?>"><i class="fas fa-tachometer-alt"></i><span>Dashboard</span></a></li>
                 <li><a href="write_reports.php" class="<?php echo ($current_page == 'write_reports.php') ? 'active' : ''; ?>"><i class="fas fa-pen-nib"></i><span>Write Report</span></a></li>
-                <li><a href="view_reports.php" class="<?php echo ($current_page == 'view_reports.php') ? 'active' : ''; ?>"><i class="fas fa-file-medical-alt"></i><span>Completed</span></a></li>
+                <li><a href="view_reports.php" class="<?php echo ($current_page == 'view_reports.php') ? 'active' : ''; ?>"><i class="fas fa-file-medical-alt"></i><span>Uploaded</span></a></li>
                 <li><a href="templates.php" class="<?php echo ($current_page == 'templates.php') ? 'active' : ''; ?>"><i class="fas fa-layer-group"></i><span>Templates</span></a></li>
             <?php elseif ($role === 'receptionist'): ?>
                 <li><a href="dashboard.php" class="<?php echo ($current_page == 'dashboard.php') ? 'active' : ''; ?>"><i class="fas fa-tachometer-alt"></i><span>Dashboard</span></a></li>
