@@ -6,7 +6,10 @@
 --
 ALTER TABLE `bills`
   ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `invoice_number` (`invoice_number`);
+  ADD UNIQUE KEY `invoice_number` (`invoice_number`),
+  ADD KEY `idx_bills_patient_id` (`patient_id`),
+  ADD KEY `idx_bills_status_created` (`bill_status`,`created_at`),
+  ADD KEY `idx_bills_receptionist_created` (`receptionist_id`,`created_at`);
 
 --
 -- Indexes for table `bill_edit_log`
@@ -24,7 +27,12 @@ ALTER TABLE `bill_edit_requests`
 -- Indexes for table `bill_items`
 --
 ALTER TABLE `bill_items`
-  ADD PRIMARY KEY (`id`);
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_bill_items_bill_id` (`bill_id`),
+  ADD KEY `idx_bill_items_test_id` (`test_id`),
+  ADD KEY `idx_bill_items_status_bill` (`report_status`,`bill_id`),
+  ADD KEY `idx_bill_items_status_updated` (`report_status`,`updated_at`),
+  ADD KEY `idx_bill_items_item_status` (`item_status`);
 
 --
 -- Indexes for table `bill_item_screenings`
