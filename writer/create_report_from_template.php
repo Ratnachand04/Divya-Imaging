@@ -26,6 +26,8 @@ $error_message = '';
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $conn->begin_transaction();
     try {
+        $patient_identifier_column = get_patient_identifier_insert_column($conn);
+
         // 1. Create the new patient
         $patient_name = trim($_POST['patient_name'] ?? '');
         $patient_age = isset($_POST['patient_age']) ? (int)$_POST['patient_age'] : 0;
@@ -39,14 +41,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $unknown_addr = 'Unknown';
         $unknown_city = 'Unknown';
         $patient_id = 0;
+        $patient_insert_sql = "INSERT INTO patients ({$patient_identifier_column}, name, age, sex, mobile_number, address, city) VALUES (?, ?, ?, ?, ?, ?, ?)";
         for ($attempt = 0; $attempt < 5; $attempt++) {
-            $uid = generate_patient_uid($conn);
-            $stmt_patient = $conn->prepare("INSERT INTO patients (uid, name, age, sex, mobile_number, address, city) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            $patient_identifier = generate_next_patient_identifier($conn);
+            $stmt_patient = $conn->prepare($patient_insert_sql);
             if (!$stmt_patient) {
                 throw new Exception("Patient preparation failed: " . $conn->error);
             }
 
-            $stmt_patient->bind_param("ssissss", $uid, $patient_name, $patient_age, $patient_sex, $patient_mobile, $unknown_addr, $unknown_city);
+            $stmt_patient->bind_param("ssissss", $patient_identifier, $patient_name, $patient_age, $patient_sex, $patient_mobile, $unknown_addr, $unknown_city);
             if ($stmt_patient->execute()) {
                 $patient_id = $stmt_patient->insert_id;
                 $stmt_patient->close();
@@ -79,7 +82,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $balance_amount = $test_price;
 
         $stmt_bill = $conn->prepare("INSERT INTO bills (patient_id, receptionist_id, referral_type, referral_doctor_id, referral_source_other, gross_amount, discount, discount_by, net_amount, amount_paid, balance_amount, payment_mode, payment_status) VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, 'Due')");
-        $stmt_bill->bind_param("iisdddddds", $patient_id, $receptionist_id, $referral_type, $test_price, $discount, $discount_by, $test_price, $amount_paid, $balance_amount, $payment_mode);
+        $stmt_bill->bind_param("iisddsddds", $patient_id, $receptionist_id, $referral_type, $test_price, $discount, $discount_by, $test_price, $amount_paid, $balance_amount, $payment_mode);
         $stmt_bill->execute();
         $bill_id = $stmt_bill->insert_id;
         $stmt_bill->close();
