@@ -316,43 +316,310 @@ $revenue_growth_display = ($revenue_growth_amount >= 0 ? '+' : '-') . '₹' . nu
 
 ?>
 
-<!-- Fonts & Icons -->
-<link href="https://fonts.googleapis.com" rel="preconnect"/>
-<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet"/>
-<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
-<!-- Tailwind CDN -->
-<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-<script>
-tailwind.config = {
-    darkMode: "class",
-    theme: {
-        extend: {
-            colors: {
-                "primary": "#e91e63",
-                "on-primary": "#ffffff",
-                "secondary": "#5c47e5",
-                "tertiary": "#10b981",
-                "surface-container-lowest": "#ffffff",
-                "surface-bright": "#fdf4f7",
-                "background": "#fdf4f7",
-                "outline": "#70787d",
-                "surface-container": "#fce4ec",
-                "on-surface": "#191c1e",
-                "on-surface-variant": "#40484c"
-            },
-            fontFamily: {
-                "headline": ["Manrope"],
-                "body": ["Inter"],
-                "label": ["Inter"]
-            },
-            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
-        },
-    },
-};
-</script>
-<!-- Dashboard CSS -->
-<link rel="stylesheet" href="<?php echo $base_url; ?>/assets/css/superadmin_dashboard.css?v=<?php echo time(); ?>">
+<link href="https://fonts.googleapis.com" rel="preconnect">
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="<?php echo $base_url; ?>/assets/css/superadmin_shell.css?v=<?php echo time(); ?>">
+<style>
+.sa-dashboard-page {
+    --sa-ink: #0f172a;
+    --sa-muted: #64748b;
+    --sa-border: #e2e8f0;
+    --sa-surface: #ffffff;
+    --sa-glow-1: #0ea5e9;
+    --sa-glow-2: #1d4ed8;
+    --sa-glow-3: #10b981;
+    --sa-glow-4: #f59e0b;
+    font-family: 'Sora', sans-serif;
+    display: grid;
+    gap: 1rem;
+}
+
+.sa-dash-hero {
+    border: 1px solid var(--sa-border);
+    border-radius: 18px;
+    padding: 1rem;
+    background:
+        radial-gradient(circle at 85% 10%, rgba(14, 165, 233, 0.16), transparent 45%),
+        radial-gradient(circle at 15% 90%, rgba(29, 78, 216, 0.14), transparent 40%),
+        var(--sa-surface);
+    box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.8rem;
+}
+
+.sa-dash-hero h1 {
+    margin: 0;
+    font-family: 'Space Grotesk', sans-serif;
+    color: #0b2a64;
+    letter-spacing: -0.02em;
+    font-size: 1.65rem;
+}
+
+.sa-dash-hero p {
+    margin: 0.3rem 0 0;
+    color: var(--sa-muted);
+    font-size: 0.9rem;
+}
+
+.sa-dash-timebox {
+    text-align: right;
+    color: #0b2a64;
+    font-weight: 700;
+    font-size: 0.85rem;
+}
+
+.sa-dash-timebox small {
+    display: block;
+    color: var(--sa-muted);
+    margin-top: 0.1rem;
+    font-weight: 600;
+}
+
+.sa-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.8rem;
+}
+
+.sa-kpi-card {
+    border: 1px solid var(--sa-border);
+    border-radius: 16px;
+    background: var(--sa-surface);
+    padding: 0.85rem;
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.05);
+    text-decoration: none;
+    color: inherit;
+    transition: transform .2s ease, box-shadow .2s ease;
+}
+
+.sa-kpi-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 16px 30px rgba(15, 23, 42, 0.1);
+}
+
+.sa-kpi-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.sa-kpi-label {
+    color: var(--sa-muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+}
+
+.sa-kpi-value {
+    margin-top: 0.3rem;
+    font-size: 1.9rem;
+    font-family: 'Space Grotesk', sans-serif;
+    line-height: 1.1;
+    color: var(--sa-ink);
+}
+
+.sa-kpi-sub {
+    margin-top: 0.4rem;
+    color: #334155;
+    font-size: 0.8rem;
+    display: flex;
+    justify-content: space-between;
+}
+
+.sa-kpi-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 0.95rem;
+}
+
+.sa-grad-1 { background: linear-gradient(135deg, var(--sa-glow-1), #0369a1); }
+.sa-grad-2 { background: linear-gradient(135deg, var(--sa-glow-2), #312e81); }
+.sa-grad-3 { background: linear-gradient(135deg, var(--sa-glow-3), #047857); }
+.sa-grad-4 { background: linear-gradient(135deg, var(--sa-glow-4), #d97706); }
+
+.sa-row-two {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 0.8rem;
+}
+
+.sa-panel {
+    border: 1px solid var(--sa-border);
+    border-radius: 16px;
+    padding: 1rem;
+    background: var(--sa-surface);
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.05);
+}
+
+.sa-panel-title {
+    margin: 0;
+    color: #0b2a64;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 1.08rem;
+}
+
+.sa-topdoc {
+    text-decoration: none;
+    color: inherit;
+    display: block;
+}
+
+.sa-topdoc-meta {
+    margin-top: 0.75rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.6rem;
+}
+
+.sa-chip {
+    background: #f8fafc;
+    border: 1px solid var(--sa-border);
+    border-radius: 12px;
+    padding: 0.55rem 0.6rem;
+}
+
+.sa-chip span {
+    display: block;
+    font-size: 0.72rem;
+    color: var(--sa-muted);
+    text-transform: uppercase;
+    font-weight: 700;
+}
+
+.sa-chip strong {
+    display: block;
+    margin-top: 0.2rem;
+    font-family: 'Space Grotesk', sans-serif;
+    color: #0f172a;
+    font-size: 1rem;
+}
+
+.sa-fin-bars {
+    margin-top: 0.9rem;
+    display: grid;
+    gap: 0.55rem;
+}
+
+.sa-fin-bar {
+    border-radius: 12px;
+    border: 1px solid var(--sa-border);
+    background: #f8fafc;
+    padding: 0.55rem 0.65rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.84rem;
+}
+
+.sa-row-three {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.8rem;
+}
+
+.sa-slim-list {
+    margin-top: 0.6rem;
+    display: grid;
+    gap: 0.35rem;
+}
+
+.sa-employee-actions {
+    margin-top: 0.7rem;
+    display: flex;
+    gap: 0.45rem;
+}
+
+.sa-employee-btn {
+    border: 1px solid #bfdbfe;
+    background: #eff6ff;
+    color: #1e3a8a;
+    text-decoration: none;
+    border-radius: 999px;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.sa-employee-btn:hover {
+    background: #dbeafe;
+}
+
+.sa-slim-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px dashed #dbe1ea;
+    padding-bottom: 0.35rem;
+    color: #334155;
+    font-size: 0.82rem;
+}
+
+.sa-notify-cta {
+    text-decoration: none;
+    color: #fff;
+    border-radius: 16px;
+    padding: 1rem;
+    background: linear-gradient(120deg, #1e3a8a 0%, #3b82f6 45%, #0ea5e9 100%);
+    box-shadow: 0 16px 30px rgba(29, 78, 216, 0.3);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.8rem;
+}
+
+.sa-notify-cta h3 {
+    margin: 0;
+    font-size: 1.2rem;
+    font-family: 'Space Grotesk', sans-serif;
+}
+
+.sa-notify-cta p {
+    margin: 0.2rem 0 0;
+    opacity: .88;
+    font-size: .86rem;
+}
+
+.sa-notify-counts {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 1.35rem;
+}
+
+.sa-pill {
+    border: 1px solid rgba(255,255,255,0.35);
+    background: rgba(255,255,255,0.12);
+    border-radius: 999px;
+    padding: 0.2rem 0.7rem;
+    font-size: .76rem;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    font-weight: 700;
+}
+
+@media (max-width: 1200px) {
+    .sa-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .sa-row-two { grid-template-columns: 1fr; }
+    .sa-row-three { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 700px) {
+    .sa-kpi-grid { grid-template-columns: 1fr; }
+    .sa-dash-hero { flex-direction: column; }
+    .sa-dash-timebox { text-align: left; }
+    .sa-notify-cta { flex-direction: column; align-items: flex-start; }
+}
+</style>
 
 <?php
 // --- Helper: format large INR amounts ---
@@ -458,23 +725,14 @@ $role_short_labels = [
             </div>
         </a>
 
-        <!-- 4. Top Doctor -->
-        <a href="compare.php" class="col-span-12 md:col-span-5 rounded-xl p-8 bg-secondary text-white shadow-2xl relative overflow-hidden group block">
-            <div class="flex justify-between items-center mb-10 relative z-10">
-                <div>
-                    <p class="text-[10px] font-black uppercase tracking-widest opacity-70">Elite Performance</p>
-                    <h2 class="font-headline text-2xl font-black">Top Physician <span class="text-primary"><?php echo date('F Y'); ?></span></h2>
-                </div>
-                <span class="material-symbols-outlined text-white/40 text-4xl">workspace_premium</span>
-            </div>
-            <div class="flex items-center gap-8 relative z-10">
-                <div class="w-20 h-20 md:w-24 md:h-24 rounded-2xl bg-white/10 flex items-center justify-center border-2 border-dashed border-white/20 shrink-0">
-                    <span class="material-symbols-outlined text-5xl opacity-40">person</span>
-                </div>
-                <div class="flex-grow">
-                    <div class="flex flex-col xl:flex-row justify-between xl:items-start gap-1">
-                        <h3 class="text-xl md:text-2xl font-black truncate max-w-[200px]" title="<?php echo htmlspecialchars($top_doc_name); ?>"><?php echo htmlspecialchars($top_doc_name); ?></h3>
-                        <span class="text-[10px] bg-white/10 px-2 py-0.5 rounded font-bold self-start mt-1 xl:mt-0 whitespace-nowrap">ID: <?php echo htmlspecialchars($top_doc_id); ?></span>
+        <article class="sa-panel" style="text-decoration:none;color:inherit;">
+            <h2 class="sa-panel-title">Employee Strength</h2>
+            <div style="margin:.4rem 0 .2rem;color:#64748b;font-size:.86rem;"><?php echo number_format($total_employees); ?> active professionals</div>
+            <div class="sa-slim-list">
+                <?php foreach ($roles_count as $roleKey => $count): ?>
+                    <div class="sa-slim-item">
+                        <span><?php echo htmlspecialchars($role_short_labels[$roleKey] ?? ucwords($roleKey)); ?></span>
+                        <strong><?php echo (int)$count; ?></strong>
                     </div>
                     <div class="grid grid-cols-2 gap-4 mt-6 pt-6 border-t border-white/10">
                         <div>
@@ -573,7 +831,12 @@ $role_short_labels = [
                     </div>
                 </div>
             </div>
-        </a>
+            <div class="sa-employee-actions">
+                <a class="sa-employee-btn" href="employees.php">Manage</a>
+                <a class="sa-employee-btn" href="analysis.php">Analysis</a>
+            </div>
+        </article>
+    </section>
 
         <!-- 8. Employees -->
         <a href="employees.php" class="col-span-12 md:col-span-4 rounded-xl p-6 bg-tertiary text-white shadow-xl relative overflow-hidden flex flex-col justify-between block">
