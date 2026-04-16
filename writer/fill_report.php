@@ -6,11 +6,11 @@ require_once '../includes/db_connect.php';
 require_once '../includes/functions.php';
 
 $current_role = $_SESSION['role'] ?? 'writer';
-$cancel_link = ($current_role === 'superadmin') ? '../superadmin/detailed_report.php' : 'dashboard.php';
+$cancel_link = ($current_role === 'superadmin') ? '../superadmin/patients.php' : 'dashboard.php';
 
 $item_id = isset($_GET['item_id']) ? (int)$_GET['item_id'] : 0;
 if (!$item_id) {
-    $fallback = ($current_role === 'superadmin') ? '../superadmin/detailed_report.php' : 'dashboard.php';
+    $fallback = ($current_role === 'superadmin') ? '../superadmin/patients.php' : 'dashboard.php';
     header("Location: " . $fallback);
     exit();
 }

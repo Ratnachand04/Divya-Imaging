@@ -1,0 +1,91 @@
+{
+  "majorTests": [
+    {
+      "majorTestName": "CT",
+      "totalTestCount": 318,
+      "totalRevenue": 982400,
+      "totalReportsDone": 291,
+      "subTests": [
+        {
+          "subTestName": "CT Brain",
+          "revenue": 264500,
+          "billedCount": 87,
+          "performedCount": 83,
+          "doneCount": 79
+        },
+        {
+          "subTestName": "CT Chest",
+          "revenue": 215300,
+          "billedCount": 66,
+          "performedCount": 63,
+          "doneCount": 59
+        },
+        {
+          "subTestName": "CT Abdomen",
+          "revenue": 302600,
+          "billedCount": 91,
+          "performedCount": 89,
+          "doneCount": 83
+        }
+      ]
+    },
+    {
+      "majorTestName": "MRI",
+      "totalTestCount": 214,
+      "totalRevenue": 1218450,
+      "totalReportsDone": 202,
+      "subTests": [
+        {
+          "subTestName": "MRI Brain",
+          "revenue": 468000,
+          "billedCount": 78,
+          "performedCount": 75,
+          "doneCount": 73
+        },
+        {
+          "subTestName": "MRI Spine",
+          "revenue": 312750,
+          "billedCount": 49,
+          "performedCount": 47,
+          "doneCount": 44
+        },
+        {
+          "subTestName": "MRI Knee",
+          "revenue": 206400,
+          "billedCount": 41,
+          "performedCount": 39,
+          "doneCount": 37
+        }
+      ]
+    },
+    {
+      "majorTestName": "X-Ray",
+      "totalTestCount": 562,
+      "totalRevenue": 674250,
+      "totalReportsDone": 547,
+      "subTests": [
+        {
+          "subTestName": "X-Ray Chest PA",
+          "revenue": 238400,
+          "billedCount": 191,
+          "performedCount": 189,
+          "doneCount": 185
+        },
+        {
+          "subTestName": "X-Ray Spine",
+          "revenue": 165900,
+          "billedCount": 132,
+          "performedCount": 130,
+          "doneCount": 127
+        },
+        {
+          "subTestName": "X-Ray Shoulder",
+          "revenue": 104600,
+          "billedCount": 86,
+          "performedCount": 84,
+          "doneCount": 82
+        }
+      ]
+    }
+  ]
+}

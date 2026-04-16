@@ -8,7 +8,7 @@ $feedback = '';
 $user_id_to_delete = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
 if (!$user_id_to_delete) {
-    header("Location: manage_employees.php");
+    header("Location: employees.php");
     exit();
 }
 
@@ -42,5 +42,5 @@ if (!$user) {
 }
 
 $_SESSION['feedback'] = $feedback;
-header("Location: manage_employees.php");
+header("Location: employees.php");
 exit();
