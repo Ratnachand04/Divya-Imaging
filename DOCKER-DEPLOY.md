@@ -20,7 +20,8 @@ cp .env.example .env            # Linux
 docker-compose up -d --build
 ```
 
-**Access the website:** http://localhost:8081  
+**Access the website (private/local):** http://localhost:8081  
+**Access the website (public HTTPS):** https://localhost:8443  
 **Access phpMyAdmin:** http://localhost:8082
 
 Security default: database and phpMyAdmin host ports are bound to localhost only via `DB_BIND_IP=127.0.0.1` and `PMA_BIND_IP=127.0.0.1`.
@@ -42,9 +43,13 @@ Security default: database and phpMyAdmin host ports are bound to localhost only
 ### Basic Setup (Local Development)
 ```env
 APP_PORT=8081
+SSL_PORT=8443
 DB_PASS=root_password
 APACHE_SERVER_NAME=localhost
-ENABLE_SSL=false
+ENABLE_SSL=true
+DUAL_IP_BIND=false
+STARTUP_NETWORK_PROBES=false
+IP_MONITOR_APACHE_RELOAD=false
 DB_BIND_IP=127.0.0.1
 PMA_BIND_IP=127.0.0.1
 INIT_BUNDLE_GUARD=true
@@ -53,17 +58,25 @@ INIT_BUNDLE_GUARD=true
 ### Local Network Access (Other computers on your network)
 ```env
 APP_PORT=8081
+SSL_PORT=8443
 DB_PASS=your_secure_password
 APACHE_SERVER_NAME=192.168.1.100    # Your computer's local IP
-ENABLE_SSL=false
+ENABLE_SSL=true
+DUAL_IP_BIND=false
+STARTUP_NETWORK_PROBES=false
+IP_MONITOR_APACHE_RELOAD=false
 ```
 
-### Public IP Access (Port forwarded to 8081)
+### Public IP Access (Port forwarded to 8443)
 ```env
 APP_PORT=8081
+SSL_PORT=8443
 DB_PASS=your_very_secure_password
 APACHE_SERVER_NAME=203.0.113.50     # Your public IP
-ENABLE_SSL=false
+ENABLE_SSL=true
+DUAL_IP_BIND=true
+STARTUP_NETWORK_PROBES=false
+IP_MONITOR_APACHE_RELOAD=false
 ```
 
 ### Production with Domain + HTTPS
@@ -73,6 +86,9 @@ SSL_PORT=443
 DB_PASS=super_secure_password_here
 APACHE_SERVER_NAME=yourdomain.com
 ENABLE_SSL=true
+DUAL_IP_BIND=true
+STARTUP_NETWORK_PROBES=false
+IP_MONITOR_APACHE_RELOAD=false
 ```
 
 ---

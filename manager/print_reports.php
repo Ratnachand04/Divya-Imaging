@@ -7,7 +7,6 @@ require_once '../includes/db_connect.php';
 // --- Handle Filters ---
 $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : date('Y-m-d'); // Default to today
 $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : date('Y-m-d'); // Default to today
-$status_filter = isset($_GET['status']) && $_GET['status'] !== 'all' ? $_GET['status'] : 'all'; // Default to all
 
 // --- Build Query ---
 $sql = "SELECT
@@ -26,16 +25,11 @@ $sql = "SELECT
         JOIN patients p ON b.patient_id = p.id
         JOIN tests t ON bi.test_id = t.id
         WHERE DATE(b.created_at) BETWEEN ? AND ?
-          AND b.bill_status != 'Void'"; // Fetch items within date range, exclude voided bills
+                    AND b.bill_status != 'Void'
+                    AND COALESCE(bi.report_status, 'Pending') = 'Completed'"; // Managers see reports only after writer upload
 
 $params = [$start_date, $end_date];
 $types = 'ss';
-
-if ($status_filter !== 'all') {
-    $sql .= " AND bi.report_status = ?";
-    $params[] = $status_filter;
-    $types .= 's';
-}
 
 $sql .= " ORDER BY b.id DESC, bi.id ASC"; // Order by bill then item
 
@@ -54,7 +48,7 @@ require_once '../includes/header.php';
 <div class="page-container">
     <div class="dashboard-header">
         <h1>Print Patient Reports</h1>
-        <p>View report statuses and print completed reports.</p>
+        <p>View and print reports uploaded by writer.</p>
     </div>
 
     <form action="print_reports.php" method="GET" class="filter-form compact-filters" style="margin-bottom: 2rem;">
@@ -67,12 +61,8 @@ require_once '../includes/header.php';
             <input type="date" id="end_date" name="end_date" value="<?php echo htmlspecialchars($end_date); ?>">
         </div>
         <div class="filter-group">
-            <label for="status">Report Status</label>
-            <select name="status" id="status">
-                <option value="all" <?php if($status_filter == 'all') echo 'selected'; ?>>All Statuses</option>
-                <option value="Completed" <?php if($status_filter == 'Completed') echo 'selected'; ?>>Completed</option>
-                <option value="Pending" <?php if($status_filter == 'Pending') echo 'selected'; ?>>Pending</option>
-            </select>
+            <label>Report Status</label>
+            <input type="text" value="Uploaded" readonly>
         </div>
         <div class="filter-actions">
             <button type="submit" class="btn-submit">Filter</button>
@@ -97,14 +87,7 @@ require_once '../includes/header.php';
             <tbody>
                 <?php if ($report_items && $report_items->num_rows > 0): ?>
                     <?php while($item = $report_items->fetch_assoc()): ?>
-                        <?php
-                            $is_completed = ($item['report_status'] == 'Completed');
-                            $report_link = $is_completed ? "../templates/print_report.php?item_id=" . $item['bill_item_id'] : '#';
-                            $button_class_view = $is_completed ? 'btn-view' : 'btn-disabled';
-                            $button_class_print = $is_completed ? 'btn-primary' : 'btn-disabled'; // Use a different style for print
-                            $target_blank = $is_completed ? 'target="_blank"' : '';
-                            $onclick_print = $is_completed ? "window.open('{$report_link}');" : "return false;"; // Open in new tab for print
-                        ?>
+                        <?php $report_link = "../templates/print_report.php?item_id=" . $item['bill_item_id']; ?>
                         <tr>
                             <td><?php echo $item['bill_id']; ?></td>
                             <td><span style="font-size:0.82rem;color:#666;"><?php echo htmlspecialchars($item['patient_uid'] ?? ''); ?></span></td>
@@ -119,22 +102,20 @@ require_once '../includes/header.php';
                             </td>
                             <td>
                                 <span class="status-<?php echo strtolower($item['report_status']); ?>">
-                                    <?php echo $item['report_status']; ?>
+                                    Uploaded
                                 </span>
                             </td>
                             <td>
                                 <a href="<?php echo $report_link; ?>"
-                                   class="btn-action <?php echo $button_class_view; ?>"
-                                   <?php echo $target_blank; ?>
-                                   <?php if (!$is_completed) echo ' title="Report not yet completed"'; ?>>
+                                   class="btn-action btn-view"
+                                   target="_blank">
                                    View Report
                                 </a>
                             </td>
                              <td>
                                 <button
-                                   onclick="<?php echo $onclick_print; ?>"
-                                   class="btn-action <?php echo $button_class_print; ?>"
-                                   <?php if (!$is_completed) echo ' disabled title="Report not yet completed"'; ?>>
+                                   onclick="window.open('<?php echo $report_link; ?>');"
+                                   class="btn-action btn-primary">
                                    Print Report
                                 </button>
                                 </td>

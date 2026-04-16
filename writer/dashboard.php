@@ -3,9 +3,12 @@ $page_title = "Writer Dashboard";
 $required_role = "writer";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
 
 $pending_uploads = [];
-$uploadTableExists = false;
+$writer_task_queue = [];
+$today_task_count = 0;
+$pending_task_count = 0;
 
 $today = date('Y-m-d');
 $start_date = $_GET['start_date'] ?? $today;
@@ -19,6 +22,7 @@ $total_records = 0;
 $total_pages = 1;
 $showing_start = 0;
 $showing_end = 0;
+$patient_uid_expression = get_patient_identifier_expression($conn, 'p');
 
 $validateDate = function ($date) {
     $d = DateTime::createFromFormat('Y-m-d', $date);
@@ -49,38 +53,70 @@ $bindParams = function ($stmt, $types, $params) {
     call_user_func_array([$stmt, 'bind_param'], $bind_values);
 };
 
-$tableCheck = $conn->query("SHOW TABLES LIKE 'writer_final_reports'");
-if ($tableCheck instanceof mysqli_result) {
-    if ($tableCheck->num_rows > 0) {
-        $uploadTableExists = true;
-    }
-    $tableCheck->free();
-}
-
-// Backfill column for older databases so dashboard queries do not fail.
-$conn->query("ALTER TABLE bill_items ADD COLUMN IF NOT EXISTS reporting_doctor VARCHAR(150) DEFAULT NULL");
-
-$selectColumns = "SELECT
+$taskQueueSql = "SELECT
     bi.id AS bill_item_id,
     b.id AS bill_id,
-    p.uid AS patient_uid,
+    b.created_at AS bill_created_at,
+    {$patient_uid_expression} AS patient_uid,
     p.name AS patient_name,
     p.age AS patient_age,
     p.sex AS patient_sex,
-    bi.reporting_doctor,
     t.sub_test_name AS test_name,
-    b.created_at AS bill_created_at";
-$joinClause = '';
+    CASE WHEN DATE(b.created_at) = CURDATE() THEN 1 ELSE 0 END AS is_today
+FROM bill_items bi
+JOIN bills b ON bi.bill_id = b.id
+JOIN patients p ON b.patient_id = p.id
+JOIN tests t ON bi.test_id = t.id
+WHERE b.bill_status != 'Void'
+  AND COALESCE(bi.report_status, 'Pending') = 'Pending'";
 
-if ($uploadTableExists) {
-    $selectColumns .= ",
-        wfr.file_path,
-        wfr.uploaded_at";
-    $joinClause = " LEFT JOIN writer_final_reports wfr ON wfr.bill_item_id = bi.id";
-} else {
-    $selectColumns .= ",
-        NULL AS file_path,
-        NULL AS uploaded_at";
+$taskQueueParams = [];
+$taskQueueTypes = '';
+if ($search_term !== '') {
+    $taskQueueLike = '%' . $search_term . '%';
+    $taskQueueSql .= "
+    AND ({$patient_uid_expression} LIKE ? OR CAST(b.id AS CHAR) LIKE ? OR t.sub_test_name LIKE ? OR t.main_test_name LIKE ?)";
+    $taskQueueParams[] = $taskQueueLike;
+    $taskQueueParams[] = $taskQueueLike;
+    $taskQueueParams[] = $taskQueueLike;
+    $taskQueueParams[] = $taskQueueLike;
+    $taskQueueTypes .= 'ssss';
+}
+
+$taskQueueSql .= "
+ORDER BY
+    CASE WHEN DATE(b.created_at) = CURDATE() THEN 0 ELSE 1 END ASC,
+    b.created_at ASC,
+    bi.id ASC";
+
+if ($taskQueueStmt = $conn->prepare($taskQueueSql)) {
+    if (!empty($taskQueueParams)) {
+        $bindParams($taskQueueStmt, $taskQueueTypes, $taskQueueParams);
+    }
+    $taskQueueStmt->execute();
+    $taskQueueResult = $taskQueueStmt->get_result();
+    if ($taskQueueResult instanceof mysqli_result) {
+        while ($row = $taskQueueResult->fetch_assoc()) {
+            $age = isset($row['patient_age']) ? trim((string)$row['patient_age']) : '';
+            $sex = isset($row['patient_sex']) ? trim((string)$row['patient_sex']) : '';
+            $isToday = (int)($row['is_today'] ?? 0) === 1;
+            $createdAt = !empty($row['bill_created_at']) ? strtotime((string)$row['bill_created_at']) : false;
+
+            $row['age_gender'] = trim($age . ($age !== '' && $sex !== '' ? ' / ' : '') . $sex);
+            $row['queue_label'] = $isToday ? 'Today' : 'Pending';
+            $row['created_label'] = $createdAt ? date('d M Y, h:i A', $createdAt) : '—';
+
+            if ($isToday) {
+                $today_task_count++;
+            } else {
+                $pending_task_count++;
+            }
+
+            $writer_task_queue[] = $row;
+        }
+        $taskQueueResult->free();
+    }
+    $taskQueueStmt->close();
 }
 
 $where_clauses = [
@@ -93,11 +129,12 @@ $where_types = 'ss';
 
 if ($search_term !== '') {
     $search_like = '%' . $search_term . '%';
-    $where_clauses[] = "(CAST(b.id AS CHAR) LIKE ? OR p.name LIKE ? OR t.sub_test_name LIKE ?)";
+    $where_clauses[] = "({$patient_uid_expression} LIKE ? OR CAST(b.id AS CHAR) LIKE ? OR t.sub_test_name LIKE ? OR t.main_test_name LIKE ?)";
     $where_params[] = $search_like;
     $where_params[] = $search_like;
     $where_params[] = $search_like;
-    $where_types .= 'sss';
+    $where_params[] = $search_like;
+    $where_types .= 'ssss';
 }
 
 $where_sql = implode(' AND ', $where_clauses);
@@ -107,7 +144,6 @@ $countSql = "SELECT COUNT(*) AS total
     JOIN bills b ON bi.bill_id = b.id
     JOIN patients p ON b.patient_id = p.id
     JOIN tests t ON bi.test_id = t.id
-    $joinClause
     WHERE $where_sql";
 
 if ($count_stmt = $conn->prepare($countSql)) {
@@ -134,12 +170,18 @@ if ($total_records > 0) {
     $offset = 0;
 }
 
-$dataSql = $selectColumns . "
+$dataSql = "SELECT
+    bi.id AS bill_item_id,
+    b.id AS bill_id,
+    {$patient_uid_expression} AS patient_uid,
+    p.name AS patient_name,
+    p.age AS patient_age,
+    p.sex AS patient_sex,
+    t.sub_test_name AS test_name
     FROM bill_items bi
     JOIN bills b ON bi.bill_id = b.id
     JOIN patients p ON b.patient_id = p.id
     JOIN tests t ON bi.test_id = t.id
-    $joinClause
     WHERE $where_sql
     ORDER BY b.created_at DESC
     LIMIT ? OFFSET ?";
@@ -187,6 +229,67 @@ require_once '../includes/header.php';
         </div>
     </div>
 
+    <div class="writer-task-panel">
+        <div class="writer-task-header">
+            <div>
+                <h2>Current & Pending Reports</h2>
+                <p>Today's report queue appears first, followed by all remaining pending reports.</p>
+            </div>
+            <div class="writer-task-stats" aria-label="Task counts">
+                <span class="task-count-chip is-today">Today: <?php echo (int)$today_task_count; ?></span>
+                <span class="task-count-chip is-pending">Pending: <?php echo (int)$pending_task_count; ?></span>
+            </div>
+        </div>
+
+        <?php if (!empty($writer_task_queue)): ?>
+            <div class="writer-task-table-wrapper">
+                <table class="writer-task-table">
+                    <thead>
+                        <tr>
+                            <th>S.No</th>
+                            <th>Queue</th>
+                            <th>Bill #</th>
+                            <th>Patient ID</th>
+                            <th>Patient Name</th>
+                            <th>Test Name</th>
+                            <th>Age / Gender</th>
+                            <th>Bill Time</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php $task_serial = 1; foreach ($writer_task_queue as $task_row): ?>
+                            <tr>
+                                <td><?php echo $task_serial++; ?></td>
+                                <td>
+                                    <span class="task-queue-pill <?php echo ((int)$task_row['is_today'] === 1) ? 'is-today' : 'is-pending'; ?>">
+                                        <?php echo htmlspecialchars($task_row['queue_label']); ?>
+                                    </span>
+                                </td>
+                                <td><?php echo (int)$task_row['bill_id']; ?></td>
+                                <td><span style="font-size:0.82rem;color:#666;"><?php echo htmlspecialchars($task_row['patient_uid'] ?? ''); ?></span></td>
+                                <td><?php echo htmlspecialchars($task_row['patient_name']); ?></td>
+                                <td><?php echo htmlspecialchars($task_row['test_name']); ?></td>
+                                <td><?php echo htmlspecialchars($task_row['age_gender']); ?></td>
+                                <td><?php echo htmlspecialchars($task_row['created_label']); ?></td>
+                                <td>
+                                    <a href="fill_report.php?item_id=<?php echo urlencode($task_row['bill_item_id']); ?>"
+                                       class="btn-link">
+                                        Open Word App
+                                    </a>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php else: ?>
+            <div class="writer-task-empty-state">
+                No pending reports in queue right now. New reports for today will appear here automatically.
+            </div>
+        <?php endif; ?>
+    </div>
+
     <div class="writer-actions">
         <a class="writer-action-card" href="write_reports.php">
             <span class="action-icon">WR</span>
@@ -202,8 +305,8 @@ require_once '../includes/header.php';
 
     <div class="writer-upload-panel">
         <div>
-            <h2>Attach Final Reports</h2>
-            <p>Upload the signed documents for each completed examination once your report is ready.</p>
+            <h2>In-Site Report Workspace</h2>
+            <p>Open pending reports directly in the built-in Word editor. No download or re-upload is required.</p>
         </div>
 
         <div class="writer-filter-bar">
@@ -218,7 +321,7 @@ require_once '../includes/header.php';
                 </div>
                 <div class="form-group search-group">
                     <label for="universal_search">Universal Search</label>
-                    <input type="text" id="universal_search" name="search" placeholder="Bill #, patient, test" value="<?php echo htmlspecialchars($search_term); ?>">
+                    <input type="text" id="universal_search" name="search" placeholder="UID, Bill #, Test name" value="<?php echo htmlspecialchars($search_term); ?>">
                 </div>
                 <input type="hidden" name="rows_per_page" value="<?php echo (int) $rows_per_page; ?>">
                 <input type="hidden" name="page" value="1">
@@ -251,7 +354,7 @@ require_once '../includes/header.php';
                             <th>Patient Name</th>
                             <th>Test Name</th>
                             <th>Age / Gender</th>
-                            <th>Upload</th>
+                            <th>Action</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -264,29 +367,9 @@ require_once '../includes/header.php';
                                 <td><?php echo htmlspecialchars($row['age_gender']); ?></td>
                                 <td>
                                     <div class="action-stack">
-                                        <button
-                                            type="button"
-                                            class="btn-upload-report"
-                                            data-action="open-upload"
-                                            data-bill-item="<?php echo (int)$row['bill_item_id']; ?>"
-                                            data-patient-name="<?php echo htmlspecialchars($row['patient_name']); ?>"
-                                            data-test-name="<?php echo htmlspecialchars($row['test_name']); ?>"
-                                            data-age-gender="<?php echo htmlspecialchars($row['age_gender']); ?>"
-                                            data-reporting-doctor="<?php echo htmlspecialchars((string)($row['reporting_doctor'] ?? ''), ENT_QUOTES); ?>"
-                                            data-reporting-locked="<?php echo !empty($row['reporting_doctor']) ? '1' : '0'; ?>"
-                                            data-status-target="upload-status-<?php echo (int)$row['bill_item_id']; ?>"
-                                            data-has-upload="<?php echo !empty($row['file_path']) ? '1' : '0'; ?>">
-                                            <?php echo !empty($row['file_path']) ? 'Replace Report' : 'Add Report'; ?>
-                                        </button>
-                                        <?php
-                                            $hasUpload = !empty($row['file_path']) && !empty($row['uploaded_at']);
-                                            $statusLabel = $hasUpload
-                                                ? 'Uploaded on ' . date('d M Y, h:i A', strtotime($row['uploaded_at']))
-                                                : 'Awaiting Upload';
-                                        ?>
-                                        <span class="upload-pill <?php echo $hasUpload ? 'is-success' : 'is-warning'; ?>" id="upload-status-<?php echo (int)$row['bill_item_id']; ?>">
-                                            <?php echo htmlspecialchars($statusLabel); ?>
-                                        </span>
+                                        <a href="fill_report.php?item_id=<?php echo urlencode($row['bill_item_id']); ?>" class="btn-upload-report">
+                                            Open Word App
+                                        </a>
                                     </div>
                                 </td>
                             </tr>
@@ -336,173 +419,10 @@ require_once '../includes/header.php';
             </div>
         <?php else: ?>
             <div class="upload-empty-state">
-                No pending uploads found for the selected filters. Adjust the dates or search criteria to see more items.
+                No pending reports found for the selected filters. Adjust the dates or search criteria to see more items.
             </div>
         <?php endif; ?>
     </div>
 </div>
-
-<div class="upload-modal" id="uploadModal" aria-hidden="true">
-    <div class="upload-modal__dialog">
-        <button type="button" class="upload-modal__close" data-action="close-upload" aria-label="Close upload dialog">&times;</button>
-        <h3>Attach Final Report</h3>
-        <p class="upload-modal__meta">
-            <span id="modalPatient"></span>
-            <span id="modalTest"></span>
-            <span id="modalAge"></span>
-        </p>
-        <form id="finalReportForm" enctype="multipart/form-data">
-            <input type="hidden" name="bill_item_id" id="uploadBillItemId">
-            <div class="form-group">
-                <label for="reportingDoctorSelect">Reporting Doctor / Radiologist</label>
-                <select name="reporting_doctor" id="reportingDoctorSelect" required>
-                    <option value="">-- Select Radiologist --</option>
-                    <option value="Dr. G. Mamatha MD (RD)">Dr. G. Mamatha MD (RD)</option>
-                    <option value="Dr. G. Sri Kanth DMRD">Dr. G. Sri Kanth DMRD</option>
-                    <option value="Dr. P. Madhu Babu MD">Dr. P. Madhu Babu MD</option>
-                    <option value="Dr. Sahithi Chowdary">Dr. Sahithi Chowdary</option>
-                    <option value="Dr. SVN. Vamsi Krishna MD(RD)">Dr. SVN. Vamsi Krishna MD(RD)</option>
-                    <option value="Dr. T. Koushik MD(RD)">Dr. T. Koushik MD(RD)</option>
-                    <option value="Dr. T. Rajeshwar Rao MD DMRD">Dr. T. Rajeshwar Rao MD DMRD</option>
-                </select>
-                <small id="reportingDoctorLockNotice" style="display:none; color:#64748b;">Locked for writer: reporting doctor already saved for this report. Only manager can change the reporting doctors list.</small>
-            </div>
-            <div class="form-group">
-                <label for="reportFileInput">Report File</label>
-                <input type="file" name="report_file" id="reportFileInput" accept=".pdf,.doc,.docx" required>
-                <small>Accepted formats: PDF, DOC, DOCX up to 15&nbsp;MB.</small>
-            </div>
-            <div class="modal-actions">
-                <button type="button" class="btn-secondary" data-action="close-upload">Cancel</button>
-                <button type="submit" class="btn-primary" id="uploadSubmitBtn">Upload Report</button>
-            </div>
-            <p class="upload-feedback" id="uploadFeedback" role="status" aria-live="polite"></p>
-        </form>
-    </div>
-</div>
-
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    const modal = document.getElementById('uploadModal');
-    const form = document.getElementById('finalReportForm');
-    const billItemInput = document.getElementById('uploadBillItemId');
-    const patientLabel = document.getElementById('modalPatient');
-    const testLabel = document.getElementById('modalTest');
-    const ageLabel = document.getElementById('modalAge');
-    const feedback = document.getElementById('uploadFeedback');
-    const submitBtn = document.getElementById('uploadSubmitBtn');
-    const fileInput = document.getElementById('reportFileInput');
-    const reportingDoctorSelect = document.getElementById('reportingDoctorSelect');
-    const reportingDoctorLockNotice = document.getElementById('reportingDoctorLockNotice');
-    let activeButton = null;
-
-    const openModal = (button) => {
-        activeButton = button;
-        billItemInput.value = button.dataset.billItem || '';
-        patientLabel.textContent = 'Patient: ' + (button.dataset.patientName || '');
-        testLabel.textContent = 'Test: ' + (button.dataset.testName || '');
-        ageLabel.textContent = 'Age / Gender: ' + (button.dataset.ageGender || '');
-        if (reportingDoctorSelect) {
-            const savedDoctor = button.dataset.reportingDoctor || '';
-            const isLocked = button.dataset.reportingLocked === '1' && savedDoctor !== '';
-            reportingDoctorSelect.value = savedDoctor;
-            reportingDoctorSelect.disabled = isLocked;
-            reportingDoctorSelect.required = !isLocked;
-            if (reportingDoctorLockNotice) {
-                reportingDoctorLockNotice.style.display = isLocked ? 'block' : 'none';
-            }
-        }
-        fileInput.value = '';
-        feedback.textContent = '';
-        modal.classList.add('is-visible');
-        modal.setAttribute('aria-hidden', 'false');
-    };
-
-    const closeModal = () => {
-        modal.classList.remove('is-visible');
-        modal.setAttribute('aria-hidden', 'true');
-        activeButton = null;
-        form.reset();
-        if (reportingDoctorSelect) {
-            reportingDoctorSelect.disabled = false;
-            reportingDoctorSelect.required = true;
-        }
-        if (reportingDoctorLockNotice) {
-            reportingDoctorLockNotice.style.display = 'none';
-        }
-        feedback.textContent = '';
-    };
-
-    document.querySelectorAll('[data-action="open-upload"]').forEach((button) => {
-        button.addEventListener('click', () => openModal(button));
-    });
-
-    document.querySelectorAll('[data-action="close-upload"]').forEach((button) => {
-        button.addEventListener('click', closeModal);
-    });
-
-    modal.addEventListener('click', (event) => {
-        if (event.target === modal) {
-            closeModal();
-        }
-    });
-
-    document.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape' && modal.classList.contains('is-visible')) {
-            closeModal();
-        }
-    });
-
-    form.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        if (!billItemInput.value) {
-            feedback.textContent = 'Missing bill reference. Please reopen the dialog.';
-            return;
-        }
-
-        const formData = new FormData(form);
-        submitBtn.disabled = true;
-        submitBtn.textContent = 'Uploading...';
-        feedback.textContent = 'Uploading report, please wait...';
-
-        try {
-            const response = await fetch('upload_final_report.php', {
-                method: 'POST',
-                body: formData,
-                credentials: 'same-origin'
-            });
-
-            const payload = await response.json();
-            if (!response.ok || !payload.success) {
-                throw new Error(payload && payload.message ? payload.message : 'Upload failed.');
-            }
-
-            if (activeButton) {
-                activeButton.textContent = 'Replace Report';
-                activeButton.dataset.hasUpload = '1';
-                const statusTarget = activeButton.dataset.statusTarget;
-                if (statusTarget) {
-                    const statusEl = document.getElementById(statusTarget);
-                    if (statusEl) {
-                        statusEl.textContent = payload.statusLabel || 'Uploaded';
-                        statusEl.classList.remove('is-warning');
-                        statusEl.classList.add('is-success');
-                    }
-                }
-            }
-
-            feedback.textContent = payload.message || 'Report uploaded successfully.';
-            setTimeout(() => {
-                closeModal();
-            }, 600);
-        } catch (error) {
-            feedback.textContent = error.message || 'Upload failed. Please try again.';
-        } finally {
-            submitBtn.disabled = false;
-            submitBtn.textContent = 'Upload Report';
-        }
-    });
-});
-</script>
 
 <?php require_once '../includes/footer.php'; ?>

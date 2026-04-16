@@ -68,12 +68,14 @@ echo How do you want to access this website?
 echo.
 echo   1. Localhost only     (http://localhost:8081)
 echo   2. Private/Local IP   (e.g., http://192.168.1.100:8081)
-echo   3. Public IP          (e.g., http://203.45.67.89:8081)
-echo   4. Domain name        (e.g., http://mysite.com)
+echo   3. Public IP          (e.g., https://203.45.67.89:8443)
+echo   4. Domain name        (e.g., https://mysite.com:8443)
 echo.
 set /p mode="Enter choice (1/2/3/4): "
 
 set SERVER_NAME=localhost
+set DUAL_BIND=false
+set PUBLIC_IP_VALUE=
 
 if "%mode%"=="1" (
     set SERVER_NAME=localhost
@@ -90,13 +92,16 @@ if "%mode%"=="2" (
 if "%mode%"=="3" (
     echo.
     echo   TIP: Find your public IP at https://whatismyip.com
-    echo   Make sure port 8081 is forwarded in your router.
+    echo   Make sure port 8443 is forwarded in your router.
     echo.
     set /p SERVER_NAME="Enter your public IP: "
+    set DUAL_BIND=true
+    set PUBLIC_IP_VALUE=!SERVER_NAME!
 )
 if "%mode%"=="4" (
     echo.
     set /p SERVER_NAME="Enter your domain name (e.g., mysite.com): "
+    set DUAL_BIND=true
 )
 
 echo.
@@ -136,13 +141,15 @@ echo DB_EXTRA_USER=diagnostic_user
 echo DB_EXTRA_PASS=diagnostic_pass
 echo.
 echo APACHE_SERVER_NAME=%SERVER_NAME%
-echo ENABLE_SSL=false
+echo ENABLE_SSL=true
 echo.
 echo # ---- Public IP Configuration ----
-echo PUBLIC_IP=
+echo PUBLIC_IP=%PUBLIC_IP_VALUE%
 echo LOCAL_IP=
-echo DUAL_IP_BIND=true
+echo DUAL_IP_BIND=%DUAL_BIND%
 echo IP_CHECK_INTERVAL=300
+echo STARTUP_NETWORK_PROBES=false
+echo IP_MONITOR_APACHE_RELOAD=false
 echo INIT_BUNDLE_GUARD=true
 ) > "%DEPLOY_DIR%.env"
 
@@ -165,15 +172,25 @@ echo     image: ratnachand/diagnostic-center-web:latest
 echo     container_name: diagnostic-center-web
 echo     restart: always
 echo     ports:
-echo       - "${APP_PORT:-8081}:80"
-echo       - "${SSL_PORT:-8443}:443"
+echo       - "8081:80"
+echo       - "8443:443"
 echo     environment:
 echo       - DB_HOST=${DB_HOST:-db}
 echo       - DB_USER=${DB_USER:-root}
 echo       - DB_PASS=${DB_PASS:-root_password}
 echo       - DB_NAME=${DB_NAME:-diagnostic_center_db}
 echo       - APACHE_SERVER_NAME=${APACHE_SERVER_NAME:-localhost}
-echo       - ENABLE_SSL=${ENABLE_SSL:-false}
+echo       - ENABLE_SSL=${ENABLE_SSL:-true}
+echo       - PUBLIC_IP=${PUBLIC_IP:-}
+echo       - LOCAL_IP=${LOCAL_IP:-}
+echo       - DUAL_IP_BIND=${DUAL_IP_BIND:-false}
+echo       - IP_CHECK_INTERVAL=${IP_CHECK_INTERVAL:-300}
+echo       - STARTUP_NETWORK_PROBES=${STARTUP_NETWORK_PROBES:-false}
+echo       - IP_MONITOR_APACHE_RELOAD=${IP_MONITOR_APACHE_RELOAD:-false}
+echo       - APP_PORT=${APP_PORT:-8081}
+echo       - SSL_PORT=${SSL_PORT:-8443}
+echo       - DB_PORT=${DB_PORT:-3301}
+echo       - PMA_PORT=${PMA_PORT:-8082}
 echo       - INIT_BUNDLE_GUARD=${INIT_BUNDLE_GUARD:-true}
 echo     volumes:
 echo       - uploads_data:/var/www/html/uploads
@@ -185,6 +202,12 @@ echo       - ssl_certs:/etc/apache2/ssl
 echo     depends_on:
 echo       db:
 echo         condition: service_healthy
+echo     healthcheck:
+echo       test: ["CMD-SHELL", "curl -fsS http://localhost/login.php ^> /dev/null ^|^| exit 1"]
+echo       interval: 10s
+echo       timeout: 5s
+echo       retries: 6
+echo       start_period: 20s
 echo     networks:
 echo       - diagnostic-net
 echo.
@@ -299,7 +322,27 @@ docker compose -f "%DEPLOY_DIR%docker-compose.deploy.yml" --env-file "%DEPLOY_DI
 REM ---- Wait and verify ----
 echo.
 echo Waiting for services to be ready...
-timeout /t 10 /nobreak >nul
+set READY_URL=http://%SERVER_NAME%:8081/health/ready.php
+set READY_TIMEOUT=90
+set READY_INTERVAL=3
+set /a READY_ELAPSED=0
+
+:waitready
+for /f %%H in ('curl -s -o NUL -w "%%{http_code}" "%READY_URL%"') do set READY_CODE=%%H
+if "%READY_CODE%"=="200" goto readyok
+set /a READY_ELAPSED+=%READY_INTERVAL%
+if %READY_ELAPSED% GEQ %READY_TIMEOUT% goto readytimeout
+timeout /t %READY_INTERVAL% /nobreak >nul
+goto waitready
+
+:readytimeout
+echo   WARNING: Readiness check timed out after %READY_TIMEOUT% seconds.
+goto readydone
+
+:readyok
+echo   Readiness check OK.
+
+:readydone
 
 echo.
 echo Checking container status...
@@ -310,7 +353,8 @@ echo ============================================================
 echo   DEPLOYMENT COMPLETE!
 echo ============================================================
 echo.
-echo   Website:    http://%SERVER_NAME%:8081
+echo   HTTP:       http://%SERVER_NAME%:8081
+echo   HTTPS:      https://%SERVER_NAME%:8443
 echo   phpMyAdmin: http://%SERVER_NAME%:8082
 echo.
 echo   All containers will AUTO-START when Windows boots.

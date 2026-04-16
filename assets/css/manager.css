@@ -918,20 +918,6 @@ body.role-manager.manager-nav-colliding .main-navbar {
     font-size: .82rem;
     font-style: italic;
 }
-.rd-tinymce-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: .3rem;
-    background: #f0fdf4;
-    color: #166534;
-    border: 1px solid #bbf7d0;
-    border-radius: 20px;
-    padding: .15rem .65rem;
-    font-size: .8rem;
-    font-weight: 600;
-    white-space: nowrap;
-}
-
 .rd-modal-overlay {
     position: fixed;
     inset: 0;

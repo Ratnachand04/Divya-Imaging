@@ -11,15 +11,25 @@ services:
     container_name: diagnostic-center-web
     restart: always
     ports:
-      - "${APP_PORT:-8081}:80"
-      - "${SSL_PORT:-8443}:443"
+      - "8081:80"
+      - "8443:443"
     environment:
       - DB_HOST=${DB_HOST:-db}
       - DB_USER=${DB_USER:-root}
       - DB_PASS=${DB_PASS:-root_password}
       - DB_NAME=${DB_NAME:-diagnostic_center_db}
       - APACHE_SERVER_NAME=${APACHE_SERVER_NAME:-localhost}
-      - ENABLE_SSL=${ENABLE_SSL:-false}
+      - ENABLE_SSL=${ENABLE_SSL:-true}
+      - PUBLIC_IP=${PUBLIC_IP:-}
+      - LOCAL_IP=${LOCAL_IP:-}
+      - DUAL_IP_BIND=${DUAL_IP_BIND:-false}
+      - IP_CHECK_INTERVAL=${IP_CHECK_INTERVAL:-300}
+      - STARTUP_NETWORK_PROBES=${STARTUP_NETWORK_PROBES:-false}
+      - IP_MONITOR_APACHE_RELOAD=${IP_MONITOR_APACHE_RELOAD:-false}
+      - APP_PORT=${APP_PORT:-8081}
+      - SSL_PORT=${SSL_PORT:-8443}
+      - DB_PORT=${DB_PORT:-3301}
+      - PMA_PORT=${PMA_PORT:-8082}
       - INIT_BUNDLE_GUARD=${INIT_BUNDLE_GUARD:-true}
     volumes:
       - uploads_data:/var/www/html/uploads
@@ -31,6 +41,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost/login.php ^> /dev/null ^|^| exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
     networks:
       - diagnostic-net
 

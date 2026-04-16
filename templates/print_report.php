@@ -8,6 +8,12 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
+$viewer_role = $_SESSION['role'] ?? '';
+if (!in_array($viewer_role, ['writer', 'manager', 'superadmin'], true)) {
+    http_response_code(403);
+    die('Forbidden: You do not have permission to view reports.');
+}
+
 if (!isset($_GET['item_id']) || !is_numeric($_GET['item_id'])) {
     die("Invalid Report Item ID.");
 }
@@ -17,7 +23,7 @@ $item_id = (int)$_GET['item_id'];
 // Fetch all necessary report details from the database
 $stmt = $conn->prepare(
     "SELECT 
-        bi.report_content, bi.updated_at as report_date,
+        bi.report_content, bi.updated_at as report_date, COALESCE(bi.report_status, 'Pending') as report_status,
         b.id as bill_id,
         p.name as patient_name, p.age, p.sex,
         t.main_test_name, t.sub_test_name,
@@ -38,6 +44,11 @@ if ($report_result->num_rows === 0) {
 }
 $report = $report_result->fetch_assoc();
 $stmt->close();
+
+if ($viewer_role === 'manager' && ($report['report_status'] ?? 'Pending') !== 'Completed') {
+    http_response_code(403);
+    die('Report is not uploaded yet. Manager access is available only after upload.');
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
