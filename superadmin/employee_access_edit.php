@@ -15,7 +15,7 @@ if ($userId <= 0) {
     exit;
 }
 
-$stmt = $conn->prepare("SELECT id, username, role, is_active FROM users WHERE id = ? LIMIT 1");
+$stmt = $conn->prepare("SELECT id, username, role, is_active, COALESCE(NULLIF(full_name, ''), '') AS full_name FROM users WHERE id = ? LIMIT 1");
 $stmt->bind_param('i', $userId);
 $stmt->execute();
 $user = $stmt->get_result()->fetch_assoc();
@@ -26,13 +26,18 @@ if (!$user) {
     exit;
 }
 
+$allowedRoles = ['receptionist', 'accountant', 'writer', 'manager'];
+if (!in_array((string)$user['role'], $allowedRoles, true) || (string)$user['full_name'] !== '') {
+    $_SESSION['feedback'] = "<div class='error-banner'>This record is employee-details only and cannot be edited as access credentials.</div>";
+    header('Location: employee_access.php');
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim($_POST['username'] ?? '');
     $role = trim($_POST['role'] ?? '');
     $isActive = isset($_POST['is_active']) ? 1 : 0;
     $newPassword = trim($_POST['new_password'] ?? '');
-
-    $allowedRoles = ['receptionist', 'accountant', 'writer', 'manager'];
 
     if ($username === '' || !in_array($role, $allowedRoles, true)) {
         $feedback = "<div class='error-banner'>Username and valid role are required.</div>";

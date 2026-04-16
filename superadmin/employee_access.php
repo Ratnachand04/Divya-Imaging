@@ -46,7 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_employee_access']
     }
 }
 
-$accounts = $conn->query("SELECT id, username, role, is_active, created_at FROM users WHERE role NOT IN ('superadmin', 'platform_admin', 'developer') ORDER BY username ASC");
+$accounts = $conn->query("SELECT id, username, role, is_active, created_at FROM users WHERE role IN ('receptionist', 'accountant', 'writer', 'manager') AND COALESCE(NULLIF(full_name, ''), '') = '' ORDER BY username ASC");
 ?>
 
 <link rel="stylesheet" href="<?php echo $base_url; ?>/assets/css/superadmin_shell.css?v=<?php echo time(); ?>">
