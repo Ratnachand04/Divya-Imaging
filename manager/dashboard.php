@@ -16,7 +16,7 @@ require_once '../includes/header.php';
         </div>
     </div>
 
-    <form id="date-filter-form" class="filter-form compact-filters">
+    <form id="date-filter-form" class="filter-form compact-filters manager-dashboard-filters">
         <div class="filter-group quick-dates-group">
             <label>Quick Dates</label>
             <div class="quick-date-pills">
@@ -27,11 +27,11 @@ require_once '../includes/header.php';
             </div>
         </div>
         <div class="filter-group date-field-group">
-            <label for="start_date">Start</label>
+            <label for="start_date">Start Date</label>
             <input type="date" id="start_date" name="start_date" value="<?php echo date('Y-m-d'); ?>" style="color: #000 !important;">
         </div>
         <div class="filter-group date-field-group">
-            <label for="end_date">End</label>
+            <label for="end_date">End Date</label>
             <input type="date" id="end_date" name="end_date" value="<?php echo date('Y-m-d'); ?>" style="color: #000 !important;">
         </div>
         <div class="filter-actions">
@@ -124,9 +124,14 @@ require_once '../includes/header.php';
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     let charts = {};
+
+    if (window.ChartDataLabels) {
+        Chart.register(ChartDataLabels);
+    }
 
     function handleChartClick(event, elements, chartInstance, filterParam) {
         if (elements.length === 0) return;
@@ -146,6 +151,17 @@ document.addEventListener('DOMContentLoaded', function() {
     const formatNumber = value => Number(value ?? 0).toLocaleString('en-IN');
     const formatCurrency = value => `₹ ${Number(value ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const palette = ['#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#fd7e14', '#20c997'];
+
+    const pieLabelFormatter = (value, context) => {
+        const numeric = Number(value ?? 0);
+        const values = context?.dataset?.data || [];
+        const total = values.reduce((sum, item) => sum + Number(item ?? 0), 0);
+        if (total <= 0) {
+            return formatNumber(numeric);
+        }
+        const percent = (numeric / total) * 100;
+        return `${formatNumber(numeric)} (${percent.toFixed(1)}%)`;
+    };
 
     const chartConfigs = {
         doughnut: ({ labels, values }, onClickHandler) => ({
@@ -172,6 +188,16 @@ document.addEventListener('DOMContentLoaded', function() {
                         callbacks: {
                             label: context => `${context.label}: ${formatNumber(context.parsed ?? 0)}`
                         }
+                    },
+                    datalabels: {
+                        display: context => Number(context.dataset.data?.[context.dataIndex] ?? 0) > 0,
+                        formatter: pieLabelFormatter,
+                        color: '#0f172a',
+                        font: { weight: '600', size: 10 },
+                        anchor: 'end',
+                        align: 'end',
+                        offset: 6,
+                        clamp: true
                     }
                 }
             }
@@ -200,6 +226,16 @@ document.addEventListener('DOMContentLoaded', function() {
                         callbacks: {
                             label: context => `${context.label}: ${formatNumber(context.parsed ?? 0)}`
                         }
+                    },
+                    datalabels: {
+                        display: context => Number(context.dataset.data?.[context.dataIndex] ?? 0) > 0,
+                        formatter: pieLabelFormatter,
+                        color: '#0f172a',
+                        font: { weight: '600', size: 10 },
+                        anchor: 'end',
+                        align: 'end',
+                        offset: 6,
+                        clamp: true
                     }
                 }
             }
@@ -261,6 +297,17 @@ document.addEventListener('DOMContentLoaded', function() {
                                     return `${prefix}${formatter(rawValue)}`;
                                 }
                             }
+                        },
+                        datalabels: {
+                            display: context => Number(context.dataset.data?.[context.dataIndex] ?? 0) > 0,
+                            formatter: value => formatter(value),
+                            color: '#0f172a',
+                            font: { weight: '600', size: 10 },
+                            anchor: isHorizontal ? 'end' : 'end',
+                            align: isHorizontal ? 'right' : 'top',
+                            offset: 4,
+                            clamp: true,
+                            clip: false
                         }
                     }
                 }

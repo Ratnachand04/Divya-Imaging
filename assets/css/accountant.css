@@ -17,7 +17,7 @@
 .dashboard-header p { margin: 0; color: var(--text-muted); }
 .dashboard-header .btn-submit, .dashboard-header .btn-cancel { display: inline-flex; align-items: center; gap: 0.5rem; text-decoration: none; height: fit-content; }
 
-body.role-accountant .main-navbar {
+body.role-accountant:not(.app-layout) .main-navbar {
     top: calc(var(--header-height) + 5px);
     margin-top: 5px;
     margin-bottom: 8px;
@@ -34,14 +34,14 @@ body.role-accountant .main-navbar {
     opacity: 1;
 }
 
-body.role-accountant.manager-nav-colliding .main-navbar {
+body.role-accountant:not(.app-layout).manager-nav-colliding .main-navbar {
     transform: translateY(-18px);
     box-shadow: 0 12px 30px rgba(233, 30, 99, 0.2);
     opacity: 0;
     pointer-events: none;
 }
 
-.role-accountant .main-navbar ul {
+body.role-accountant:not(.app-layout) .main-navbar ul {
     display: grid;
     grid-template-columns: repeat(5, minmax(110px, auto));
     justify-content: center;
@@ -51,11 +51,11 @@ body.role-accountant.manager-nav-colliding .main-navbar {
     background: var(--bg-primary);
 }
 
-.role-accountant .main-navbar li {
+body.role-accountant:not(.app-layout) .main-navbar li {
     list-style: none;
 }
 
-.role-accountant .main-navbar li a {
+body.role-accountant:not(.app-layout) .main-navbar li a {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -67,37 +67,37 @@ body.role-accountant.manager-nav-colliding .main-navbar {
     color: var(--text-primary);
 }
 
-.role-accountant .main-navbar li a.active,
-.role-accountant .main-navbar li a:hover {
+body.role-accountant:not(.app-layout) .main-navbar li a.active,
+body.role-accountant:not(.app-layout) .main-navbar li a:hover {
     background: var(--brand-pink);
     color: var(--bg-primary);
     box-shadow: 0 12px 24px rgba(233, 30, 99, 0.25);
 }
 
 @media (max-width: 1024px) {
-    .role-accountant .main-navbar ul {
+    body.role-accountant:not(.app-layout) .main-navbar ul {
         grid-template-columns: repeat(3, minmax(140px, 1fr));
     }
 }
 
 @media (max-width: 640px) {
-    .role-accountant .main-navbar ul {
+    body.role-accountant:not(.app-layout) .main-navbar ul {
         grid-template-columns: repeat(2, minmax(140px, 1fr));
     }
 }
 
 @media (max-width: 480px) {
-    .role-accountant .main-navbar ul {
+    body.role-accountant:not(.app-layout) .main-navbar ul {
         grid-template-columns: 1fr;
     }
 }
 
 @media (max-width: 768px) {
-    .role-accountant .main-navbar {
+    body.role-accountant:not(.app-layout) .main-navbar {
         position: relative;
     }
 
-    .role-accountant .main-navbar ul {
+    body.role-accountant:not(.app-layout) .main-navbar ul {
         display: none;
         grid-template-columns: 1fr;
         width: 100%;
@@ -107,14 +107,14 @@ body.role-accountant.manager-nav-colliding .main-navbar {
         margin-top: 0.75rem;
     }
 
-    .role-accountant .main-navbar ul.show {
+    body.role-accountant:not(.app-layout) .main-navbar ul.show {
         display: flex;
         flex-direction: column;
         gap: 0.4rem;
     }
 
-    .role-accountant .main-navbar li,
-    .role-accountant .main-navbar li a {
+    body.role-accountant:not(.app-layout) .main-navbar li,
+    body.role-accountant:not(.app-layout) .main-navbar li a {
         width: 100%;
     }
 }
@@ -1020,7 +1020,7 @@ body {
 .tag.danger { background: #fde8e8; color: #9b1c1c; }
 
 /* FIX: Prevent navbar from disappearing on scroll */
-body.role-accountant.manager-nav-colliding .main-navbar {
+body.role-accountant:not(.app-layout).manager-nav-colliding .main-navbar {
     transform: none !important;
     opacity: 1 !important;
     pointer-events: auto !important;
@@ -1029,19 +1029,27 @@ body.role-accountant.manager-nav-colliding .main-navbar {
 
 /* Keep accountant pages on the shared fixed sidebar shell. */
 body.role-accountant.app-layout .main-navbar {
+    position: fixed;
     top: var(--shell-header-height);
     left: 0;
+    bottom: 0;
     width: var(--shell-sidebar-width);
     margin: 0;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
     border-radius: 0;
     border: none;
     border-right: 1px solid var(--nav-border);
     background: linear-gradient(180deg, #fef1f6 0%, #fce7f1 100%);
     box-shadow: 8px 0 28px rgba(249, 168, 212, 0.3);
+    z-index: 1200;
 }
 
 body.role-accountant.app-layout .main-navbar ul {
     display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
     grid-template-columns: none;
     gap: 0.42rem;
     padding: 0;
@@ -1049,20 +1057,26 @@ body.role-accountant.app-layout .main-navbar ul {
     box-shadow: none;
 }
 
+body.role-accountant.app-layout .main-navbar li a {
+    width: 100%;
+    min-width: 0;
+    justify-content: flex-start;
+}
+
 body.role-accountant.app-layout .main-content {
     padding: 0;
     min-height: auto;
     display: flex;
     flex-direction: column;
-    gap: clamp(1rem, 2vw, 1.5rem);
+    gap: 0.85rem;
 }
 
 body.role-accountant.app-layout .page-container {
     width: 100%;
     max-width: none;
     min-height: 0;
-    margin: 0;
-    padding: clamp(1rem, 1.6vw, 1.5rem) !important;
+    margin: 0 0 0.8rem;
+    padding: clamp(0.9rem, 1.8vw, 1.25rem) !important;
     border-radius: 16px;
     border: 1px solid var(--border-light);
     box-shadow: var(--shadow-sm);
@@ -1071,19 +1085,39 @@ body.role-accountant.app-layout .page-container {
 }
 
 body.role-accountant.app-layout .app-main {
-    padding: 1rem 1rem 1.25rem;
+    padding: 0.85rem 0.9rem 1rem !important;
 }
 
 body.role-accountant.app-layout .main-content.page-container {
-    margin: 0 0 1rem;
-    padding-top: clamp(1rem, 1.6vw, 1.5rem) !important;
-    gap: clamp(1rem, 2vw, 1.5rem);
+    margin: 0 0 0.8rem !important;
+    padding: clamp(0.9rem, 1.8vw, 1.25rem) !important;
+    gap: 0.85rem;
 }
 
 body.role-accountant.app-layout .dashboard-header {
     margin-top: 0 !important;
     padding-top: 0 !important;
-    margin-bottom: 0.6rem;
+    margin-bottom: 0.7rem !important;
+    padding-bottom: 0.55rem !important;
+}
+
+body.role-accountant.app-layout .filter-form.compact-filters {
+    margin-bottom: 0.85rem !important;
+    padding: 1rem 1.1rem;
+}
+
+body.role-accountant.app-layout .summary-cards,
+body.role-accountant.app-layout .insights-grid,
+body.role-accountant.app-layout .charts-section {
+    margin-top: 0;
+    margin-bottom: 0.85rem;
+    gap: 1rem;
+}
+
+body.role-accountant.app-layout .summary-card,
+body.role-accountant.app-layout .insight-card,
+body.role-accountant.app-layout .chart-container {
+    padding: clamp(0.85rem, 1.6vw, 1.1rem);
 }
 
 body.role-accountant.app-layout .table-responsive,

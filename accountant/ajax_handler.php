@@ -22,8 +22,69 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
     if (strtotime($start_date) > strtotime($end_date)) {
         $start_date = $end_date;
     }
+    $start_date_for_query = $start_date . ' 00:00:00';
     $end_date_for_query = $end_date . ' 23:59:59';
     $response = [];
+
+    $has_payment_history = false;
+    if ($history_table_check = $conn->query("SHOW TABLES LIKE 'payment_history'")) {
+        $has_payment_history = $history_table_check->num_rows > 0;
+        $history_table_check->free();
+    }
+
+    $calculate_collections = static function(mysqli $conn, string $range_start, string $range_end, bool $has_payment_history): float {
+        if ($has_payment_history) {
+            $collections_sql = "
+                SELECT
+                    COALESCE((
+                        SELECT SUM(GREATEST(b.amount_paid - COALESCE(ph.total_txn_paid, 0), 0))
+                        FROM bills b
+                        LEFT JOIN (
+                            SELECT bill_id, SUM(amount_paid_in_txn) AS total_txn_paid
+                            FROM payment_history
+                            GROUP BY bill_id
+                        ) ph ON ph.bill_id = b.id
+                        WHERE b.bill_status != 'Void'
+                          AND b.amount_paid > 0
+                          AND b.created_at BETWEEN ? AND ?
+                    ), 0) +
+                    COALESCE((
+                        SELECT SUM(ph2.amount_paid_in_txn)
+                        FROM payment_history ph2
+                        WHERE ph2.paid_at BETWEEN ? AND ?
+                    ), 0) AS total_collections
+            ";
+
+            if ($stmt = $conn->prepare($collections_sql)) {
+                $stmt->bind_param('ssss', $range_start, $range_end, $range_start, $range_end);
+                if ($stmt->execute()) {
+                    $stmt->bind_result($total_collections);
+                    $stmt->fetch();
+                    $stmt->close();
+                    return (float)($total_collections ?? 0);
+                }
+                $stmt->close();
+            }
+        }
+
+        $fallback_sql = "SELECT COALESCE(SUM(amount_paid), 0) AS total_collections
+                         FROM bills
+                         WHERE bill_status != 'Void'
+                           AND amount_paid > 0
+                           AND created_at BETWEEN ? AND ?";
+        if ($stmt = $conn->prepare($fallback_sql)) {
+            $stmt->bind_param('ss', $range_start, $range_end);
+            if ($stmt->execute()) {
+                $stmt->bind_result($total_collections);
+                $stmt->fetch();
+                $stmt->close();
+                return (float)($total_collections ?? 0);
+            }
+            $stmt->close();
+        }
+
+        return 0.0;
+    };
 
     // --- Core metrics ---
     $metrics = [
@@ -36,16 +97,8 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
         'package_discount_impact' => 0.0,
     ];
 
-    // Total earnings (paid bills)
-    $earnings_sql = "SELECT COALESCE(SUM(net_amount), 0) AS total_earnings FROM bills WHERE payment_status = 'Paid' AND bill_status != 'Void' AND created_at BETWEEN ? AND ?";
-    if ($stmt = $conn->prepare($earnings_sql)) {
-        $stmt->bind_param('ss', $start_date, $end_date_for_query);
-        $stmt->execute();
-        $stmt->bind_result($total_earnings);
-        $stmt->fetch();
-        $metrics['total_earnings'] = (float) $total_earnings;
-        $stmt->close();
-    }
+    // Total earnings should reflect actual collections in the selected range.
+    $metrics['total_earnings'] = $calculate_collections($conn, $start_date_for_query, $end_date_for_query, $has_payment_history);
 
     // Total discounts (all discounts applied on non-void bills)
     $discounts_sql = "SELECT COALESCE(SUM(discount), 0) AS total_discounts FROM bills WHERE bill_status != 'Void' AND created_at BETWEEN ? AND ?";
@@ -176,25 +229,8 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
         'yesterday' => ['collections' => 0.0, 'expenses' => 0.0, 'payouts' => 0.0, 'net' => 0.0],
     ];
 
-    $collectionsSql = "SELECT SUM(amount_paid) AS collected FROM bills WHERE payment_status = 'Paid' AND bill_status != 'Void' AND created_at BETWEEN ? AND ?";
-    if ($stmt = $conn->prepare($collectionsSql)) {
-        $stmt->bind_param('ss', $today_start, $today_end);
-        if ($stmt->execute()) {
-            $stmt->bind_result($collected);
-            $stmt->fetch();
-            $cashflow['today']['collections'] = (float) ($collected ?? 0);
-        }
-        $stmt->close();
-    }
-    if ($stmt = $conn->prepare($collectionsSql)) {
-        $stmt->bind_param('ss', $yesterday_start, $yesterday_end);
-        if ($stmt->execute()) {
-            $stmt->bind_result($collected);
-            $stmt->fetch();
-            $cashflow['yesterday']['collections'] = (float) ($collected ?? 0);
-        }
-        $stmt->close();
-    }
+    $cashflow['today']['collections'] = $calculate_collections($conn, $today_start, $today_end, $has_payment_history);
+    $cashflow['yesterday']['collections'] = $calculate_collections($conn, $yesterday_start, $yesterday_end, $has_payment_history);
 
     $expensesSql = "SELECT SUM(amount) AS spent FROM expenses WHERE status = 'Paid' AND created_at BETWEEN ? AND ?";
     if ($stmt = $conn->prepare($expensesSql)) {
@@ -352,12 +388,12 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
                SUM(revenue) AS revenue,
                SUM(expense) AS expenses
         FROM (
-            SELECT DATE_FORMAT(created_at, '%Y-%m-01') AS period_key,
-                   net_amount AS revenue,
+                 SELECT DATE_FORMAT(created_at, '%Y-%m-01') AS period_key,
+                     amount_paid AS revenue,
                    0 AS expense
             FROM bills
             WHERE bill_status != 'Void'
-              AND payment_status = 'Paid'
+                AND amount_paid > 0
               AND created_at BETWEEN ? AND ?
             UNION ALL
             SELECT DATE_FORMAT(created_at, '%Y-%m-01') AS period_key,
@@ -546,7 +582,7 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
     }
 
     // --- Revenue by Payment Mode ---
-    $paymentModeSql = "SELECT payment_mode, SUM(net_amount) AS total FROM bills WHERE payment_status = 'Paid' AND bill_status != 'Void' AND created_at BETWEEN ? AND ? GROUP BY payment_mode";
+    $paymentModeSql = "SELECT payment_mode, SUM(amount_paid) AS total FROM bills WHERE bill_status != 'Void' AND amount_paid > 0 AND created_at BETWEEN ? AND ? GROUP BY payment_mode";
     $response['payment_modes'] = ['labels' => [], 'values' => []];
     if ($stmt = $conn->prepare($paymentModeSql)) {
         $stmt->bind_param('ss', $start_date, $end_date_for_query);
