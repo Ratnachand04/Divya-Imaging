@@ -329,7 +329,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const splitCardInput = document.getElementById('split_card_amount');
         const splitUpiInput = document.getElementById('split_upi_amount');
 
-        const submitBtnForSimpleForm = billForm.querySelector('.btn-submit');
+        const submitBtnForSimpleForm = billForm.querySelector('button[type="submit"], input[type="submit"]');
         const isDetailedBillForm = !!(grossAmountInput && netAmountInput && selectedTestsJsonInput);
 
         if (!isDetailedBillForm) {
@@ -339,6 +339,69 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
             let selectedTests = {};
             let selectedPackages = {};
+            let isBillSubmitting = false;
+            const submitBtn = billForm.querySelector('button[type="submit"], input[type="submit"]');
+            const submitBtnOriginalText = submitBtn
+                ? (submitBtn.tagName === 'INPUT' ? (submitBtn.value || 'Submit') : (submitBtn.textContent || 'Submit'))
+                : 'Submit';
+
+            function setSubmitButtonProcessingState(isProcessing) {
+                isBillSubmitting = isProcessing;
+                if (!submitBtn) {
+                    return;
+                }
+
+                if (submitBtn.tagName === 'INPUT') {
+                    submitBtn.value = isProcessing ? 'Processing...' : submitBtnOriginalText;
+                } else {
+                    submitBtn.textContent = isProcessing ? 'Processing...' : submitBtnOriginalText;
+                }
+            }
+
+        function roundMoney(value) {
+            const numeric = Number(value);
+            if (!isFinite(numeric)) {
+                return 0;
+            }
+            return Math.round((numeric + Number.EPSILON) * 100) / 100;
+        }
+
+        function toWholeRupee(value) {
+            const numeric = Number(value);
+            if (!isFinite(numeric) || numeric < 0) {
+                return 0;
+            }
+            return Math.round(numeric);
+        }
+
+        function toPaise(value) {
+            const numeric = Number(value);
+            if (!isFinite(numeric)) {
+                return 0;
+            }
+            return Math.round((roundMoney(numeric) + Number.EPSILON) * 100);
+        }
+
+        function fromPaise(paise) {
+            return roundMoney((Number(paise) || 0) / 100);
+        }
+
+        function snapNearWholeRupeeArtifacts(value, contextAmount) {
+            const normalized = parseAmount(value);
+            const contextPaise = toPaise(contextAmount);
+
+            if (contextPaise <= 0 || contextPaise % 100 !== 0) {
+                return normalized;
+            }
+
+            const valuePaise = toPaise(normalized);
+            const paisePart = Math.abs(valuePaise) % 100;
+            if (paisePart === 1 || paisePart === 99) {
+                return fromPaise(Math.round(valuePaise / 100) * 100);
+            }
+
+            return normalized;
+        }
 
         function updateSelectionSectionVisibility() {
             if (selectedTestsSection) {
@@ -623,9 +686,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const packageName = packageData.package_name || 'Package';
             const packageCode = packageData.package_code || '';
-            const packagePrice = parseFloat(packageData.package_price) || 0;
-            const baseTotal = parseFloat(packageData.total_base_price) || 0;
-            const discountAmount = Math.max(baseTotal - packagePrice, 0);
+            const packagePrice = toWholeRupee(parseFloat(packageData.package_price) || 0);
+            const baseTotal = toWholeRupee(parseFloat(packageData.total_base_price) || 0);
             const tests = Array.isArray(packageData.tests) ? packageData.tests : [];
 
             const listItem = document.createElement('li');
@@ -642,7 +704,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const packageMeta = document.createElement('span');
             packageMeta.className = 'discount-summary';
-            packageMeta.textContent = `Original: ₹${baseTotal.toFixed(2)} | Package: ₹${packagePrice.toFixed(2)} | Discount: ₹${discountAmount.toFixed(2)}`;
+            packageMeta.textContent = `Original: ₹${baseTotal.toFixed(2)} | Package: ₹${packagePrice.toFixed(2)}`;
             leftContainer.appendChild(packageMeta);
 
             if (tests.length > 0) {
@@ -674,6 +736,31 @@ document.addEventListener('DOMContentLoaded', function() {
             amountBadge.textContent = `Package Amount: ₹${packagePrice.toFixed(2)}`;
             rightContainer.appendChild(amountBadge);
 
+            const packageDiscountSummary = document.createElement('span');
+            packageDiscountSummary.className = 'discount-summary';
+            packageDiscountSummary.textContent = 'Total Package Discount: ₹0.00';
+            rightContainer.appendChild(packageDiscountSummary);
+
+            const extraDiscountWrapper = document.createElement('div');
+            extraDiscountWrapper.className = 'discount-input-wrapper';
+
+            const extraDiscountLabel = document.createElement('label');
+            extraDiscountLabel.textContent = 'Extra Discount';
+            extraDiscountLabel.setAttribute('for', `package-extra-discount-${normalizedId}`);
+            extraDiscountWrapper.appendChild(extraDiscountLabel);
+
+            const extraDiscountField = document.createElement('input');
+            extraDiscountField.type = 'number';
+            extraDiscountField.min = '0';
+            extraDiscountField.step = '1';
+            extraDiscountField.placeholder = '0';
+            extraDiscountField.value = '';
+            extraDiscountField.id = `package-extra-discount-${normalizedId}`;
+            extraDiscountField.className = 'test-discount-input package-extra-discount-input';
+            extraDiscountWrapper.appendChild(extraDiscountField);
+
+            rightContainer.appendChild(extraDiscountWrapper);
+
             const removeBtn = document.createElement('button');
             removeBtn.type = 'button';
             removeBtn.textContent = 'Remove';
@@ -694,9 +781,28 @@ document.addEventListener('DOMContentLoaded', function() {
                 code: packageCode,
                 packagePrice,
                 baseTotal,
-                discountAmount,
-                tests
+                tests,
+                extraDiscount: 0,
+                ui: {
+                    metaSpan: packageMeta,
+                    amountBadge,
+                    discountSummary: packageDiscountSummary,
+                    extraDiscountInput: extraDiscountField
+                }
             };
+
+            extraDiscountField.addEventListener('input', () => {
+                const entry = selectedPackages[normalizedId];
+                if (!entry) {
+                    return;
+                }
+                let value = parseFloat(extraDiscountField.value);
+                if (!isFinite(value) || value < 0) {
+                    value = 0;
+                }
+                entry.extraDiscount = toWholeRupee(value);
+                updateBill();
+            });
 
             if (selectedPackagesList) {
                 selectedPackagesList.appendChild(listItem);
@@ -705,6 +811,50 @@ document.addEventListener('DOMContentLoaded', function() {
             updateBill();
         };
 
+        function getPackagePricingSummary(pkg) {
+            const baseTotal = toWholeRupee(pkg.baseTotal);
+            const packagePrice = toWholeRupee(pkg.packagePrice);
+            const billableGross = packagePrice <= baseTotal ? baseTotal : packagePrice;
+            const packageDiscount = packagePrice <= baseTotal ? toWholeRupee(baseTotal - packagePrice) : 0;
+            const maxExtraDiscount = Math.max(toWholeRupee(billableGross - packageDiscount), 0);
+            const normalizedExtra = Math.min(Math.max(toWholeRupee(pkg.extraDiscount), 0), maxExtraDiscount);
+            const totalPackageDiscount = toWholeRupee(packageDiscount + normalizedExtra);
+            const netPackageAmount = Math.max(toWholeRupee(billableGross - totalPackageDiscount), 0);
+
+            return {
+                baseTotal,
+                packagePrice,
+                billableGross,
+                packageDiscount,
+                maxExtraDiscount,
+                extraDiscount: normalizedExtra,
+                totalPackageDiscount,
+                netPackageAmount
+            };
+        }
+
+        function syncPackageSummaryUI(pkg) {
+            if (!pkg || !pkg.ui) {
+                return;
+            }
+
+            const summary = getPackagePricingSummary(pkg);
+            pkg.extraDiscount = summary.extraDiscount;
+
+            if (pkg.ui.metaSpan) {
+                pkg.ui.metaSpan.textContent = `Original: ₹${summary.baseTotal.toFixed(2)} | Package: ₹${summary.packagePrice.toFixed(2)} | Standard Discount: ₹${summary.packageDiscount.toFixed(2)} | Extra Discount: ₹${summary.extraDiscount.toFixed(2)}`;
+            }
+            if (pkg.ui.amountBadge) {
+                pkg.ui.amountBadge.textContent = `Package Amount: ₹${summary.netPackageAmount.toFixed(2)}`;
+            }
+            if (pkg.ui.discountSummary) {
+                pkg.ui.discountSummary.textContent = `Total Package Discount: ₹${summary.totalPackageDiscount.toFixed(2)}`;
+            }
+            if (pkg.ui.extraDiscountInput) {
+                pkg.ui.extraDiscountInput.value = summary.extraDiscount > 0 ? summary.extraDiscount.toFixed(0) : '';
+            }
+        }
+
         function updateBill() {
             let grossAmount = 0;
             let totalDiscount = 0;
@@ -712,38 +862,33 @@ document.addEventListener('DOMContentLoaded', function() {
             Object.values(selectedTests).forEach(test => {
                 const base = parseFloat(test.price) || 0;
                 const screening = parseFloat(test.screeningAmount) || 0;
-                const itemGross = base + screening;
+                const itemGross = roundMoney(base + screening);
                 test.discountAmount = Math.min(parseFloat(test.discountAmount) || 0, itemGross);
-                grossAmount += itemGross;
-                totalDiscount += test.discountAmount;
+                grossAmount = roundMoney(grossAmount + itemGross);
+                totalDiscount = roundMoney(totalDiscount + (parseFloat(test.discountAmount) || 0));
                 updateScreeningSummary(test);
                 updateDiscountSummary(test);
                 updateChargeSummary(test);
             });
 
             Object.values(selectedPackages).forEach(pkg => {
-                const baseTotal = parseFloat(pkg.baseTotal) || 0;
-                const packagePrice = parseFloat(pkg.packagePrice) || 0;
-                const packageDiscount = Math.max(baseTotal - packagePrice, 0);
-
-                if (packagePrice <= baseTotal) {
-                    grossAmount += baseTotal;
-                    totalDiscount += packageDiscount;
-                } else {
-                    grossAmount += packagePrice;
-                }
+                const packageSummary = getPackagePricingSummary(pkg);
+                pkg.extraDiscount = packageSummary.extraDiscount;
+                grossAmount = roundMoney(grossAmount + packageSummary.billableGross);
+                totalDiscount = roundMoney(totalDiscount + packageSummary.totalPackageDiscount);
+                syncPackageSummaryUI(pkg);
             });
 
             if (grossAmount < 0) grossAmount = 0;
             if (totalDiscount > grossAmount) totalDiscount = grossAmount;
 
-            const netAmount = grossAmount - totalDiscount;
+            const netAmount = roundMoney(grossAmount - totalDiscount);
 
             if (grossAmountInput) {
-                grossAmountInput.value = grossAmount.toFixed(2);
+                grossAmountInput.value = roundMoney(grossAmount).toFixed(2);
             }
             if (discountInput) {
-                discountInput.value = totalDiscount.toFixed(2);
+                discountInput.value = roundMoney(totalDiscount).toFixed(2);
             }
             if (discountBySelect) {
                 const hasDiscount = totalDiscount > 0.0001;
@@ -753,7 +898,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
             if (netAmountInput) {
-                netAmountInput.value = Math.max(netAmount, 0).toFixed(2);
+                netAmountInput.value = roundMoney(Math.max(netAmount, 0)).toFixed(2);
             }
 
             // Update partial-paid calculation whenever the bill total changes
@@ -766,9 +911,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 discount: parseFloat(data.discountAmount) || 0
             }));
 
-            const packagePayload = Object.entries(selectedPackages).map(([id]) => ({
+            const packagePayload = Object.entries(selectedPackages).map(([id, data]) => ({
                 id: parseInt(id, 10) || 0,
-                item_type: 'package'
+                item_type: 'package',
+                extra_discount: toWholeRupee(data.extraDiscount)
             }));
 
             const finalPayload = testPayload.concat(packagePayload);
@@ -778,18 +924,99 @@ document.addEventListener('DOMContentLoaded', function() {
 
             updateSelectionSectionVisibility();
 
-            const submitBtn = billForm.querySelector('.btn-submit');
             if (submitBtn) {
-                submitBtn.disabled = finalPayload.length === 0;
+                submitBtn.disabled = isBillSubmitting || finalPayload.length === 0;
             }
         }
 
+        function applyBillEditorPrefill() {
+            const prefill = window.BILL_EDITOR_PREFILL;
+            if (!prefill || typeof prefill !== 'object') {
+                return;
+            }
+
+            const prefillTests = Array.isArray(prefill.tests) ? prefill.tests : [];
+            prefillTests.forEach(test => {
+                const testId = parseInt(test.id, 10) || 0;
+                if (testId <= 0) {
+                    return;
+                }
+
+                const testName = String(test.name || `Test #${testId}`);
+                const testPrice = parseFloat(test.price) || 0;
+                window.addTestToList(testId, testName, testPrice);
+
+                const entry = selectedTests[String(testId)];
+                if (!entry) {
+                    return;
+                }
+
+                entry.screeningAmount = Math.max(parseAmount(test.screening), 0);
+                entry.discountAmount = Math.max(parseAmount(test.discount), 0);
+                if (entry.ui && entry.ui.customInput) {
+                    entry.ui.customInput.value = entry.screeningAmount > 0 ? entry.screeningAmount.toFixed(2) : '';
+                }
+                if (entry.ui && entry.ui.discountInput) {
+                    entry.ui.discountInput.value = entry.discountAmount > 0 ? entry.discountAmount.toFixed(2) : '';
+                }
+                updateScreeningSummary(entry);
+                clampDiscountToGross(entry);
+                updateDiscountSummary(entry);
+                updateChargeSummary(entry);
+            });
+
+            const prefillPackages = Array.isArray(prefill.packages) ? prefill.packages : [];
+            prefillPackages.forEach(pkg => {
+                const packageId = parseInt(pkg.id, 10) || 0;
+                if (packageId <= 0 || !packagesData || !packagesData[String(packageId)]) {
+                    return;
+                }
+                window.addPackageToList(packageId, packagesData[String(packageId)]);
+
+                const packageEntry = selectedPackages[String(packageId)];
+                if (!packageEntry) {
+                    return;
+                }
+                packageEntry.extraDiscount = Math.max(toWholeRupee(pkg.extra_discount), 0);
+                if (packageEntry.ui && packageEntry.ui.extraDiscountInput) {
+                    packageEntry.ui.extraDiscountInput.value = packageEntry.extraDiscount > 0 ? packageEntry.extraDiscount.toFixed(0) : '';
+                }
+            });
+
+            if (discountBySelect && prefill.discount_by) {
+                discountBySelect.value = String(prefill.discount_by);
+            }
+            if (paymentModeSelect && prefill.payment_mode) {
+                paymentModeSelect.value = String(prefill.payment_mode);
+            }
+            if (paymentStatusSelect && prefill.payment_status) {
+                paymentStatusSelect.value = String(prefill.payment_status);
+            }
+            if (amountPaidInput && prefill.amount_paid !== undefined && prefill.amount_paid !== null) {
+                amountPaidInput.value = parseAmount(prefill.amount_paid).toFixed(2);
+            }
+
+            if (splitCashInput && prefill.split_cash_amount !== undefined && prefill.split_cash_amount !== null) {
+                splitCashInput.value = parseAmount(prefill.split_cash_amount).toFixed(2);
+            }
+            if (splitCardInput && prefill.split_card_amount !== undefined && prefill.split_card_amount !== null) {
+                splitCardInput.value = parseAmount(prefill.split_card_amount).toFixed(2);
+            }
+            if (splitUpiInput && prefill.split_upi_amount !== undefined && prefill.split_upi_amount !== null) {
+                splitUpiInput.value = parseAmount(prefill.split_upi_amount).toFixed(2);
+            }
+
+            updateBill();
+            updatePartialPaid();
+            syncSplitPaymentFields();
+        }
+
         function parseAmount(value) {
-            const parsed = parseFloat(value);
+            const parsed = Number(value);
             if (!isFinite(parsed) || parsed < 0) {
                 return 0;
             }
-            return parsed;
+            return roundMoney(parsed);
         }
 
         function isCombinedMode(mode) {
@@ -845,7 +1072,8 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             if (paymentStatusSelect.value === 'Partial Paid') {
                 const entered = parseAmount(amountPaidInput ? amountPaidInput.value : 0);
-                return Math.min(entered, netAmount);
+                const expected = Math.min(entered, netAmount);
+                return snapNearWholeRupeeArtifacts(expected, netAmount);
             }
             return 0;
         }
@@ -874,10 +1102,10 @@ document.addEventListener('DOMContentLoaded', function() {
         function updateSplitTotalDisplay() {
             if (!splitTotalDisplay) return;
 
-            const total = parseAmount(splitCashInput ? splitCashInput.value : 0)
-                + parseAmount(splitCardInput ? splitCardInput.value : 0)
-                + parseAmount(splitUpiInput ? splitUpiInput.value : 0);
             const expected = getExpectedPaymentAmount();
+            const total = snapNearWholeRupeeArtifacts(roundMoney(parseAmount(splitCashInput ? splitCashInput.value : 0)
+                + parseAmount(splitCardInput ? splitCardInput.value : 0)
+                + parseAmount(splitUpiInput ? splitUpiInput.value : 0)), expected);
 
             splitTotalDisplay.textContent = `₹${total.toFixed(2)}`;
             if (splitRequiredDisplay) {
@@ -917,7 +1145,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
 
-            const entered = parseFloat(raw);
+            const enteredRaw = parseFloat(raw);
+            let entered = roundMoney(enteredRaw);
+            entered = snapNearWholeRupeeArtifacts(entered, expectedAmount);
             if (!isFinite(entered) || entered < 0) {
                 sourceField.input.setCustomValidity(`${sourceField.label} must be a valid non-negative amount.`);
                 if (showValidation) {
@@ -938,7 +1168,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
 
-            const remaining = Math.max(expectedAmount - entered, 0);
+            if (Math.abs(entered - parseAmount(raw)) > 0.0001) {
+                sourceField.input.value = entered.toFixed(2);
+            }
+
+            const remaining = snapNearWholeRupeeArtifacts(roundMoney(Math.max(expectedAmount - entered, 0)), expectedAmount);
             companionField.input.setCustomValidity('');
             companionField.input.value = remaining.toFixed(2);
             updateSplitTotalDisplay();
@@ -1037,13 +1271,25 @@ document.addEventListener('DOMContentLoaded', function() {
                 return false;
             }
 
-            const firstVal = parseFloat(rawFirst);
-            const secondVal = parseFloat(rawSecond);
+            const firstRaw = parseFloat(rawFirst);
+            const secondRaw = parseFloat(rawSecond);
+            let firstVal = roundMoney(firstRaw);
+            let secondVal = roundMoney(secondRaw);
+
+            firstVal = snapNearWholeRupeeArtifacts(firstVal, expectedAmount);
+            secondVal = snapNearWholeRupeeArtifacts(secondVal, expectedAmount);
 
             if (!isFinite(firstVal) || !isFinite(secondVal) || firstVal < 0 || secondVal < 0) {
                 secondInput.setCustomValidity('Split amounts must be valid non-negative numbers.');
                 secondInput.reportValidity();
                 return false;
+            }
+
+            if (Math.abs(firstVal - parseAmount(rawFirst)) > 0.0001) {
+                firstInput.value = firstVal.toFixed(2);
+            }
+            if (Math.abs(secondVal - parseAmount(rawSecond)) > 0.0001) {
+                secondInput.value = secondVal.toFixed(2);
             }
 
             if (firstVal <= 0 || secondVal <= 0) {
@@ -1058,7 +1304,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 return false;
             }
 
-            const total = firstVal + secondVal;
+            const total = snapNearWholeRupeeArtifacts(roundMoney(firstVal + secondVal), expectedAmount);
             if (total > expectedAmount + 0.01) {
                 secondInput.setCustomValidity('Split total cannot exceed the payable amount.');
                 secondInput.reportValidity();
@@ -1080,8 +1326,12 @@ document.addEventListener('DOMContentLoaded', function() {
             
             if (paymentStatusSelect.value === 'Partial Paid') {
                 partialPaidDetails.style.display = 'flex'; // Use 'flex' to show the row
-                let netAmount = parseFloat(netAmountInput.value) || 0;
-                let amountPaid = parseFloat(amountPaidInput.value) || 0;
+                let netAmount = parseAmount(netAmountInput.value);
+                let amountPaid = parseAmount(amountPaidInput.value);
+                amountPaid = snapNearWholeRupeeArtifacts(amountPaid, netAmount);
+                if (amountPaidInput.value.trim() !== '' && Math.abs(amountPaid - parseAmount(amountPaidInput.value)) > 0.0001) {
+                    amountPaidInput.value = amountPaid.toFixed(2);
+                }
                 
                 // Prevent paying more than the net amount
                 if (amountPaid > netAmount) {
@@ -1095,7 +1345,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     amountPaidInput.setCustomValidity('');
                 }
 
-                let balance = netAmount - amountPaid;
+                let balance = snapNearWholeRupeeArtifacts(roundMoney(Math.max(netAmount - amountPaid, 0)), netAmount);
                 balanceAmountInput.value = balance.toFixed(2);
                 amountPaidInput.max = netAmount.toFixed(2); // Set max attribute for validation
             } else {
@@ -1114,6 +1364,16 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         if(amountPaidInput) {
             amountPaidInput.addEventListener('input', updatePartialPaid);
+            amountPaidInput.addEventListener('change', function() {
+                if (!netAmountInput || amountPaidInput.value.trim() === '') {
+                    updatePartialPaid();
+                    return;
+                }
+                const netAmount = parseAmount(netAmountInput.value);
+                const normalizedPaid = snapNearWholeRupeeArtifacts(parseAmount(amountPaidInput.value), netAmount);
+                amountPaidInput.value = normalizedPaid.toFixed(2);
+                updatePartialPaid();
+            });
         }
         if (paymentModeSelect) {
             paymentModeSelect.addEventListener('change', syncSplitPaymentFields);
@@ -1126,11 +1386,37 @@ document.addEventListener('DOMContentLoaded', function() {
                 autoBalanceSplitFields(key, true);
             });
             field.input.addEventListener('change', function() {
+                if (field.input.value.trim() !== '') {
+                    field.input.value = parseAmount(field.input.value).toFixed(2);
+                }
                 autoBalanceSplitFields(key, true);
             });
         });
 
         billForm.addEventListener('submit', function(e) {
+            if (e.defaultPrevented) {
+                return;
+            }
+
+            if (isBillSubmitting) {
+                e.preventDefault();
+                return;
+            }
+
+            const netAmountForSubmit = parseAmount(netAmountInput ? netAmountInput.value : 0);
+            if (amountPaidInput && amountPaidInput.value.trim() !== '') {
+                const normalizedPaid = snapNearWholeRupeeArtifacts(parseAmount(amountPaidInput.value), netAmountForSubmit);
+                amountPaidInput.value = normalizedPaid.toFixed(2);
+            }
+
+            const expectedForSplit = getExpectedPaymentAmount();
+            [splitCashInput, splitCardInput, splitUpiInput].forEach(function(input) {
+                if (input && input.value.trim() !== '') {
+                    const normalizedSplit = snapNearWholeRupeeArtifacts(parseAmount(input.value), expectedForSplit);
+                    input.value = normalizedSplit.toFixed(2);
+                }
+            });
+
             if (discountBySelect && discountInput) {
                 const hasDiscount = parseAmount(discountInput.value) > 0.0001;
                 if (hasDiscount && !discountBySelect.value) {
@@ -1144,11 +1430,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
             if (!validateSplitInputs()) {
                 e.preventDefault();
+                return;
             }
+
+            setSubmitButtonProcessingState(true);
         });
 
         // Initial call to set the correct state when the page loads
-        updateBill();
+        applyBillEditorPrefill();
+        if (!window.BILL_EDITOR_PREFILL) {
+            updateBill();
+        }
         }
     }
 
@@ -1224,7 +1516,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const POPUP_HOST_ID = 'global-popup-container';
     const PARTIAL_PAID_STORAGE_KEY = 'dc_partial_paid_notice';
-    const LAST_REQUEST_STORAGE_KEY = 'dc_manager_last_request_id';
+    const LAST_MANAGER_REQUEST_EVENT_KEY = 'dc_manager_last_request_event_id';
+    const LAST_RECEPTIONIST_REQUEST_EVENT_KEY = 'dc_receptionist_last_request_event_id';
     const PARTIAL_PAID_BELL_BUTTON_ID = 'notification-bell-btn';
     const PARTIAL_PAID_BADGE_ID = 'partial-paid-badge';
     const PARTIAL_PAID_DROPDOWN_ID = 'partial-paid-dropdown';
@@ -1684,7 +1977,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    function refreshNavCounts() {
+    function refreshManagerNavCounts() {
         fetch(`${NOTIFICATION_API}?action=manager_nav_counts`, { cache: 'no-store' })
             .then(response => response.json())
             .then(data => {
@@ -1696,29 +1989,58 @@ document.addEventListener('DOMContentLoaded', function() {
             .catch(error => console.error('Failed to refresh nav counts:', error));
     }
 
-    function scheduleNavCounts() {
-        refreshNavCounts();
-        setInterval(refreshNavCounts, 60 * 1000);
+    function scheduleManagerNavCounts() {
+        refreshManagerNavCounts();
+        setInterval(refreshManagerNavCounts, 60 * 1000);
     }
 
-    function getStoredRequestId() {
-        const raw = sessionStorage.getItem(LAST_REQUEST_STORAGE_KEY);
+    function refreshReceptionistNavCounts() {
+        fetch(`${NOTIFICATION_API}?action=receptionist_nav_counts`, { cache: 'no-store' })
+            .then(response => response.json())
+            .then(data => {
+                if (!data.success || !data.counts) return;
+                updateNavBadge('receptionist-requests', data.counts.request_updates);
+            })
+            .catch(error => console.error('Failed to refresh receptionist nav counts:', error));
+    }
+
+    function scheduleReceptionistNavCounts() {
+        refreshReceptionistNavCounts();
+        setInterval(refreshReceptionistNavCounts, 60 * 1000);
+    }
+
+    function getStoredManagerRequestEventId() {
+        const raw = sessionStorage.getItem(LAST_MANAGER_REQUEST_EVENT_KEY);
         return raw ? parseInt(raw, 10) || 0 : 0;
     }
 
-    function setStoredRequestId(id) {
+    function setStoredManagerRequestEventId(id) {
         try {
-            sessionStorage.setItem(LAST_REQUEST_STORAGE_KEY, String(id));
+            sessionStorage.setItem(LAST_MANAGER_REQUEST_EVENT_KEY, String(id));
         } catch (error) {
-            console.warn('Unable to persist latest request id', error);
+            console.warn('Unable to persist manager request event id', error);
+        }
+    }
+
+    function getStoredReceptionistEventId() {
+        const raw = sessionStorage.getItem(LAST_RECEPTIONIST_REQUEST_EVENT_KEY);
+        return raw ? parseInt(raw, 10) || 0 : 0;
+    }
+
+    function setStoredReceptionistEventId(id) {
+        try {
+            sessionStorage.setItem(LAST_RECEPTIONIST_REQUEST_EVENT_KEY, String(id));
+        } catch (error) {
+            console.warn('Unable to persist receptionist request event id', error);
         }
     }
 
     function presentNewRequestNotification(request) {
         if (!request) return;
         const lines = [
-            `Receptionist ${request.receptionist} submitted a new edit request for Bill #${request.bill_id}.`,
-            `Reason: ${request.reason}`,
+            `Receptionist ${request.receptionist} submitted an update for Bill #${request.bill_id}.`,
+            `Status: ${request.status}`,
+            `Details: ${request.reason}`,
             `Received at: ${formatTimestamp(request.created_at)}`
         ];
         const actions = [
@@ -1735,32 +2057,86 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function checkForNewRequests(initial = false) {
-        const lastSeen = getStoredRequestId();
-        fetch(`${NOTIFICATION_API}?action=latest_request&last_request_id=${lastSeen}`, { cache: 'no-store' })
+        const lastSeenEventId = getStoredManagerRequestEventId();
+        fetch(`${NOTIFICATION_API}?action=latest_request&last_event_id=${lastSeenEventId}`, { cache: 'no-store' })
             .then(response => response.json())
             .then(data => {
                 if (!data.success || !data.latest) {
                     return;
                 }
-                const latestId = parseInt(data.latest.id, 10) || 0;
-                if (initial && lastSeen === 0) {
-                    setStoredRequestId(latestId);
+                const latestEventId = parseInt(data.latest.event_id, 10) || 0;
+                if (initial && lastSeenEventId === 0) {
+                    setStoredManagerRequestEventId(latestEventId);
                     return;
                 }
-                if (data.hasNew && latestId > lastSeen) {
-                    setStoredRequestId(latestId);
+                if (data.hasNew && latestEventId > lastSeenEventId) {
+                    setStoredManagerRequestEventId(latestEventId);
                     presentNewRequestNotification(data.latest);
-                    refreshNavCounts();
-                } else if (initial && latestId > lastSeen) {
-                    setStoredRequestId(latestId);
+                    refreshManagerNavCounts();
+                } else if (initial && latestEventId > lastSeenEventId) {
+                    setStoredManagerRequestEventId(latestEventId);
                 }
             })
             .catch(error => console.error('Latest request check failed:', error));
     }
 
-    function scheduleRequestWatcher() {
+    function scheduleManagerRequestWatcher() {
         checkForNewRequests(true);
         setInterval(() => checkForNewRequests(false), 30 * 1000);
+    }
+
+    function presentReceptionistRequestNotification(update) {
+        if (!update) return;
+        const lines = [
+            `Manager updated Request #${update.id} for Bill #${update.bill_id}.`,
+            `Status: ${update.status}`,
+            update.manager_comment ? `Manager comment: ${update.manager_comment}` : '',
+            `Received at: ${formatTimestamp(update.created_at)}`
+        ].filter(Boolean);
+
+        const actions = [
+            {
+                label: 'Open Edit Requests',
+                variant: 'primary',
+                onClick: () => {
+                    window.location.href = (typeof SITE_BASE_URL !== 'undefined' ? SITE_BASE_URL : '') + '/receptionist/requests.php';
+                }
+            },
+            { label: 'Dismiss', variant: 'secondary' }
+        ];
+
+        showPopup({ title: 'Request Status Updated', lines, actions });
+    }
+
+    function checkReceptionistRequestUpdates(initial = false) {
+        const lastSeenEventId = getStoredReceptionistEventId();
+        fetch(`${NOTIFICATION_API}?action=latest_receptionist_update&last_event_id=${lastSeenEventId}`, { cache: 'no-store' })
+            .then(response => response.json())
+            .then(data => {
+                if (!data.success || !data.latest) {
+                    return;
+                }
+
+                const latestEventId = parseInt(data.latest.event_id, 10) || 0;
+                if (initial && lastSeenEventId === 0) {
+                    setStoredReceptionistEventId(latestEventId);
+                    return;
+                }
+
+                if (data.hasNew && latestEventId > lastSeenEventId) {
+                    setStoredReceptionistEventId(latestEventId);
+                    presentReceptionistRequestNotification(data.latest);
+                    refreshReceptionistNavCounts();
+                } else if (initial && latestEventId > lastSeenEventId) {
+                    setStoredReceptionistEventId(latestEventId);
+                }
+            })
+            .catch(error => console.error('Latest receptionist request update check failed:', error));
+    }
+
+    function scheduleReceptionistRequestWatcher() {
+        checkReceptionistRequestUpdates(true);
+        setInterval(() => checkReceptionistRequestUpdates(false), 30 * 1000);
     }
 
     if (currentRole === 'manager' || currentRole === 'receptionist') {
@@ -1768,8 +2144,13 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     if (currentRole === 'manager') {
-        scheduleNavCounts();
-        scheduleRequestWatcher();
+        scheduleManagerNavCounts();
+        scheduleManagerRequestWatcher();
+    }
+
+    if (currentRole === 'receptionist') {
+        scheduleReceptionistNavCounts();
+        scheduleReceptionistRequestWatcher();
     }
 });
 

@@ -928,6 +928,10 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     if (typeof Chart !== 'undefined') {
+        if (window.ChartDataLabels) {
+            Chart.register(ChartDataLabels);
+        }
+
         const revenueCanvas = document.getElementById('revenueTrendChart');
         if (revenueCanvas) {
             new Chart(revenueCanvas.getContext('2d'), {
@@ -962,7 +966,18 @@ document.addEventListener('DOMContentLoaded', function () {
                 options: {
                     plugins: {
                         legend: { display: true },
-                        tooltip: { mode: 'index', intersect: false }
+                        tooltip: { mode: 'index', intersect: false },
+                        datalabels: {
+                            display: context => Number(context.dataset.data?.[context.dataIndex] ?? 0) > 0,
+                            formatter: value => `₹ ${Number(value ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                            color: context => context.datasetIndex === 0 ? '#1d4ed8' : '#047857',
+                            font: { weight: '600', size: 10 },
+                            anchor: 'end',
+                            align: 'top',
+                            offset: 4,
+                            clamp: true,
+                            clip: false
+                        }
                     },
                     responsive: true,
                     maintainAspectRatio: false,
@@ -1012,6 +1027,25 @@ document.addEventListener('DOMContentLoaded', function () {
                                     return `${context.label}: ₹ ${value.toLocaleString(undefined, { minimumFractionDigits: 2 })} (${share.toFixed(1)}%)`;
                                 }
                             }
+                        },
+                        datalabels: {
+                            display: context => Number(context.dataset.data?.[context.dataIndex] ?? 0) > 0,
+                            formatter: (value, context) => {
+                                const numeric = Number(value ?? 0);
+                                const allValues = context?.dataset?.data || [];
+                                const total = allValues.reduce((sum, item) => sum + Number(item ?? 0), 0);
+                                if (total <= 0) {
+                                    return `₹ ${numeric.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                                }
+                                const share = (numeric / total) * 100;
+                                return `₹ ${numeric.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${share.toFixed(1)}%)`;
+                            },
+                            color: '#0f172a',
+                            font: { weight: '600', size: 10 },
+                            anchor: 'end',
+                            align: 'end',
+                            offset: 6,
+                            clamp: true
                         }
                     },
                     cutout: '62%'
@@ -1051,7 +1085,23 @@ document.addEventListener('DOMContentLoaded', function () {
                     maintainAspectRatio: false,
                     plugins: {
                         legend: { position: 'bottom' },
-                        tooltip: { mode: 'index', intersect: false }
+                        tooltip: { mode: 'index', intersect: false },
+                        datalabels: {
+                            display: context => Number(context.dataset.data?.[context.dataIndex] ?? 0) > 0,
+                            formatter: (value, context) => {
+                                if (context.dataset.type === 'line') {
+                                    return Number(value ?? 0).toLocaleString('en-IN');
+                                }
+                                return Number(value ?? 0).toLocaleString('en-IN');
+                            },
+                            color: context => context.dataset.type === 'line' ? '#b45309' : '#0f172a',
+                            font: { weight: '600', size: 10 },
+                            anchor: 'end',
+                            align: 'top',
+                            offset: 4,
+                            clamp: true,
+                            clip: false
+                        }
                     },
                     scales: {
                         y: {

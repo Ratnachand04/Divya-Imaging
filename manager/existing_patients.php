@@ -11,27 +11,28 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     $patients = [];
     try {
         ensure_patient_registration_schema($conn);
-        $patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
-        $bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
-
         if ($search !== '') {
             $like = '%' . $search . '%';
             $stmt = $conn->prepare(
                 "SELECT p.id, p.uid, p.name, p.age, p.sex, p.mobile_number, p.address, p.city,
                         COUNT(DISTINCT b.id) AS visit_count
-                 FROM {$patients_source}
-                 LEFT JOIN {$bills_source} ON b.patient_id = p.id AND b.bill_status != 'Void'
+                 FROM patients p
+                 LEFT JOIN bills b ON b.patient_id = p.id AND b.bill_status != 'Void'
                  WHERE p.uid LIKE ? OR p.name LIKE ? OR p.mobile_number LIKE ?
-                 GROUP BY p.id ORDER BY p.name ASC LIMIT 100"
+                  GROUP BY p.id
+                  HAVING COUNT(DISTINCT b.id) > 0
+                  ORDER BY p.name ASC LIMIT 100"
             );
             $stmt->bind_param('sss', $like, $like, $like);
         } else {
             $stmt = $conn->prepare(
                 "SELECT p.id, p.uid, p.name, p.age, p.sex, p.mobile_number, p.address, p.city,
                         COUNT(DISTINCT b.id) AS visit_count
-                 FROM {$patients_source}
-                 LEFT JOIN {$bills_source} ON b.patient_id = p.id AND b.bill_status != 'Void'
-                 GROUP BY p.id ORDER BY p.id DESC LIMIT 100"
+                 FROM patients p
+                 LEFT JOIN bills b ON b.patient_id = p.id AND b.bill_status != 'Void'
+                  GROUP BY p.id
+                  HAVING COUNT(DISTINCT b.id) > 0
+                  ORDER BY p.id DESC LIMIT 100"
             );
         }
         $stmt->execute();

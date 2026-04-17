@@ -15,7 +15,7 @@
             <li><a href="manage_packages.php" data-tooltip="Packages" class="<?php echo ($current_page == 'manage_packages.php') ? 'active' : ''; ?>"><i class="fas fa-box-open"></i><span class="nav-label">Packages</span></a></li>
             <li><a href="manage_doctors.php" data-tooltip="Doctors" class="<?php echo in_array($current_page, ['manage_doctors.php', 'manage_doctor_commissions.php']) ? 'active' : ''; ?>"><i class="fas fa-user-md"></i><span class="nav-label">Doctors</span></a></li>
             <li><a href="expenses.php" data-tooltip="Expenses" class="<?php echo ($current_page == 'expenses.php') ? 'active' : ''; ?>"><i class="fas fa-wallet"></i><span class="nav-label">Expenses</span></a></li>
-            <li><a href="requests.php" data-tooltip="Requests" class="<?php echo ($current_page == 'requests.php') ? 'active' : ''; ?>"><i class="fas fa-inbox"></i><span class="nav-label">Requests</span><span class="nav-badge is-hidden" data-nav-count="requests">0</span></a></li>
+            <li><a href="requests.php" data-tooltip="Requests" class="<?php echo in_array($current_page, ['requests.php', 'view_request_details.php', 'update_request_status.php']) ? 'active' : ''; ?>"><i class="fas fa-inbox"></i><span class="nav-label">Requests</span><span class="nav-badge is-hidden" data-nav-count="requests">0</span></a></li>
             <li><a href="manage_employees.php" data-tooltip="Employees" class="<?php echo ($current_page == 'manage_employees.php') ? 'active' : ''; ?>"><i class="fas fa-users"></i><span class="nav-label">Employees</span></a></li>
             <li><a href="existing_patients.php" data-tooltip="Patients" class="<?php echo in_array($current_page, ['existing_patients.php', 'edit_patient.php']) ? 'active' : ''; ?>"><i class="fas fa-users"></i><span class="nav-label">Patients</span></a></li>
             <li><a href="<?php echo $base_url; ?>/manager/view_due_bills.php" data-tooltip="Pending Bills" class="<?php echo ($current_page == 'view_due_bills.php') ? 'active' : ''; ?>"><i class="fas fa-file-invoice-dollar"></i><span class="nav-label">Pending Bills</span><span class="nav-badge is-hidden" data-nav-count="pending-bills">0</span></a></li>
@@ -39,6 +39,7 @@
             <li><a href="generate_bill.php" data-tooltip="Generate Bill" class="<?php echo in_array($current_page, ['generate_bill.php', 'edit_bill.php']) ? 'active' : ''; ?>"><i class="fas fa-file-medical"></i><span class="nav-label">Generate Bill</span></a></li>
             <li><a href="existing_patients.php" data-tooltip="Patients" class="<?php echo in_array($current_page, ['existing_patients.php', 'edit_patient.php']) ? 'active' : ''; ?>"><i class="fas fa-users"></i><span class="nav-label">Patients</span></a></li>
             <li><a href="bill_history.php" data-tooltip="Bill History" class="<?php echo ($current_page == 'bill_history.php') ? 'active' : ''; ?>"><i class="fas fa-history"></i><span class="nav-label">Bill History</span></a></li>
+            <li><a href="requests.php" data-tooltip="Edit Requests" class="<?php echo in_array($current_page, ['requests.php', 'view_request_details.php']) ? 'active' : ''; ?>"><i class="fas fa-inbox"></i><span class="nav-label">Edit Requests</span><span class="nav-badge is-hidden" data-nav-count="receptionist-requests">0</span></a></li>
         <?php endif; ?>
     </ul>
 </nav>

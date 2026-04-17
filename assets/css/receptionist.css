@@ -696,6 +696,7 @@ body.role-receptionist .main-content {
 .role-receptionist .status-paid { background: var(--success); color: var(--bg-primary); padding: 0.3rem 0.75rem; border-radius: 999px; font-weight: 600; }
 .role-receptionist .status-due { background: var(--error); color: var(--bg-primary); padding: 0.3rem 0.75rem; border-radius: 999px; font-weight: 600; }
 .role-receptionist .status-partial-paid { background: var(--warning); color: var(--bg-primary); padding: 0.3rem 0.75rem; border-radius: 999px; font-weight: 600; }
+.role-receptionist .status-query-raised { background: var(--warning); color: var(--bg-primary); padding: 0.3rem 0.75rem; border-radius: 999px; font-weight: 600; }
 
 .role-receptionist .status-paid-soft { background: var(--success-soft); color: var(--success); }
 .role-receptionist .status-due-soft { background: var(--error-soft); color: var(--error); }

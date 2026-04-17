@@ -55,6 +55,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
     initNavbarIndicator();
 
+    if (typeof Chart !== 'undefined' && window.ChartDataLabels) {
+        Chart.register(ChartDataLabels);
+    }
+
     const initFloatingNavCollision = () => {
         const body = document.body;
         if (!body.classList.contains('role-superadmin')) return;
@@ -699,20 +703,22 @@ document.addEventListener('DOMContentLoaded', function() {
                         formatter: function(value, context) {
                             if (context.dataset.label === 'Pareto (%)') {
                                 const idx = context.dataIndex;
+                                const baseLabel = `${Number(value || 0).toFixed(1)}%`;
                                 if (idx > 0) {
                                     const pct = paretoPercentChanges[idx];
                                     const sign = pct > 0 ? '+' : '';
-                                    return `${sign}${pct.toFixed(1)}%`;
+                                    return `${baseLabel} (${sign}${pct.toFixed(1)}%)`;
                                 }
-                                return '';
+                                return baseLabel;
                             } else {
                                 const idx = context.dataIndex;
+                                const baseLabel = Number(value || 0).toLocaleString('en-IN');
                                 if (idx > 0) {
                                     const pct = valuePercentChanges[idx];
                                     const sign = pct > 0 ? '+' : '';
-                                    return `${value}\n(${sign}${pct.toFixed(1)}%)`;
+                                    return `${baseLabel}\n(${sign}${pct.toFixed(1)}%)`;
                                 }
-                                return value;
+                                return baseLabel;
                             }
                         },
                         anchor: function(context) {

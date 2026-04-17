@@ -5,9 +5,6 @@ require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
 require_once '../includes/functions.php';
 
-$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
-$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
-
 // Explicitly deny patient edit attempts for receptionist role.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'edit_patient') {
     header('Content-Type: application/json');
@@ -21,29 +18,64 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     header('Content-Type: application/json');
     $search = trim($_GET['search'] ?? '');
     $patients = [];
+    $uid_requires_full_length = false;
     try {
         ensure_patient_registration_schema($conn);
         if ($search !== '') {
-            $like = '%' . $search . '%';
-            $stmt = $conn->prepare(
-                "SELECT p.id, p.uid, p.name, p.age, p.sex, p.mobile_number, p.address, p.city,
-                        COUNT(DISTINCT b.id) AS visit_count
-                  FROM {$patients_source}
-                  LEFT JOIN {$bills_source} ON b.patient_id = p.id AND b.bill_status != 'Void'
-                 WHERE p.uid LIKE ? OR p.name LIKE ? OR p.mobile_number LIKE ?
-                 GROUP BY p.id ORDER BY p.name ASC LIMIT 100"
-            );
-            $stmt->bind_param('sss', $like, $like, $like);
-            $stmt->execute();
-            $result = $stmt->get_result();
-            while ($row = $result->fetch_assoc()) $patients[] = $row;
-            $stmt->close();
+            $search_upper = strtoupper($search);
+            $is_uid_style_input = preg_match('/^DC\d*$/', $search_upper) === 1;
+            $is_full_uid = preg_match('/^DC\d{8}$/', $search_upper) === 1;
+
+            if ($is_uid_style_input && !$is_full_uid) {
+                $uid_requires_full_length = true;
+            } elseif ($is_full_uid) {
+                $stmt = $conn->prepare(
+                    "SELECT p.id, p.uid, p.name, p.age, p.sex, p.mobile_number, p.address, p.city,
+                            COUNT(DISTINCT b.id) AS visit_count
+                     FROM patients p
+                     LEFT JOIN bills b ON b.patient_id = p.id AND b.bill_status != 'Void'
+                     WHERE p.uid = ?
+                     GROUP BY p.id
+                     HAVING COUNT(DISTINCT b.id) > 0
+                     LIMIT 1"
+                );
+                $stmt->bind_param('s', $search_upper);
+                $stmt->execute();
+                $result = $stmt->get_result();
+                while ($row = $result->fetch_assoc()) {
+                    $patients[] = $row;
+                }
+                $stmt->close();
+            } else {
+                $like = '%' . $search . '%';
+                $stmt = $conn->prepare(
+                    "SELECT p.id, p.uid, p.name, p.age, p.sex, p.mobile_number, p.address, p.city,
+                            COUNT(DISTINCT b.id) AS visit_count
+                     FROM patients p
+                     LEFT JOIN bills b ON b.patient_id = p.id AND b.bill_status != 'Void'
+                     WHERE p.uid LIKE ? OR p.name LIKE ? OR p.mobile_number LIKE ?
+                     GROUP BY p.id
+                     HAVING COUNT(DISTINCT b.id) > 0
+                     ORDER BY p.name ASC LIMIT 100"
+                );
+                $stmt->bind_param('sss', $like, $like, $like);
+                $stmt->execute();
+                $result = $stmt->get_result();
+                while ($row = $result->fetch_assoc()) {
+                    $patients[] = $row;
+                }
+                $stmt->close();
+            }
         }
     } catch (Exception $e) {
         echo json_encode(['success' => false, 'message' => $e->getMessage()]);
         exit;
     }
-    echo json_encode(['success' => true, 'patients' => $patients]);
+    echo json_encode([
+        'success' => true,
+        'patients' => $patients,
+        'uid_requires_full_length' => $uid_requires_full_length
+    ]);
     exit;
 }
 
@@ -185,6 +217,9 @@ require_once '../includes/header.php';
 
     function doSearch(q) {
         var trimmedQuery = String(q || '').trim();
+        var normalizedUpper = trimmedQuery.toUpperCase();
+        var isUidStyleInput = /^DC\d*$/.test(normalizedUpper);
+        var isFullUid = /^DC\d{8}$/.test(normalizedUpper);
 
         if (trimmedQuery === '') {
             statusEl.textContent = 'Search required';
@@ -192,8 +227,17 @@ require_once '../includes/header.php';
             return;
         }
 
+        if (isUidStyleInput && !isFullUid) {
+            statusEl.textContent = 'Enter ID as DC1234XXXX';
+            setActionsColumnVisibility(false);
+            tbody.innerHTML = buildMessageRow('Type complete Patient ID in this format: DC1234XXXX.', false);
+            return;
+        }
+
+        var requestQuery = isFullUid ? normalizedUpper : trimmedQuery;
+
         statusEl.textContent = 'Searching...';
-        fetch('existing_patients.php?ajax=1&search=' + encodeURIComponent(trimmedQuery))
+        fetch('existing_patients.php?ajax=1&search=' + encodeURIComponent(requestQuery))
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (!data.success) {
@@ -203,10 +247,17 @@ require_once '../includes/header.php';
                     return;
                 }
 
+                if (data.uid_requires_full_length) {
+                    statusEl.textContent = 'Enter ID as DC1234XXXX';
+                    setActionsColumnVisibility(false);
+                    tbody.innerHTML = buildMessageRow('Type complete Patient ID in this format: DC1234XXXX.', false);
+                    return;
+                }
+
                 var resultCount = data.patients ? data.patients.length : 0;
                 statusEl.textContent = resultCount + ' result(s)';
 
-                renderRows(data.patients || [], trimmedQuery);
+                renderRows(data.patients || [], requestQuery);
             })
             .catch(function() {
                 statusEl.textContent = 'Error loading patients.';

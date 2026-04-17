@@ -879,7 +879,7 @@ select:disabled {
     display: inline-block;
 }
 
-.status-pending, .status-due, .status-partial-paid {
+.status-pending, .status-due, .status-partial-paid, .status-query-raised {
     background-color: #fff3cd;
     color: #856404;
     padding: 3px 8px;
@@ -2739,21 +2739,24 @@ body.app-layout .btn-danger:hover {
 }
 
 body.app-layout .status-paid,
-body.app-layout .status-completed {
+body.app-layout .status-completed,
+body.app-layout .status-approved {
     background: #ecfdf4 !important;
     color: #166534 !important;
     border: 1px solid #bce8cb !important;
 }
 
 body.app-layout .status-due,
-body.app-layout .status-pending {
+body.app-layout .status-pending,
+body.app-layout .status-rejected {
     background: #fff4f4 !important;
     color: #b91c1c !important;
     border: 1px solid #f0c6c6 !important;
 }
 
 body.app-layout .status-partial-paid,
-body.app-layout .status-in-progress {
+body.app-layout .status-in-progress,
+body.app-layout .status-query-raised {
     background: #fff9eb !important;
     color: #9a5b08 !important;
     border: 1px solid #f1dcad !important;

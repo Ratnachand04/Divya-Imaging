@@ -14,7 +14,7 @@ require_once '../includes/header.php';
         </div>
     </div>
 
-    <form id="date-filter-form" class="filter-form compact-filters" style="margin-bottom: 2rem;">
+    <form id="date-filter-form" class="filter-form compact-filters">
         <div class="filter-group">
             <div class="form-group">
                 <label>Quick Dates</label>
@@ -41,7 +41,7 @@ require_once '../includes/header.php';
     </form>
 
 
-    <div class="summary-cards" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));">
+    <div class="summary-cards">
         <div class="summary-card clickable-card" data-url="manage_payments.php">
             <h3>Total Earnings</h3>
             <p id="kpi-total-earnings">₹ 0.00</p>
@@ -178,9 +178,14 @@ require_once '../includes/header.php';
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     let charts = {};
+
+    if (window.ChartDataLabels) {
+        Chart.register(ChartDataLabels);
+    }
 
     const formatCurrency = (value) => {
         const numericValue = Number(value ?? 0);
@@ -195,6 +200,17 @@ document.addEventListener('DOMContentLoaded', function() {
         return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
     };
     const palette = ['#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#fd7e14', '#20c997'];
+
+    const pieLabelFormatter = (value, context) => {
+        const numeric = Number(value ?? 0);
+        const values = context?.dataset?.data || [];
+        const total = values.reduce((sum, item) => sum + Number(item ?? 0), 0);
+        if (total <= 0) {
+            return formatCurrency(numeric);
+        }
+        const percent = (numeric / total) * 100;
+        return `${formatCurrency(numeric)} (${percent.toFixed(1)}%)`;
+    };
 
     const chartConfigs = {
         doughnut: ({ labels, values }) => ({
@@ -220,6 +236,16 @@ document.addEventListener('DOMContentLoaded', function() {
                         callbacks: {
                             label: ctx => `${ctx.label}: ${formatCurrency(ctx.parsed ?? 0)}`
                         }
+                    },
+                    datalabels: {
+                        display: context => Number(context.dataset.data?.[context.dataIndex] ?? 0) > 0,
+                        formatter: pieLabelFormatter,
+                        color: '#0f172a',
+                        font: { weight: '600', size: 10 },
+                        anchor: 'end',
+                        align: 'end',
+                        offset: 6,
+                        clamp: true
                     }
                 }
             }
@@ -247,6 +273,16 @@ document.addEventListener('DOMContentLoaded', function() {
                         callbacks: {
                             label: ctx => `${ctx.label}: ${formatCurrency(ctx.parsed ?? 0)}`
                         }
+                    },
+                    datalabels: {
+                        display: context => Number(context.dataset.data?.[context.dataIndex] ?? 0) > 0,
+                        formatter: pieLabelFormatter,
+                        color: '#0f172a',
+                        font: { weight: '600', size: 10 },
+                        anchor: 'end',
+                        align: 'end',
+                        offset: 6,
+                        clamp: true
                     }
                 }
             }
@@ -307,6 +343,17 @@ document.addEventListener('DOMContentLoaded', function() {
                                     return `${prefix}${formatter(rawValue)}`;
                                 }
                             }
+                        },
+                        datalabels: {
+                            display: context => Number(context.dataset.data?.[context.dataIndex] ?? 0) > 0,
+                            formatter: value => formatter(value),
+                            color: '#0f172a',
+                            font: { weight: '600', size: 10 },
+                            anchor: isHorizontal ? 'end' : 'end',
+                            align: isHorizontal ? 'right' : 'top',
+                            offset: 4,
+                            clamp: true,
+                            clip: false
                         }
                     }
                 }
@@ -357,6 +404,16 @@ document.addEventListener('DOMContentLoaded', function() {
                         callbacks: {
                             label: ctx => `${ctx.dataset.label}: ${formatCurrency(ctx.parsed?.y ?? 0)}`
                         }
+                    },
+                    datalabels: {
+                        display: context => Number(context.dataset.data?.[context.dataIndex] ?? 0) > 0,
+                        formatter: value => formatCurrency(value),
+                        color: '#0f172a',
+                        font: { weight: '600', size: 10 },
+                        anchor: 'end',
+                        align: 'top',
+                        offset: 4,
+                        clamp: true
                     }
                 }
             }
@@ -437,6 +494,25 @@ document.addEventListener('DOMContentLoaded', function() {
                                 return `${ctx.dataset.label}: ${formatCurrency(ctx.parsed?.y ?? 0)}`;
                             }
                         }
+                    },
+                    datalabels: {
+                        display: context => {
+                            const value = Number(context.dataset.data?.[context.dataIndex] ?? 0);
+                            return Number.isFinite(value) && value > 0;
+                        },
+                        formatter: (value, context) => {
+                            if (context.dataset.yAxisID === 'y1') {
+                                return `${Number(value ?? 0).toFixed(1)}%`;
+                            }
+                            return formatCurrency(value);
+                        },
+                        color: context => context.dataset.yAxisID === 'y1' ? '#b45309' : '#0f172a',
+                        font: { weight: '600', size: 10 },
+                        anchor: 'end',
+                        align: 'top',
+                        offset: 4,
+                        clamp: true,
+                        clip: false
                     }
                 }
             }

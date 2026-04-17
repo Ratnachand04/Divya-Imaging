@@ -41,7 +41,7 @@ CREATE TABLE `bills` (
   `amount_paid` decimal(10,2) NOT NULL DEFAULT 0.00,
   `balance_amount` decimal(10,2) NOT NULL DEFAULT 0.00,
   `payment_mode` varchar(50) DEFAULT NULL,
-  `payment_status` enum('Paid','Due','Half Paid') NOT NULL DEFAULT 'Due',
+  `payment_status` enum('Paid','Due','Partial Paid','Half Paid') NOT NULL DEFAULT 'Due',
   `bill_status` enum('Original','Re-Billed','Void') NOT NULL DEFAULT 'Original',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),

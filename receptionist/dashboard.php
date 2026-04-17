@@ -21,6 +21,10 @@ require_once '../includes/header.php';
             <h2>Bill History</h2>
             <p>View and manage previously generated bills.</p>
         </a>
+        <a href="requests.php" class="action-card">
+            <h2>Edit Requests</h2>
+            <p>Track approval status, manager queries, and request timeline.</p>
+        </a>
     </div>
 </div>
 

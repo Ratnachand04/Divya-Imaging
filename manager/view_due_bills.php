@@ -348,7 +348,7 @@ require_once '../includes/header.php';
                 ?>
                 <tr class="bill-data-row">
                     <td class="col-bill">
-                        <a class="bill-no-link" href="../templates/print_bill.php?bill_id=<?php echo $bill_id_value; ?>" target="_blank" rel="noopener">#<?php echo $bill_id_value; ?></a>
+                        <a class="bill-no-link" href="preview_bill.php?bill_id=<?php echo $bill_id_value; ?>">#<?php echo $bill_id_value; ?></a>
                         <small class="bill-date"><?php echo date('d-m-Y', strtotime($bill['created_at'])); ?></small>
                     </td>
                     <td class="col-patient">
@@ -364,7 +364,7 @@ require_once '../includes/header.php';
                     <td class="col-status"><div class="status-wrap"><span class="<?php echo $status_class; ?>"><?php echo htmlspecialchars($derived_status); ?></span></div></td>
                     <td class="col-actions">
                         <div class="action-stack">
-                            <a href="../templates/print_bill.php?bill_id=<?php echo $bill_id_value; ?>" class="btn-action btn-view" target="_blank" rel="noopener">Paper Preview</a>
+                            <a href="preview_bill.php?bill_id=<?php echo $bill_id_value; ?>" class="btn-action btn-view">View Bill</a>
                             <?php if ($pending_amount > 0.01): ?>
                                 <a href="update_payment_manager.php?bill_id=<?php echo $bill_id_value; ?>" class="btn-action btn-update">Update Payment</a>
                             <?php endif; ?>
