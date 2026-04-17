@@ -152,8 +152,12 @@ require_once '../includes/header.php';
                     <div class="form-group"><label>City/Town</label><input type="text" name="city" value="<?php echo htmlspecialchars($edit_doctor['city'] ?? ''); ?>"></div>
                 </div>
                  <div class="form-row">
-                    <div class="form-group">
-                        <label class="doctor-active-toggle"><input type="checkbox" name="is_active" value="1" <?php echo (isset($edit_doctor) && $edit_doctor['is_active']) || !isset($edit_doctor) ? 'checked' : ''; ?>> Active</label>
+                    <div class="form-group doctor-active-group">
+                        <label for="is_active_toggle" class="doctor-active-label">Active</label>
+                        <label class="doctor-active-toggle" for="is_active_toggle">
+                            <input type="checkbox" id="is_active_toggle" name="is_active" value="1" <?php echo (isset($edit_doctor) && $edit_doctor['is_active']) || !isset($edit_doctor) ? 'checked' : ''; ?>>
+                            <span>Enabled</span>
+                        </label>
                     </div>
                  </div>
             </fieldset>

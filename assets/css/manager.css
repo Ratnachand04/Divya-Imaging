@@ -1262,17 +1262,32 @@ body.role-manager.manager-nav-colliding .main-navbar {
 .form-container-collapsible.visible { max-height: 5000px; padding: 16px; border: 1px solid var(--border-light); box-shadow: var(--shadow-sm); margin-top: 0.75rem; background-color: var(--bg-primary); }
 .scrollable-test-list { max-height: 400px; overflow-y: auto; border: 1px solid var(--border-light); padding: 8px; border-radius: var(--border-radius, 8px); background-color: var(--bg-primary); }
 
+.role-manager .doctor-active-group {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.role-manager .doctor-active-label {
+    margin: 0;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+
 .role-manager .doctor-active-toggle {
-    margin-top: 0.45rem;
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
+    margin: 0;
     font-weight: 600;
     color: var(--text-secondary);
+    line-height: 1;
 }
 
 .role-manager .doctor-active-toggle input[type="checkbox"] {
     margin: 0;
+    width: 16px;
+    height: 16px;
     accent-color: var(--brand-pink);
 }
 
@@ -1303,6 +1318,76 @@ body.role-manager.manager-nav-colliding .main-navbar {
 
 .role-manager .manage-tests-compact .table-container {
     margin-top: 0.35rem;
+}
+
+.role-manager .manage-tests-compact .package-test-row {
+    display: grid;
+    grid-template-columns: minmax(150px, 1fr) minmax(260px, 2fr) minmax(130px, 1fr) minmax(150px, 1fr) auto;
+    gap: 0.75rem;
+    align-items: stretch;
+    margin-bottom: 0.65rem;
+    padding: 0.65rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #f8fafc;
+}
+
+.role-manager .manage-tests-compact .package-test-row .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin-bottom: 0;
+}
+
+.role-manager .manage-tests-compact .package-test-row .form-group label {
+    margin: 0;
+    min-height: 1.15rem;
+}
+
+.role-manager .manage-tests-compact .package-test-row .package-test-input,
+.role-manager .manage-tests-compact .package-test-row .package-test-category,
+.role-manager .manage-tests-compact .package-test-row .package-test-base,
+.role-manager .manage-tests-compact .package-test-row .package-test-price {
+    width: 100%;
+}
+
+.role-manager .manage-tests-compact .package-test-row .package-test-base {
+    background: #eef2f7;
+}
+
+.role-manager .manage-tests-compact .package-test-row .package-test-mode {
+    display: block;
+    margin-top: 0;
+    min-height: 1rem;
+    font-size: 0.8rem;
+    line-height: 1.2;
+    color: #475569;
+}
+
+.role-manager .manage-tests-compact .package-test-row .package-test-action-group {
+    justify-content: flex-end;
+    min-width: 120px;
+}
+
+.role-manager .manage-tests-compact .package-test-row .package-test-action-group .btn-action {
+    width: 100%;
+    white-space: nowrap;
+}
+
+@media (max-width: 1080px) {
+    .role-manager .manage-tests-compact .package-test-row {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .role-manager .manage-tests-compact .package-test-row .package-test-action-group {
+        justify-content: flex-start;
+    }
+}
+
+@media (max-width: 640px) {
+    .role-manager .manage-tests-compact .package-test-row {
+        grid-template-columns: 1fr;
+    }
 }
 
 .filter-bar { display: flex; flex-wrap: wrap; gap: 0.9rem; align-items: flex-end; padding: 0.75rem 1rem; background-color: var(--bg-secondary); border-radius: var(--border-radius, 8px); margin-bottom: 0.9rem; border: 1px solid var(--border-light); }
@@ -1336,6 +1421,7 @@ body.role-manager.manager-nav-colliding .main-navbar {
 }
 .status-approved { background-color: var(--success); color: var(--bg-primary); padding: 3px 8px; border-radius: 4px; font-size: 0.9em; }
 .status-rejected { background-color: var(--error); color: var(--bg-primary); padding: 3px 8px; border-radius: 4px; font-size: 0.9em; }
+.status-query-raised { background-color: var(--warning); color: var(--bg-primary); padding: 3px 8px; border-radius: 4px; font-size: 0.9em; }
 
 /* ===== Manager: View Due Bills (migrated from view_due_bills.php) ===== */
 /* .date-filter-form reused */
@@ -1528,6 +1614,97 @@ body.role-manager.manager-nav-colliding .main-navbar {
     line-height: 1.25;
 }
 
+.role-manager .filter-form.compact-filters.manager-dashboard-filters {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: nowrap;
+    gap: 0.6rem;
+    padding: 0.6rem 0.75rem;
+    margin-bottom: 0.9rem;
+    border: 1px solid #d5dfec;
+    border-radius: 10px;
+    background: linear-gradient(180deg, #f8fbff 0%, #f3f7fd 100%);
+    box-shadow: 0 3px 10px rgba(15, 23, 42, 0.05);
+}
+
+.role-manager .filter-form.compact-filters.manager-dashboard-filters .filter-group {
+    margin-bottom: 0;
+    gap: 0.22rem;
+}
+
+.role-manager .filter-form.compact-filters.manager-dashboard-filters .quick-dates-group {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: nowrap;
+}
+
+.role-manager .filter-form.compact-filters.manager-dashboard-filters .quick-dates-group label {
+    min-width: auto;
+    margin: 0;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #334155;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+}
+
+.role-manager .filter-form.compact-filters.manager-dashboard-filters .quick-date-pills {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+}
+
+.role-manager .filter-form.compact-filters.manager-dashboard-filters .quick-date-pills .btn-action {
+    height: 34px;
+    min-height: 34px;
+    padding: 0.25rem 0.68rem;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+.role-manager .filter-form.compact-filters.manager-dashboard-filters .date-field-group {
+    flex: 0 0 auto;
+    min-width: 155px;
+}
+
+.role-manager .filter-form.compact-filters.manager-dashboard-filters .date-field-group label {
+    margin: 0;
+    font-size: 0.76rem;
+    color: #475569;
+    line-height: 1.1;
+}
+
+.role-manager .filter-form.compact-filters.manager-dashboard-filters .date-field-group input[type="date"] {
+    height: 34px;
+    border-radius: 7px;
+    border: 1px solid #cfd8e3;
+    background: #ffffff;
+    padding: 0.35rem 0.55rem;
+    min-width: 150px;
+}
+
+.role-manager .filter-form.compact-filters.manager-dashboard-filters .filter-actions {
+    margin-left: 0.1rem;
+    align-self: flex-end;
+    display: flex;
+}
+
+.role-manager .filter-form.compact-filters.manager-dashboard-filters .filter-actions .btn-submit {
+    min-width: 106px;
+    height: 34px;
+    border-radius: 8px;
+    padding: 0.35rem 0.9rem;
+    font-weight: 600;
+    line-height: 1;
+}
+
 @media (max-width: 768px) {
     .role-manager .filter-form.compact-filters {
         gap: 0.75rem;
@@ -1545,6 +1722,32 @@ body.role-manager.manager-nav-colliding .main-navbar {
     .role-manager .filter-form.compact-filters .filter-actions {
         width: 100%;
         justify-content: flex-end;
+    }
+
+    .role-manager .filter-form.compact-filters.manager-dashboard-filters {
+        flex-wrap: wrap;
+        gap: 0.55rem;
+    }
+
+    .role-manager .filter-form.compact-filters.manager-dashboard-filters .quick-dates-group {
+        flex: 1 1 100%;
+    }
+
+    .role-manager .filter-form.compact-filters.manager-dashboard-filters .quick-date-pills {
+        flex-wrap: wrap;
+    }
+
+    .role-manager .filter-form.compact-filters.manager-dashboard-filters .date-field-group {
+        flex: 1 1 170px;
+        min-width: 170px;
+    }
+
+    .role-manager .filter-form.compact-filters.manager-dashboard-filters .filter-actions {
+        margin-left: auto;
+    }
+
+    .role-manager .filter-form.compact-filters.manager-dashboard-filters .filter-actions .btn-submit {
+        min-width: 112px;
     }
 }
 

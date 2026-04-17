@@ -44,63 +44,112 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new Exception('Please add at least one test to the package.');
             }
 
-            $test_map = [];
+            $package_rows = [];
+            $existing_test_ids = [];
+            $existing_seen = [];
+            $custom_seen = [];
+
             foreach ($tests_payload as $idx => $row) {
                 if (!is_array($row)) {
                     continue;
                 }
-                $test_id = isset($row['test_id']) ? (int)$row['test_id'] : 0;
-                $package_test_price = isset($row['package_test_price']) ? round((float)$row['package_test_price'], 2) : 0.00;
 
-                if ($test_id <= 0) {
-                    throw new Exception('Every package row must have a valid test selected.');
+                $test_id = isset($row['test_id']) ? (int)$row['test_id'] : 0;
+                $custom_test_name = trim((string)($row['custom_test_name'] ?? ''));
+                $test_category = trim((string)($row['test_category'] ?? ''));
+                $package_test_price = normalize_currency_amount($row['package_test_price'] ?? 0);
+
+                if ($test_category === '') {
+                    throw new Exception('Please select a test category for every package row.');
                 }
-                if (isset($test_map[$test_id])) {
-                    throw new Exception('Duplicate tests are not allowed in one package.');
-                }
+
                 if ($package_test_price < 0) {
                     throw new Exception('Package test price cannot be negative.');
                 }
 
-                $test_map[$test_id] = [
+                if ($test_id > 0) {
+                    if (isset($existing_seen[$test_id])) {
+                        throw new Exception('Duplicate tests are not allowed in one package.');
+                    }
+                    $existing_seen[$test_id] = true;
+                    $existing_test_ids[] = $test_id;
+
+                    $package_rows[] = [
+                        'row_type' => 'existing',
+                        'test_id' => $test_id,
+                        'custom_test_name' => '',
+                        'test_category' => $test_category,
+                        'package_test_price' => $package_test_price,
+                        'display_order' => (int)$idx + 1
+                    ];
+                    continue;
+                }
+
+                if ($custom_test_name === '') {
+                    throw new Exception('Select an existing test or enter a custom test name for every row.');
+                }
+
+                if ($package_test_price <= 0) {
+                    throw new Exception('Custom test price must be greater than zero.');
+                }
+
+                $custom_key = strtolower($test_category . '::' . preg_replace('/\s+/', ' ', $custom_test_name));
+                if (isset($custom_seen[$custom_key])) {
+                    throw new Exception('Duplicate custom tests are not allowed in one package.');
+                }
+                $custom_seen[$custom_key] = true;
+
+                $package_rows[] = [
+                    'row_type' => 'custom',
+                    'test_id' => 0,
+                    'custom_test_name' => $custom_test_name,
+                    'test_category' => $test_category,
                     'package_test_price' => $package_test_price,
                     'display_order' => (int)$idx + 1
                 ];
             }
 
-            if (empty($test_map)) {
+            if (empty($package_rows)) {
                 throw new Exception('Please add at least one valid test to the package.');
             }
 
-            $test_ids = array_keys($test_map);
-            $placeholders = implode(',', array_fill(0, count($test_ids), '?'));
-            $types = str_repeat('i', count($test_ids));
-
-            $tests_stmt = $conn->prepare("SELECT id, price FROM tests WHERE id IN ($placeholders)");
-            if (!$tests_stmt) {
-                throw new Exception('Failed to validate tests: ' . $conn->error);
-            }
-            $tests_stmt->bind_param($types, ...$test_ids);
-            $tests_stmt->execute();
-            $tests_result = $tests_stmt->get_result();
-
             $base_price_map = [];
-            while ($test_row = $tests_result->fetch_assoc()) {
-                $base_price_map[(int)$test_row['id']] = round((float)$test_row['price'], 2);
-            }
-            $tests_stmt->close();
+            if (!empty($existing_test_ids)) {
+                $existing_test_ids = array_values(array_unique($existing_test_ids));
+                $placeholders = implode(',', array_fill(0, count($existing_test_ids), '?'));
+                $types = str_repeat('i', count($existing_test_ids));
 
-            foreach ($test_ids as $test_id) {
-                if (!array_key_exists($test_id, $base_price_map)) {
-                    throw new Exception('One or more selected tests were not found. Add new test first.');
+                $tests_stmt = $conn->prepare("SELECT id, price FROM tests WHERE id IN ($placeholders)");
+                if (!$tests_stmt) {
+                    throw new Exception('Failed to validate tests: ' . $conn->error);
+                }
+                $tests_stmt->bind_param($types, ...$existing_test_ids);
+                $tests_stmt->execute();
+                $tests_result = $tests_stmt->get_result();
+                while ($test_row = $tests_result->fetch_assoc()) {
+                    $base_price_map[(int)$test_row['id']] = normalize_currency_amount($test_row['price']);
+                }
+                $tests_stmt->close();
+
+                foreach ($existing_test_ids as $existing_test_id) {
+                    if (!array_key_exists($existing_test_id, $base_price_map)) {
+                        throw new Exception('One or more selected tests were not found. Add new test first.');
+                    }
                 }
             }
 
             $total_base_price = 0.00;
             $total_package_price = 0.00;
-            foreach ($test_map as $test_id => &$meta) {
-                $base_price = $base_price_map[$test_id];
+            foreach ($package_rows as &$meta) {
+                if ($meta['row_type'] === 'existing') {
+                    $base_price = $base_price_map[$meta['test_id']];
+                } else {
+                    // Custom package rows use entered price as base to avoid artificial discount drift.
+                    $base_price = normalize_currency_amount($meta['package_test_price']);
+                }
+
                 $meta['base_test_price'] = $base_price;
+                $meta['package_test_price'] = normalize_currency_amount($meta['package_test_price']);
                 $total_base_price += $base_price;
                 $total_package_price += $meta['package_test_price'];
             }
@@ -171,22 +220,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $insert_stmt->close();
             }
 
-            $pt_stmt = $conn->prepare('INSERT INTO package_tests (package_id, test_id, base_test_price, package_test_price, display_order) VALUES (?, ?, ?, ?, ?)');
-            if (!$pt_stmt) {
+            $pt_stmt_existing = $conn->prepare('INSERT INTO package_tests (package_id, test_id, custom_test_name, is_custom, test_category, base_test_price, package_test_price, display_order) VALUES (?, ?, NULL, 0, ?, ?, ?, ?)');
+            if (!$pt_stmt_existing) {
                 throw new Exception('Failed to save package tests: ' . $conn->error);
             }
-            foreach ($test_map as $test_id => $meta) {
+
+            $pt_stmt_custom = $conn->prepare('INSERT INTO package_tests (package_id, test_id, custom_test_name, is_custom, test_category, base_test_price, package_test_price, display_order) VALUES (?, NULL, ?, 1, ?, ?, ?, ?)');
+            if (!$pt_stmt_custom) {
+                $pt_stmt_existing->close();
+                throw new Exception('Failed to save custom package tests: ' . $conn->error);
+            }
+
+            foreach ($package_rows as $meta) {
                 $base_test_price = (float)$meta['base_test_price'];
                 $package_test_price = (float)$meta['package_test_price'];
                 $display_order = (int)$meta['display_order'];
-                $pt_stmt->bind_param('iiddi', $package_id, $test_id, $base_test_price, $package_test_price, $display_order);
-                if (!$pt_stmt->execute()) {
-                    $err = $pt_stmt->error;
-                    $pt_stmt->close();
-                    throw new Exception('Failed to save package test item: ' . $err);
+                $test_category = (string)$meta['test_category'];
+
+                if ($meta['row_type'] === 'existing') {
+                    $test_id = (int)$meta['test_id'];
+                    $pt_stmt_existing->bind_param('iisddi', $package_id, $test_id, $test_category, $base_test_price, $package_test_price, $display_order);
+                    if (!$pt_stmt_existing->execute()) {
+                        $err = $pt_stmt_existing->error;
+                        $pt_stmt_existing->close();
+                        $pt_stmt_custom->close();
+                        throw new Exception('Failed to save package test item: ' . $err);
+                    }
+                    continue;
+                }
+
+                $custom_test_name = (string)$meta['custom_test_name'];
+                $pt_stmt_custom->bind_param('issddi', $package_id, $custom_test_name, $test_category, $base_test_price, $package_test_price, $display_order);
+                if (!$pt_stmt_custom->execute()) {
+                    $err = $pt_stmt_custom->error;
+                    $pt_stmt_existing->close();
+                    $pt_stmt_custom->close();
+                    throw new Exception('Failed to save custom package test item: ' . $err);
                 }
             }
-            $pt_stmt->close();
+
+            $pt_stmt_existing->close();
+            $pt_stmt_custom->close();
 
             $conn->commit();
 
@@ -283,10 +357,14 @@ if ($tests_query) {
     while ($row = $tests_query->fetch_assoc()) {
         $sub = trim((string)$row['sub_test_name']);
         $main = trim((string)$row['main_test_name']);
+        if ($main === '') {
+            $main = 'General';
+        }
         $label = $sub !== '' ? ($main . ' - ' . $sub) : $main;
         $tests[] = [
             'id' => (int)$row['id'],
             'label' => $label,
+            'category' => $main,
             'price' => round((float)$row['price'], 2)
         ];
     }
@@ -390,7 +468,7 @@ require_once '../includes/header.php';
                 <legend>Add Tests to Package</legend>
                 <div id="package-tests-container"></div>
                 <button type="button" class="btn-submit" id="add-package-test-row">+ Add Another Test</button>
-                <small id="package-form-hint" class="uid-hint" style="display:block;margin-top:0.5rem;">If a test is not listed here, add it first in Tests management.</small>
+                <small id="package-form-hint" class="uid-hint" style="display:block;margin-top:0.5rem;">Select category first, then search/select an existing test or type a custom test name with manual price.</small>
             </fieldset>
 
             <fieldset>
@@ -447,9 +525,20 @@ require_once '../includes/header.php';
                     <tbody>
                         <?php foreach (($view_package['tests'] ?? []) as $idx => $test): ?>
                             <?php
-                                $name_main = trim((string)($test['main_test_name'] ?? ''));
-                                $name_sub = trim((string)($test['sub_test_name'] ?? ''));
-                                $full_name = $name_sub !== '' ? ($name_main . ' - ' . $name_sub) : $name_main;
+                                $is_custom_test = ((int)($test['is_custom'] ?? 0) === 1) || ((int)($test['test_id'] ?? 0) <= 0);
+                                if ($is_custom_test) {
+                                    $custom_name = trim((string)($test['custom_test_name'] ?? ''));
+                                    $custom_category = trim((string)($test['test_category'] ?? ''));
+                                    $full_name = $custom_name !== '' ? $custom_name : 'Custom Test';
+                                    if ($custom_category !== '') {
+                                        $full_name = $custom_category . ' - ' . $full_name;
+                                    }
+                                    $full_name .= ' (Custom)';
+                                } else {
+                                    $name_main = trim((string)($test['main_test_name'] ?? ''));
+                                    $name_sub = trim((string)($test['sub_test_name'] ?? ''));
+                                    $full_name = $name_sub !== '' ? ($name_main . ' - ' . $name_sub) : $name_main;
+                                }
                             ?>
                             <tr>
                                 <td><?php echo (int)$idx + 1; ?></td>
@@ -543,13 +632,40 @@ require_once '../includes/header.php';
     const allTests = <?php echo json_encode($tests, JSON_UNESCAPED_UNICODE); ?>;
     const editingTests = <?php echo json_encode(($editing_package['tests'] ?? []), JSON_UNESCAPED_UNICODE); ?>;
     const testsById = {};
+    const testsByCategory = {};
+    let rowSerial = 0;
+
     allTests.forEach(function(test) {
-        testsById[String(test.id)] = test;
+        const id = String(test.id || '');
+        const category = String(test.category || 'General').trim() || 'General';
+        test.category = category;
+        testsById[id] = test;
+        if (!testsByCategory[category]) {
+            testsByCategory[category] = [];
+        }
+        testsByCategory[category].push(test);
     });
 
+    Object.keys(testsByCategory).forEach(function(category) {
+        testsByCategory[category].sort(function(a, b) {
+            return String(a.label || '').localeCompare(String(b.label || ''));
+        });
+    });
+
+    const categories = Object.keys(testsByCategory).sort(function(a, b) {
+        return a.localeCompare(b);
+    });
+
+    function roundMoney(value) {
+        const n = Number(value);
+        if (!Number.isFinite(n) || n < 0) {
+            return 0;
+        }
+        return Math.round((n + Number.EPSILON) * 100) / 100;
+    }
+
     function formatAmount(value) {
-        const n = Number(value) || 0;
-        return n.toFixed(2);
+        return roundMoney(value).toFixed(2);
     }
 
     function escapeHtml(value) {
@@ -561,97 +677,213 @@ require_once '../includes/header.php';
             .replace(/'/g, '&#39;');
     }
 
-    function getSelectedTestIds(excludeRow) {
-        const ids = [];
-        const rows = testsContainer.querySelectorAll('.package-test-row');
-        rows.forEach(function(row) {
-            if (excludeRow && row === excludeRow) {
-                return;
-            }
-            const select = row.querySelector('.package-test-select');
-            if (select && select.value) {
-                ids.push(select.value);
-            }
-        });
-        return ids;
+    function normalizeText(value) {
+        return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
     }
 
-    function buildSelectOptions(selectedId) {
-        let options = '<option value="">Select Test</option>';
-        allTests.forEach(function(test) {
-            const isSelected = String(selectedId) === String(test.id) ? ' selected' : '';
-            options += '<option value="' + test.id + '"' + isSelected + '>' + escapeHtml(test.label) + '</option>';
+    function buildCategoryOptions(selectedCategory) {
+        let options = '<option value="">Select Category</option>';
+        categories.forEach(function(category) {
+            const selected = category === selectedCategory ? ' selected' : '';
+            options += '<option value="' + escapeHtml(category) + '"' + selected + '>' + escapeHtml(category) + '</option>';
         });
         return options;
     }
 
+    function findExistingTestByInput(category, inputText) {
+        const normalizedInput = normalizeText(inputText);
+        if (!normalizedInput || !category || !testsByCategory[category]) {
+            return null;
+        }
+        const list = testsByCategory[category];
+        for (let i = 0; i < list.length; i += 1) {
+            if (normalizeText(list[i].label) === normalizedInput) {
+                return list[i];
+            }
+        }
+        return null;
+    }
+
+    function populateDatalist(row, category) {
+        const datalist = row.querySelector('datalist');
+        if (!datalist) {
+            return;
+        }
+        datalist.innerHTML = '';
+        const list = category ? (testsByCategory[category] || []) : [];
+        list.forEach(function(test) {
+            const option = document.createElement('option');
+            option.value = test.label;
+            datalist.appendChild(option);
+        });
+    }
+
+    function refreshRowState(row, forcePriceFromBase) {
+        const categorySelect = row.querySelector('.package-test-category');
+        const testInput = row.querySelector('.package-test-input');
+        const hiddenIdInput = row.querySelector('.package-test-id');
+        const baseInput = row.querySelector('.package-test-base');
+        const priceInput = row.querySelector('.package-test-price');
+        const modeHint = row.querySelector('.package-test-mode');
+
+        if (!categorySelect || !testInput || !hiddenIdInput || !baseInput || !priceInput || !modeHint) {
+            return;
+        }
+
+        const category = categorySelect.value;
+        populateDatalist(row, category);
+
+        if (!category) {
+            testInput.disabled = true;
+            testInput.placeholder = 'Select category first';
+            hiddenIdInput.value = '';
+            row.dataset.rowType = 'pending';
+            modeHint.textContent = 'Select a category first.';
+            if (forcePriceFromBase) {
+                baseInput.value = formatAmount(0);
+                priceInput.value = formatAmount(0);
+            }
+            updateSummary();
+            return;
+        }
+
+        testInput.disabled = false;
+        testInput.placeholder = 'Search existing test or type custom test';
+
+        const existing = findExistingTestByInput(category, testInput.value);
+        if (existing) {
+            hiddenIdInput.value = String(existing.id);
+            baseInput.value = formatAmount(existing.price);
+            if (forcePriceFromBase || testInput.dataset.lastMode !== 'existing' || testInput.value.trim() === '') {
+                priceInput.value = formatAmount(existing.price);
+            }
+            row.dataset.rowType = 'existing';
+            modeHint.textContent = 'Existing test selected.';
+            testInput.dataset.lastMode = 'existing';
+            updateSummary();
+            return;
+        }
+
+        hiddenIdInput.value = '';
+        const customName = testInput.value.trim();
+        if (customName !== '') {
+            row.dataset.rowType = 'custom';
+            modeHint.textContent = 'Custom test will be saved in this package only.';
+            if (forcePriceFromBase || testInput.dataset.lastMode === 'existing') {
+                if (roundMoney(priceInput.value) <= 0) {
+                    priceInput.value = formatAmount(0);
+                }
+            }
+            baseInput.value = formatAmount(priceInput.value);
+            testInput.dataset.lastMode = 'custom';
+        } else {
+            row.dataset.rowType = 'pending';
+            modeHint.textContent = 'Search/select existing test or type a custom test name.';
+            if (forcePriceFromBase) {
+                baseInput.value = formatAmount(0);
+                priceInput.value = formatAmount(0);
+            } else if (testInput.dataset.lastMode === 'existing') {
+                baseInput.value = formatAmount(0);
+            }
+            testInput.dataset.lastMode = 'pending';
+        }
+
+        updateSummary();
+    }
+
     function createRow(prefill) {
+        rowSerial += 1;
         const row = document.createElement('div');
         row.className = 'form-row package-test-row';
 
-        const selectedTestId = prefill && prefill.test_id ? String(prefill.test_id) : '';
-        const basePrice = prefill && prefill.base_test_price ? Number(prefill.base_test_price) : 0;
-        const packagePrice = prefill && prefill.package_test_price !== undefined ? Number(prefill.package_test_price) : basePrice;
+        const datalistId = 'package-test-options-' + rowSerial;
+        const prefillTestId = prefill && prefill.test_id ? Number(prefill.test_id) : 0;
+        const prefillIsCustom = prefill && ((Number(prefill.is_custom || 0) === 1) || prefillTestId <= 0);
+        const prefillCategoryFromTest = prefillTestId > 0 && testsById[String(prefillTestId)]
+            ? String(testsById[String(prefillTestId)].category || '')
+            : '';
+        const prefillCategory = String((prefill && prefill.test_category) || prefillCategoryFromTest || '');
+        const prefillLabel = prefillIsCustom
+            ? String((prefill && prefill.custom_test_name) || '')
+            : String((prefillTestId > 0 && testsById[String(prefillTestId)]) ? testsById[String(prefillTestId)].label : '');
+        const prefillBase = prefill && prefill.base_test_price !== undefined ? Number(prefill.base_test_price) : 0;
+        const prefillPrice = prefill && prefill.package_test_price !== undefined ? Number(prefill.package_test_price) : prefillBase;
 
         row.innerHTML = '' +
             '<div class="form-group">' +
-                '<label>Test</label>' +
-                '<select class="package-test-select" required>' + buildSelectOptions(selectedTestId) + '</select>' +
+                '<label>Category</label>' +
+                '<select class="package-test-category" required>' + buildCategoryOptions(prefillCategory) + '</select>' +
+            '</div>' +
+            '<div class="form-group">' +
+                '<label>Select Test (Search or Type New)</label>' +
+                '<input type="text" class="package-test-input" list="' + datalistId + '" value="' + escapeHtml(prefillLabel) + '" autocomplete="off" placeholder="Select category first" required>' +
+                '<datalist id="' + datalistId + '"></datalist>' +
+                '<small class="uid-hint package-test-mode">Search/select existing test or type a custom test name.</small>' +
+                '<input type="hidden" class="package-test-id" value="' + (prefillTestId > 0 ? String(prefillTestId) : '') + '">' +
             '</div>' +
             '<div class="form-group">' +
                 '<label>Original/Base Price</label>' +
-                '<input type="number" class="package-test-base" readonly value="' + formatAmount(basePrice) + '">' +
+                '<input type="number" class="package-test-base" readonly value="' + formatAmount(prefillBase) + '">' +
             '</div>' +
             '<div class="form-group">' +
                 '<label>Package-specific Price</label>' +
-                '<input type="number" class="package-test-price" min="0" step="0.01" value="' + formatAmount(packagePrice) + '" required>' +
+                '<input type="number" class="package-test-price" min="0" step="0.01" value="' + formatAmount(prefillPrice) + '" required>' +
             '</div>' +
-            '<div class="form-group" style="max-width:140px;">' +
+            '<div class="form-group package-test-action-group">' +
                 '<label>Action</label>' +
                 '<button type="button" class="btn-action btn-delete package-test-remove">Remove</button>' +
             '</div>';
 
         testsContainer.appendChild(row);
 
-        const select = row.querySelector('.package-test-select');
+        const categorySelect = row.querySelector('.package-test-category');
+        const testInput = row.querySelector('.package-test-input');
+        const hiddenIdInput = row.querySelector('.package-test-id');
         const baseInput = row.querySelector('.package-test-base');
         const priceInput = row.querySelector('.package-test-price');
         const removeBtn = row.querySelector('.package-test-remove');
 
-        function syncFromSelectedTest(forcePrice) {
-            const selected = testsById[String(select.value)] || null;
-            if (!selected) {
-                baseInput.value = formatAmount(0);
-                if (forcePrice) {
-                    priceInput.value = formatAmount(0);
-                }
-                updateSummary();
-                return;
-            }
-
-            baseInput.value = formatAmount(selected.price);
-            if (forcePrice || !priceInput.value) {
-                priceInput.value = formatAmount(selected.price);
-            }
-            updateSummary();
+        if (prefillTestId > 0 && testsById[String(prefillTestId)]) {
+            hiddenIdInput.value = String(prefillTestId);
+            row.dataset.rowType = 'existing';
+            testInput.dataset.lastMode = 'existing';
+        } else if (prefillLabel.trim() !== '') {
+            hiddenIdInput.value = '';
+            row.dataset.rowType = 'custom';
+            testInput.dataset.lastMode = 'custom';
+        } else {
+            hiddenIdInput.value = '';
+            row.dataset.rowType = 'pending';
+            testInput.dataset.lastMode = 'pending';
         }
 
-        select.addEventListener('change', function() {
-            if (select.value) {
-                const selectedElsewhere = getSelectedTestIds(row);
-                if (selectedElsewhere.indexOf(select.value) !== -1) {
-                    alert('This test is already added in the package.');
-                    select.value = '';
-                    syncFromSelectedTest(true);
-                    return;
-                }
-            }
-            syncFromSelectedTest(true);
+        categorySelect.addEventListener('change', function() {
+            hiddenIdInput.value = '';
+            refreshRowState(row, true);
+        });
+
+        testInput.addEventListener('input', function() {
+            refreshRowState(row, false);
+        });
+
+        testInput.addEventListener('change', function() {
+            refreshRowState(row, false);
         });
 
         priceInput.addEventListener('input', function() {
-            if (Number(priceInput.value) < 0 || !isFinite(Number(priceInput.value))) {
+            if (!Number.isFinite(Number(priceInput.value)) || Number(priceInput.value) < 0) {
                 priceInput.value = formatAmount(0);
+            }
+            if (row.dataset.rowType === 'custom') {
+                baseInput.value = formatAmount(priceInput.value);
+            }
+            updateSummary();
+        });
+
+        priceInput.addEventListener('blur', function() {
+            priceInput.value = formatAmount(priceInput.value);
+            if (row.dataset.rowType === 'custom') {
+                baseInput.value = formatAmount(priceInput.value);
             }
             updateSummary();
         });
@@ -664,7 +896,7 @@ require_once '../includes/header.php';
             updateSummary();
         });
 
-        syncFromSelectedTest(false);
+        refreshRowState(row, false);
     }
 
     function updateSummary() {
@@ -674,16 +906,31 @@ require_once '../includes/header.php';
         let packageTotal = 0;
 
         rows.forEach(function(row) {
-            const select = row.querySelector('.package-test-select');
+            const categorySelect = row.querySelector('.package-test-category');
+            const testInput = row.querySelector('.package-test-input');
+            const hiddenIdInput = row.querySelector('.package-test-id');
             const baseInput = row.querySelector('.package-test-base');
             const priceInput = row.querySelector('.package-test-price');
 
-            if (!select || !priceInput || !baseInput || !select.value) {
+            if (!categorySelect || !testInput || !hiddenIdInput || !baseInput || !priceInput) {
                 return;
             }
 
-            const basePrice = Number(baseInput.value) || 0;
-            const packagePrice = Math.max(Number(priceInput.value) || 0, 0);
+            const category = categorySelect.value.trim();
+            const typedName = testInput.value.trim();
+            const testId = Number(hiddenIdInput.value || 0);
+
+            if (!category || (!testId && typedName === '')) {
+                return;
+            }
+
+            let basePrice = roundMoney(baseInput.value);
+            const packagePrice = roundMoney(priceInput.value);
+
+            if (row.dataset.rowType === 'custom' || testId <= 0) {
+                basePrice = packagePrice;
+                baseInput.value = formatAmount(basePrice);
+            }
 
             testsCount += 1;
             baseTotal += basePrice;
@@ -707,26 +954,61 @@ require_once '../includes/header.php';
     function collectPayload() {
         const rows = testsContainer.querySelectorAll('.package-test-row');
         const payload = [];
-        const seen = {};
+        const seenExisting = {};
+        const seenCustom = {};
 
         for (let i = 0; i < rows.length; i += 1) {
             const row = rows[i];
-            const select = row.querySelector('.package-test-select');
+            const categorySelect = row.querySelector('.package-test-category');
+            const testInput = row.querySelector('.package-test-input');
+            const hiddenIdInput = row.querySelector('.package-test-id');
             const priceInput = row.querySelector('.package-test-price');
 
-            const testId = select && select.value ? Number(select.value) : 0;
-            const packagePrice = priceInput ? Math.max(Number(priceInput.value) || 0, 0) : 0;
+            const category = categorySelect ? categorySelect.value.trim() : '';
+            const typedName = testInput ? testInput.value.trim() : '';
+            const testId = hiddenIdInput && hiddenIdInput.value ? Number(hiddenIdInput.value) : 0;
+            const packagePrice = priceInput ? roundMoney(priceInput.value) : 0;
 
-            if (!testId) {
+            if (!category && typedName === '' && !testId) {
                 continue;
             }
-            if (seen[testId]) {
-                throw new Error('Duplicate tests are not allowed in package rows.');
+
+            if (!category) {
+                throw new Error('Please select a category for each package row.');
             }
-            seen[testId] = true;
+
+            if (testId > 0) {
+                if (seenExisting[testId]) {
+                    throw new Error('Duplicate existing tests are not allowed in package rows.');
+                }
+                seenExisting[testId] = true;
+                payload.push({
+                    test_id: testId,
+                    custom_test_name: '',
+                    test_category: category,
+                    package_test_price: Number(packagePrice.toFixed(2))
+                });
+                continue;
+            }
+
+            if (typedName === '') {
+                throw new Error('Select an existing test or enter a custom test name.');
+            }
+
+            if (packagePrice <= 0) {
+                throw new Error('Custom test price must be greater than zero.');
+            }
+
+            const customKey = normalizeText(category + '::' + typedName);
+            if (seenCustom[customKey]) {
+                throw new Error('Duplicate custom tests are not allowed in package rows.');
+            }
+            seenCustom[customKey] = true;
 
             payload.push({
-                test_id: testId,
+                test_id: 0,
+                custom_test_name: typedName,
+                test_category: category,
                 package_test_price: Number(packagePrice.toFixed(2))
             });
         }
@@ -769,6 +1051,9 @@ require_once '../includes/header.php';
         editingTests.forEach(function(test) {
             createRow({
                 test_id: Number(test.test_id || 0),
+                is_custom: Number(test.is_custom || 0),
+                custom_test_name: String(test.custom_test_name || ''),
+                test_category: String(test.test_category || ''),
                 base_test_price: Number(test.base_test_price || 0),
                 package_test_price: Number(test.package_test_price || 0)
             });
