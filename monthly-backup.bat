@@ -25,6 +25,7 @@ for /f "tokens=1-3 delims=/ " %%a in ('date /t') do set mydate=%%c-%%a-%%b
 for /f "tokens=1-2 delims=:. " %%a in ('echo %TIME%') do set mytime=%%a%%b
 
 set BACKUP_FILE=%BACKUP_DIR%\backup_%mydate%_%mytime%.sql
+set MIRROR_DIR=%BACKUP_DIR%\sql_bundle_%mydate%_%mytime%
 
 echo Backup folder: %BACKUP_DIR%
 echo Backup file:   %BACKUP_FILE%
@@ -58,6 +59,10 @@ if %errorlevel% equ 0 (
     echo Backup completed successfully!
     echo File: %BACKUP_FILE%
     for %%A in ("%BACKUP_FILE%") do echo Size: %%~zA bytes
+
+    if not exist "%MIRROR_DIR%" mkdir "%MIRROR_DIR%"
+    xcopy "dump\init" "%MIRROR_DIR%\init\" /E /I /Y >nul
+    echo SQL bundle mirrored: %MIRROR_DIR%
     echo.
 
     echo Stored in dump\backup automatically.

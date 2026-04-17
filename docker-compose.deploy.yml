@@ -84,6 +84,8 @@ services:
       - PMA_USER=root
       - PMA_PASSWORD=${DB_PASS:-root_password}
       - UPLOAD_LIMIT=100M
+    volumes:
+      - ./docker/phpmyadmin/servername.conf:/etc/apache2/conf-enabled/servername.conf:ro
     depends_on:
       db:
         condition: service_healthy

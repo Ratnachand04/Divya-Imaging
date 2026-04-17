@@ -40,6 +40,9 @@
 --   - tables/119-data-developer_settings.sql
 --   - tables/120-data-ip_diagnostics.sql
 --   - tables/121-data-app_settings.sql
+--   - tables/122-data-test_packages.sql
+--   - tables/123-data-package_tests.sql
+--   - tables/124-data-bill_package_items.sql
 
 SOURCE /docker-entrypoint-initdb.d/tables/100-data-bill_edit_log.sql;
 SOURCE /docker-entrypoint-initdb.d/tables/101-data-bill_edit_requests.sql;
@@ -63,3 +66,6 @@ SOURCE /docker-entrypoint-initdb.d/tables/118-data-error_logs.sql;
 SOURCE /docker-entrypoint-initdb.d/tables/119-data-developer_settings.sql;
 SOURCE /docker-entrypoint-initdb.d/tables/120-data-ip_diagnostics.sql;
 SOURCE /docker-entrypoint-initdb.d/tables/121-data-app_settings.sql;
+SOURCE /docker-entrypoint-initdb.d/tables/122-data-test_packages.sql;
+SOURCE /docker-entrypoint-initdb.d/tables/123-data-package_tests.sql;
+SOURCE /docker-entrypoint-initdb.d/tables/124-data-bill_package_items.sql;

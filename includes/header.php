@@ -2,6 +2,7 @@
 if (session_status() == PHP_SESSION_NONE) { session_start(); }
 // Ensure DB connection is available for site messages
 require_once __DIR__ . '/db_connect.php';
+require_once __DIR__ . '/functions.php';
 
 // --- Dynamic Base URL Detection ---
 $projectRoot = dirname(__DIR__); 
@@ -106,9 +107,7 @@ $user_initial = strtoupper(substr($username, 0, 1));
     // --- Display Active Site Messages & Popups ---
     if (isset($conn)) {
         // Safe query for popup support
-        $has_pop = false;
-        $cols = @$conn->query("SHOW COLUMNS FROM site_messages LIKE 'show_as_popup'");
-        if($cols && $cols->num_rows > 0) $has_pop = true;
+        $has_pop = function_exists('schema_has_column') && schema_has_column($conn, 'site_messages', 'show_as_popup');
 
         $msg_sql = "SELECT * FROM site_messages WHERE is_active = 1 ORDER BY created_at DESC";
         $msg_result = $conn->query($msg_sql);

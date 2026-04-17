@@ -460,4 +460,136 @@ CREATE TABLE `app_settings` (
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- --------------------------------------------------------
+-- Package feature schema rollout (merged into main schema)
+-- --------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS test_packages (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  package_code VARCHAR(50) NOT NULL UNIQUE,
+  package_name VARCHAR(255) NOT NULL,
+  description TEXT DEFAULT NULL,
+  total_base_price DECIMAL(10,2) DEFAULT 0.00,
+  package_price DECIMAL(10,2) NOT NULL,
+  discount_amount DECIMAL(10,2) DEFAULT 0.00,
+  discount_percent DECIMAL(5,2) DEFAULT 0.00,
+  status ENUM('active','inactive') DEFAULT 'active',
+  created_by INT DEFAULT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS package_tests (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  package_id INT NOT NULL,
+  test_id INT NOT NULL,
+  base_test_price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  package_test_price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  display_order INT DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_package_test (package_id, test_id)
+);
+
+ALTER TABLE bill_items
+  MODIFY COLUMN test_id INT NULL,
+  ADD COLUMN IF NOT EXISTS package_id INT DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS is_package TINYINT(1) DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS item_type ENUM('test','package') DEFAULT 'test',
+  ADD COLUMN IF NOT EXISTS package_name VARCHAR(255) DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS package_discount DECIMAL(10,2) DEFAULT 0.00;
+
+SET @fk_bill_items_package_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.TABLE_CONSTRAINTS
+  WHERE CONSTRAINT_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'bill_items'
+    AND CONSTRAINT_NAME = 'fk_bill_items_package'
+    AND CONSTRAINT_TYPE = 'FOREIGN KEY'
+);
+
+SET @fk_bill_items_package_sql = IF(
+  @fk_bill_items_package_exists = 0,
+  'ALTER TABLE bill_items ADD CONSTRAINT fk_bill_items_package FOREIGN KEY (package_id) REFERENCES test_packages(id) ON DELETE SET NULL',
+  'SELECT 1'
+);
+PREPARE stmt_fk_bill_items_package FROM @fk_bill_items_package_sql;
+EXECUTE stmt_fk_bill_items_package;
+DEALLOCATE PREPARE stmt_fk_bill_items_package;
+
+CREATE TABLE IF NOT EXISTS bill_package_items (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  bill_id INT NOT NULL,
+  bill_item_id INT NOT NULL,
+  package_id INT NOT NULL,
+  test_id INT NOT NULL,
+  test_name VARCHAR(255) NOT NULL,
+  base_test_price DECIMAL(10,2) DEFAULT 0.00,
+  package_test_price DECIMAL(10,2) DEFAULT 0.00,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+SET @idx_package_name_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'test_packages'
+    AND INDEX_NAME = 'idx_package_name'
+);
+SET @idx_package_name_sql = IF(
+  @idx_package_name_exists = 0,
+  'CREATE INDEX idx_package_name ON test_packages(package_name)',
+  'SELECT 1'
+);
+PREPARE stmt_idx_package_name FROM @idx_package_name_sql;
+EXECUTE stmt_idx_package_name;
+DEALLOCATE PREPARE stmt_idx_package_name;
+
+SET @idx_package_status_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'test_packages'
+    AND INDEX_NAME = 'idx_package_status'
+);
+SET @idx_package_status_sql = IF(
+  @idx_package_status_exists = 0,
+  'CREATE INDEX idx_package_status ON test_packages(status)',
+  'SELECT 1'
+);
+PREPARE stmt_idx_package_status FROM @idx_package_status_sql;
+EXECUTE stmt_idx_package_status;
+DEALLOCATE PREPARE stmt_idx_package_status;
+
+SET @idx_bill_items_package_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'bill_items'
+    AND INDEX_NAME = 'idx_bill_items_package'
+);
+SET @idx_bill_items_package_sql = IF(
+  @idx_bill_items_package_exists = 0,
+  'CREATE INDEX idx_bill_items_package ON bill_items(package_id)',
+  'SELECT 1'
+);
+PREPARE stmt_idx_bill_items_package FROM @idx_bill_items_package_sql;
+EXECUTE stmt_idx_bill_items_package;
+DEALLOCATE PREPARE stmt_idx_bill_items_package;
+
+SET @idx_bill_package_items_package_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'bill_package_items'
+    AND INDEX_NAME = 'idx_bill_package_items_package'
+);
+SET @idx_bill_package_items_package_sql = IF(
+  @idx_bill_package_items_package_exists = 0,
+  'CREATE INDEX idx_bill_package_items_package ON bill_package_items(package_id)',
+  'SELECT 1'
+);
+PREPARE stmt_idx_bill_package_items_package FROM @idx_bill_package_items_package_sql;
+EXECUTE stmt_idx_bill_package_items_package;
+DEALLOCATE PREPARE stmt_idx_bill_package_items_package;
+
 --

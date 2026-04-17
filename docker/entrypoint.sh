@@ -494,7 +494,8 @@ fi
 
 # ---- 10. Set correct permissions ----
 echo "[PERMS] Setting file permissions..."
-for dir in uploads saved_bills final_reports manager/uploads dump/backup; do
+for dir in uploads saved_bills final_reports manager/uploads dump/backup templates/report_templates data data/receipts data/reports data/expenses data/professional_charges data/monthly_reports data/daily_reports; do
+    mkdir -p "/var/www/html/$dir" 2>/dev/null || true
     if [ -d "/var/www/html/$dir" ]; then
         chown -R www-data:www-data "/var/www/html/$dir" 2>/dev/null || true
         chmod -R 775 "/var/www/html/$dir" 2>/dev/null || true

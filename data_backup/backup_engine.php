@@ -13,7 +13,9 @@ Bring stack up again and verify app boot normally.<?php
 if (php_sapi_name() === 'cli') {
     // CLI mode: load DB connection
     require_once __DIR__ . '/../includes/db_connect.php';
-    $result = run_monthly_backup($conn);
+    $argv_list = isset($argv) && is_array($argv) ? $argv : [];
+    $force_backup = in_array('--force', $argv_list, true) || in_array('-f', $argv_list, true);
+    $result = run_monthly_backup($conn, $force_backup);
     echo $result['message'] . "\n";
     exit($result['success'] ? 0 : 1);
 }
@@ -162,17 +164,22 @@ function run_monthly_backup($conn, $force = false) {
     fwrite($fh, "-- End of backup\n");
     fclose($fh);
 
+    // Mirror the split init SQL bundle snapshot alongside this backup.
+    $mirror_rel = mirror_sql_bundle_snapshot($filepath);
+
     // Get file size
     $file_size = filesize($filepath);
 
     // Update the JSON index for fast searching
-    update_backup_index($filepath, $db_name, $year, $month, $timestamp, $tables, $total_rows, $file_size, $table_info);
+    update_backup_index($filepath, $db_name, $year, $month, $timestamp, $tables, $total_rows, $file_size, $table_info, $mirror_rel);
 
     $size_str = format_file_size($file_size);
+    $mirror_msg = $mirror_rel ? ", mirrored SQL bundle: {$mirror_rel}" : '';
     return [
         'success' => true,
-        'message' => "Backup created: {$year}/{$month}/{$filename} ({$size_str}, {$total_rows} rows, " . count($tables) . " tables)",
+        'message' => "Backup created: {$year}/{$month}/{$filename} ({$size_str}, {$total_rows} rows, " . count($tables) . " tables){$mirror_msg}",
         'file'    => $filepath,
+        'mirror_bundle' => $mirror_rel,
         'size'    => $file_size,
         'rows'    => $total_rows,
         'tables'  => count($tables)
@@ -180,10 +187,121 @@ function run_monthly_backup($conn, $force = false) {
 }
 
 /**
+ * Normalize a path to a dump/backup-relative forward-slash path.
+ *
+ * @param string $storage_base Absolute or relative dump/backup root path.
+ * @param string $target_path Absolute, relative, or already-normalized target path.
+ * @return string Normalized relative path (no leading slash).
+ */
+function backup_storage_relative_path($storage_base, $target_path) {
+    $base = realpath($storage_base);
+    if ($base === false) {
+        $base = (string)$storage_base;
+    }
+
+    $target = realpath($target_path);
+    if ($target === false) {
+        $target = (string)$target_path;
+    }
+
+    $base_norm = str_replace('\\', '/', rtrim((string)$base, "\\/"));
+    $target_norm = str_replace('\\', '/', (string)$target);
+
+    if ($base_norm !== '' && strpos($target_norm, $base_norm . '/') === 0) {
+        $target_norm = substr($target_norm, strlen($base_norm) + 1);
+    }
+
+    $target_norm = ltrim($target_norm, '/');
+    if ($target_norm === '') {
+        return '';
+    }
+
+    $segments = [];
+    foreach (explode('/', $target_norm) as $segment) {
+        $seg = trim($segment);
+        if ($seg === '' || $seg === '.' || $seg === '..') {
+            continue;
+        }
+        $segments[] = $seg;
+    }
+
+    return implode('/', $segments);
+}
+
+/**
+ * Mirror split SQL init bundle next to backup SQL file.
+ * Returns relative path from dump/backup or null on failure.
+ */
+function mirror_sql_bundle_snapshot($backup_file) {
+    $storage_base = realpath(__DIR__ . '/../dump/backup');
+    $init_source = realpath(__DIR__ . '/../dump/init');
+
+    if (!$storage_base || !$init_source || !is_dir($init_source)) {
+        return null;
+    }
+
+    $backup_dir = dirname($backup_file);
+    $backup_name = pathinfo($backup_file, PATHINFO_FILENAME);
+    $mirror_dir = $backup_dir . '/sql_bundle_' . $backup_name;
+    $mirror_init = $mirror_dir . '/init';
+
+    if (!is_dir($mirror_init) && !mkdir($mirror_init, 0775, true) && !is_dir($mirror_init)) {
+        return null;
+    }
+
+    if (!copy_directory_recursive($init_source, $mirror_init)) {
+        return null;
+    }
+
+    $rel_path = backup_storage_relative_path($storage_base, $mirror_dir);
+    return $rel_path !== '' ? $rel_path : null;
+}
+
+/**
+ * Recursively copy directory contents.
+ */
+function copy_directory_recursive($source, $destination) {
+    if (!is_dir($source)) {
+        return false;
+    }
+
+    if (!is_dir($destination) && !mkdir($destination, 0775, true) && !is_dir($destination)) {
+        return false;
+    }
+
+    $items = scandir($source);
+    if ($items === false) {
+        return false;
+    }
+
+    foreach ($items as $item) {
+        if ($item === '.' || $item === '..') {
+            continue;
+        }
+
+        $src_item = $source . '/' . $item;
+        $dst_item = $destination . '/' . $item;
+
+        if (is_dir($src_item)) {
+            if (!copy_directory_recursive($src_item, $dst_item)) {
+                return false;
+            }
+            continue;
+        }
+
+        if (!@copy($src_item, $dst_item)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
  * Update the central JSON index with metadata about this backup.
  * The index allows fast searching without scanning SQL files.
  */
-function update_backup_index($filepath, $db_name, $year, $month, $timestamp, $tables, $total_rows, $file_size, $table_info) {
+function update_backup_index($filepath, $db_name, $year, $month, $timestamp, $tables, $total_rows, $file_size, $table_info, $mirror_bundle = null) {
     $storage_base = __DIR__ . '/../dump/backup';
     if (!is_dir($storage_base)) {
         mkdir($storage_base, 0775, true);
@@ -198,8 +316,10 @@ function update_backup_index($filepath, $db_name, $year, $month, $timestamp, $ta
     }
 
     // Build relative path for portability
-    $rel_path = str_replace($storage_base . '/', '', $filepath);
-    $rel_path = str_replace($storage_base . '\\', '', $rel_path);
+    $rel_path = backup_storage_relative_path($storage_base, $filepath);
+    if ($rel_path === '') {
+        $rel_path = basename((string)$filepath);
+    }
 
     // Add entry
     $entry = [
@@ -216,6 +336,16 @@ function update_backup_index($filepath, $db_name, $year, $month, $timestamp, $ta
         'size_human' => format_file_size($file_size),
         'checksum'   => md5_file($filepath)
     ];
+
+    if (is_string($mirror_bundle) && $mirror_bundle !== '') {
+        $normalized_bundle = backup_storage_relative_path($storage_base, $mirror_bundle);
+        if ($normalized_bundle === '') {
+            $normalized_bundle = trim(str_replace('\\', '/', $mirror_bundle), '/');
+        }
+        if ($normalized_bundle !== '') {
+            $entry['mirror_bundle'] = $normalized_bundle;
+        }
+    }
 
     $index[] = $entry;
 
