@@ -6,17 +6,23 @@ require_once '../includes/header.php';
 require_once '../includes/db_connect.php';
 require_once '../includes/functions.php';
 
+$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
+$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+
 $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : date('Y-m-01');
 $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : date('Y-m-t');
 $selected_main_test = isset($_GET['main_test']) ? trim($_GET['main_test']) : 'all';
 $search_term = isset($_GET['q']) ? trim($_GET['q']) : '';
 
 $main_tests = [];
-$main_test_stmt = $conn->query("SELECT DISTINCT main_test_name FROM tests ORDER BY main_test_name ASC");
+$main_test_stmt = $conn->query("SELECT DISTINCT t.main_test_name FROM {$tests_source} ORDER BY t.main_test_name ASC");
 if ($main_test_stmt instanceof mysqli_result) {
     while ($row = $main_test_stmt->fetch_assoc()) {
-        if (!empty($row['main_test_name'])) {
-            $main_tests[] = $row['main_test_name'];
+        $main_name = trim((string)($row['main_test_name'] ?? ''));
+        if ($main_name !== '') {
+            $main_tests[] = $main_name;
         }
     }
     $main_test_stmt->free();
@@ -57,10 +63,10 @@ $sql = "SELECT
             p.sex AS patient_sex,
             t.main_test_name,
             t.sub_test_name
-        FROM bill_items bi
-        JOIN bills b ON bi.bill_id = b.id
-        JOIN patients p ON b.patient_id = p.id
-        JOIN tests t ON bi.test_id = t.id
+    FROM {$bill_items_source}
+    JOIN {$bills_source} ON bi.bill_id = b.id
+    JOIN {$patients_source} ON b.patient_id = p.id
+    JOIN {$tests_source} ON bi.test_id = t.id
         WHERE " . implode(' AND ', $filters) . "
         ORDER BY b.created_at DESC, bi.id DESC";
 

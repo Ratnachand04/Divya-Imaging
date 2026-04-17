@@ -15,32 +15,277 @@ if (!$item_id) {
     exit();
 }
 
-// ── Ensure reporting_doctor column exists on bill_items ──────────────────
-$conn->query("ALTER TABLE bill_items ADD COLUMN IF NOT EXISTS reporting_doctor VARCHAR(150) DEFAULT NULL");
+// ── Ensure reporting_doctor column exists on bill_items and its overflow shards ──
+if (function_exists('table_scale_apply_alter_to_all_physical_tables')) {
+    table_scale_apply_alter_to_all_physical_tables($conn, 'bill_items', "ADD COLUMN IF NOT EXISTS reporting_doctor VARCHAR(150) DEFAULT NULL");
+} else {
+    $conn->query("ALTER TABLE bill_items ADD COLUMN IF NOT EXISTS reporting_doctor VARCHAR(150) DEFAULT NULL");
+}
+
+// ── Ensure report_docx_path column exists on bill_items and its overflow shards ──
+if (function_exists('table_scale_apply_alter_to_all_physical_tables')) {
+    table_scale_apply_alter_to_all_physical_tables($conn, 'bill_items', "ADD COLUMN IF NOT EXISTS report_docx_path VARCHAR(600) DEFAULT NULL");
+} else {
+    $conn->query("ALTER TABLE bill_items ADD COLUMN IF NOT EXISTS report_docx_path VARCHAR(600) DEFAULT NULL");
+}
+
+// ── Ensure report_copy_number column exists to support immutable uploaded copies ──
+if (function_exists('table_scale_apply_alter_to_all_physical_tables')) {
+    table_scale_apply_alter_to_all_physical_tables($conn, 'bill_items', "ADD COLUMN IF NOT EXISTS report_copy_number INT NOT NULL DEFAULT 1");
+} else {
+    $conn->query("ALTER TABLE bill_items ADD COLUMN IF NOT EXISTS report_copy_number INT NOT NULL DEFAULT 1");
+}
+
+try {
+    if (function_exists('ensure_writer_saved_bills_stage_table')) {
+        ensure_writer_saved_bills_stage_table($conn);
+    }
+} catch (Throwable $e) {
+    // Staging setup is retried during save flow; avoid blocking editor load.
+}
+
+function writer_xml_escape(string $value): string {
+    return htmlspecialchars($value, ENT_QUOTES | ENT_XML1, 'UTF-8');
+}
+
+function writer_build_docx_body_from_html(string $html): string {
+    $normalized = preg_replace('/<\s*br\s*\/?>/i', "\n", $html);
+    $normalized = preg_replace('/<\/(p|div|h[1-6]|li|tr|table)>/i', "$0\n", (string)$normalized);
+
+    $plain_text = html_entity_decode(strip_tags((string)$normalized), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $plain_text = str_replace(["\r\n", "\r"], "\n", $plain_text);
+    $lines = preg_split('/\n+/', $plain_text) ?: [];
+
+    $paragraphs = [];
+    foreach ($lines as $line) {
+        $line = trim((string)$line);
+        if ($line === '') {
+            continue;
+        }
+        $paragraphs[] = '<w:p><w:r><w:t xml:space="preserve">' . writer_xml_escape($line) . '</w:t></w:r></w:p>';
+    }
+
+    if (empty($paragraphs)) {
+        $paragraphs[] = '<w:p><w:r><w:t xml:space="preserve"></w:t></w:r></w:p>';
+    }
+
+    return implode('', $paragraphs);
+}
+
+function writer_create_report_docx_file(string $absolute_path, string $html_content, array $meta = []): bool {
+    if (!class_exists('ZipArchive')) {
+        return false;
+    }
+
+    $target_dir = dirname($absolute_path);
+    if (!is_dir($target_dir) && !mkdir($target_dir, 0775, true) && !is_dir($target_dir)) {
+        return false;
+    }
+
+    $zip = new ZipArchive();
+    if ($zip->open($absolute_path, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+        return false;
+    }
+
+    $saved_at = gmdate('c');
+    $title = trim((string)($meta['title'] ?? 'Radiology Report'));
+    $radiologist = trim((string)($meta['radiologist'] ?? ''));
+    $bill_item_id = trim((string)($meta['bill_item_id'] ?? ''));
+    $report_main_test = trim((string)($meta['main_test'] ?? ''));
+
+    $document_body = writer_build_docx_body_from_html($html_content);
+    $encoded_html = base64_encode($html_content);
+
+    $content_types_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        . '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        . '  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        . '  <Default Extension="xml" ContentType="application/xml"/>'
+        . '  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+        . '  <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>'
+        . '  <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>'
+        . '</Types>';
+
+    $relationships_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        . '  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
+        . '  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>'
+        . '  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>'
+        . '</Relationships>';
+
+    $document_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        . '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        . '  <w:body>'
+        . $document_body
+        . '    <w:sectPr>'
+        . '      <w:pgSz w:w="12240" w:h="15840"/>'
+        . '      <w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="708" w:footer="708" w:gutter="0"/>'
+        . '    </w:sectPr>'
+        . '  </w:body>'
+        . '</w:document>';
+
+    $core_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        . '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
+        . '  <dc:title>' . writer_xml_escape($title) . '</dc:title>'
+        . '  <dc:creator>Diagnostic Center</dc:creator>'
+        . '  <cp:lastModifiedBy>Diagnostic Center</cp:lastModifiedBy>'
+        . '  <dcterms:created xsi:type="dcterms:W3CDTF">' . writer_xml_escape($saved_at) . '</dcterms:created>'
+        . '  <dcterms:modified xsi:type="dcterms:W3CDTF">' . writer_xml_escape($saved_at) . '</dcterms:modified>'
+        . '</cp:coreProperties>';
+
+    $app_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        . '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">'
+        . '  <Application>Diagnostic Center Writer</Application>'
+        . '</Properties>';
+
+    $custom_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        . '<writerReport xmlns="https://diagnostic-center.local/schemas/writer-report">'
+        . '  <savedAt>' . writer_xml_escape($saved_at) . '</savedAt>'
+        . '  <radiologist>' . writer_xml_escape($radiologist) . '</radiologist>'
+        . '  <billItemId>' . writer_xml_escape($bill_item_id) . '</billItemId>'
+        . '  <mainTest>' . writer_xml_escape($report_main_test) . '</mainTest>'
+        . '  <html encoding="base64">' . $encoded_html . '</html>'
+        . '</writerReport>';
+
+    $zip->addFromString('[Content_Types].xml', $content_types_xml);
+    $zip->addFromString('_rels/.rels', $relationships_xml);
+    $zip->addFromString('word/document.xml', $document_xml);
+    $zip->addFromString('docProps/core.xml', $core_xml);
+    $zip->addFromString('docProps/app.xml', $app_xml);
+    $zip->addFromString('customXml/item1.xml', $custom_xml);
+
+    return $zip->close();
+}
+
+function writer_resolve_saved_docx_absolute_path(string $relative_path): ?string {
+    $normalized_path = null;
+    if (function_exists('data_storage_normalize_relative_path')) {
+        $normalized_path = data_storage_normalize_relative_path($relative_path);
+    } else {
+        $candidate = trim(str_replace('\\', '/', $relative_path));
+        if ($candidate !== '' && strpos($candidate, '..') === false) {
+            $normalized_path = ltrim($candidate, '/');
+        }
+    }
+
+    if (!is_string($normalized_path) || $normalized_path === '') {
+        return null;
+    }
+    if (!preg_match('/\.docx$/i', $normalized_path)) {
+        return null;
+    }
+
+    if (function_exists('data_storage_resolve_primary_or_mirror')) {
+        $resolved = data_storage_resolve_primary_or_mirror($normalized_path);
+        if (is_string($resolved) && $resolved !== '' && is_file($resolved)) {
+            return $resolved;
+        }
+    }
+
+    $project_root = function_exists('data_storage_project_root_path')
+        ? data_storage_project_root_path()
+        : dirname(__DIR__);
+
+    $absolute_path = $project_root . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $normalized_path);
+    if (!is_file($absolute_path)) {
+        return null;
+    }
+
+    return $absolute_path;
+}
+
+function writer_extract_html_from_saved_docx(string $absolute_docx_path): ?string {
+    if (!class_exists('ZipArchive') || !is_file($absolute_docx_path)) {
+        return null;
+    }
+
+    $zip = new ZipArchive();
+    if ($zip->open($absolute_docx_path) !== true) {
+        return null;
+    }
+
+    $custom_xml = $zip->getFromName('customXml/item1.xml');
+    if ($custom_xml === false || trim((string)$custom_xml) === '') {
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $entry_name = (string)$zip->getNameIndex($i);
+            if (preg_match('#^customXml/item\\d+\\.xml$#', $entry_name)) {
+                $candidate = $zip->getFromName($entry_name);
+                if ($candidate !== false && trim((string)$candidate) !== '') {
+                    $custom_xml = $candidate;
+                    break;
+                }
+            }
+        }
+    }
+
+    $zip->close();
+
+    if ($custom_xml === false || trim((string)$custom_xml) === '') {
+        return null;
+    }
+
+    $xml = @simplexml_load_string((string)$custom_xml);
+    if (!$xml) {
+        return null;
+    }
+
+    $html_nodes = $xml->xpath('//*[local-name()="html"]');
+    if (!$html_nodes || !isset($html_nodes[0])) {
+        return null;
+    }
+
+    $html_node = $html_nodes[0];
+    $encoding = '';
+    $attributes = $html_node->attributes();
+    if ($attributes && isset($attributes['encoding'])) {
+        $encoding = strtolower(trim((string)$attributes['encoding']));
+    }
+
+    $payload = (string)$html_node;
+    if ($payload === '') {
+        return null;
+    }
+
+    if ($encoding === 'base64') {
+        $decoded = base64_decode($payload, true);
+        return ($decoded === false) ? null : $decoded;
+    }
+
+    return $payload;
+}
 
 $radiologist_list = get_reporting_radiologist_list();
 
-$fetch_report_details = static function (mysqli $conn, int $item_id): ?array {
+$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
+$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
+$patient_uid_expression = function_exists('get_patient_identifier_expression') ? get_patient_identifier_expression($conn, 'p') : 'CAST(p.id AS CHAR)';
+
+$fetch_report_details = static function (mysqli $conn, int $item_id, string $bill_items_source, string $bills_source, string $patients_source, string $tests_source, string $referral_doctors_source, string $patient_uid_expression): ?array {
     $stmt_fetch = $conn->prepare(
         "SELECT
             bi.report_content,
+            bi.report_docx_path,
             COALESCE(bi.report_status, 'Pending') AS report_status,
+            COALESCE(bi.report_copy_number, 1) AS report_copy_number,
             bi.reporting_doctor,
             b.id AS bill_id,
             p.name AS patient_name,
+            {$patient_uid_expression} AS patient_uid,
             p.age,
             p.sex,
             b.created_at AS bill_date,
+            t.main_test_name,
             t.sub_test_name,
-            t.document,
             rd.doctor_name AS referring_doctor_name,
             b.referral_source_other,
             b.referral_type
-         FROM bill_items bi
-         JOIN bills b ON bi.bill_id = b.id
-         JOIN patients p ON b.patient_id = p.id
-         JOIN tests t ON bi.test_id = t.id
-         LEFT JOIN referral_doctors rd ON b.referral_doctor_id = rd.id
+            FROM {$bill_items_source}
+            JOIN {$bills_source} ON bi.bill_id = b.id
+            JOIN {$patients_source} ON b.patient_id = p.id
+            JOIN {$tests_source} ON bi.test_id = t.id
+            LEFT JOIN {$referral_doctors_source} ON b.referral_doctor_id = rd.id
          WHERE bi.id = ?"
     );
     if (!$stmt_fetch) {
@@ -56,10 +301,18 @@ $fetch_report_details = static function (mysqli $conn, int $item_id): ?array {
     return $row ?: null;
 };
 
-$report_details = $fetch_report_details($conn, $item_id);
+$report_details = $fetch_report_details($conn, $item_id, $bill_items_source, $bills_source, $patients_source, $tests_source, $referral_doctors_source, $patient_uid_expression);
 if (!$report_details) {
     die("Report details not found.");
 }
+
+$current_copy_number = max(1, (int)($report_details['report_copy_number'] ?? 1));
+$report_status_raw = trim((string)($report_details['report_status'] ?? 'Pending'));
+$is_completed_report = ($report_status_raw === 'Completed');
+$new_copy_requested = isset($_GET['new_copy']) && (string)$_GET['new_copy'] === '1';
+$is_new_copy_workspace = $is_completed_report && $new_copy_requested;
+$is_locked_workspace = $is_completed_report && !$is_new_copy_workspace;
+$active_copy_number = $is_new_copy_workspace ? ($current_copy_number + 1) : $current_copy_number;
 
 $flash_success = '';
 $flash_error = '';
@@ -73,6 +326,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $report_content = trim((string)($_POST['report_content'] ?? ''));
     $save_mode = isset($_POST['save_mode']) && $_POST['save_mode'] === 'complete' ? 'complete' : 'draft';
     $target_status = ($save_mode === 'complete') ? 'Completed' : 'Pending';
+    $requested_copy_number = isset($_POST['copy_number']) ? max(1, (int)$_POST['copy_number']) : $active_copy_number;
+    $target_copy_number = max(1, $requested_copy_number);
+
+    if ($is_completed_report && !$is_new_copy_workspace) {
+        $flash_error = 'This uploaded report copy is locked. Create a new copy to submit changes.';
+    }
+
+    if ($is_completed_report && $save_mode !== 'complete') {
+        $flash_error = 'Draft save is disabled for uploaded reports. Submit a new copy directly.';
+    }
+
+    if ($is_completed_report && $requested_copy_number <= $current_copy_number) {
+        $flash_error = 'This uploaded report copy is locked. Start a new copy (Copy-' . ($current_copy_number + 1) . ') to continue.';
+    }
+
+    if ($is_new_copy_workspace) {
+        $target_copy_number = max($current_copy_number + 1, $requested_copy_number);
+    } elseif (!$is_completed_report) {
+        $target_copy_number = $current_copy_number;
+    }
 
     if ($report_content === '') {
         $flash_error = 'Report content cannot be empty.';
@@ -81,38 +354,197 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $reporting_doctor = isset($_POST['reporting_doctor']) ? trim($_POST['reporting_doctor']) : '';
     $valid_reporting_doctor = in_array($reporting_doctor, $radiologist_list, true) ? $reporting_doctor : null;
 
-    if ($save_mode === 'complete' && $valid_reporting_doctor === null) {
-        $flash_error = 'Please choose a reporting radiologist before uploading this report.';
+    // Keep previously selected valid doctor when saving with empty selector.
+    if ($valid_reporting_doctor === null && !empty($report_details['reporting_doctor']) && in_array($report_details['reporting_doctor'], $radiologist_list, true)) {
+        $valid_reporting_doctor = $report_details['reporting_doctor'];
     }
 
+    if ($valid_reporting_doctor === null) {
+        $flash_error = ($save_mode === 'complete')
+            ? 'Please choose a reporting radiologist before uploading this report.'
+            : 'Please choose a reporting radiologist before saving this report.';
+    }
+
+    $report_docx_relative_path = null;
+    $report_docx_absolute_path = null;
+
     if ($flash_error === '') {
-        // Keep previously selected valid doctor when saving draft with empty selector.
-        if ($valid_reporting_doctor === null && !empty($report_details['reporting_doctor']) && in_array($report_details['reporting_doctor'], $radiologist_list, true)) {
-            $valid_reporting_doctor = $report_details['reporting_doctor'];
+        $main_test_name = trim((string)($report_details['main_test_name'] ?? 'uncategorized'));
+        $patient_name_raw = trim((string)($report_details['patient_name'] ?? ''));
+        $patient_uid_raw = trim((string)($report_details['patient_uid'] ?? ''));
+        $test_name_raw = trim((string)($report_details['sub_test_name'] ?? ''));
+        if ($test_name_raw === '') {
+            $test_name_raw = $main_test_name;
         }
 
-        $stmt_update = $conn->prepare("UPDATE bill_items SET report_content = ?, report_status = ?, reporting_doctor = ?, updated_at = NOW() WHERE id = ?");
-        if ($stmt_update) {
-            $stmt_update->bind_param("sssi", $report_content, $target_status, $valid_reporting_doctor, $item_id);
-            if ($stmt_update->execute()) {
-                $_SESSION['writer_report_success'] = $save_mode === 'complete'
-                    ? "Report for Bill #{$report_details['bill_id']} uploaded successfully. It is now available to manager and superadmin."
-                    : "Report for Bill #{$report_details['bill_id']} saved as draft. Only writer and superadmin can continue editing before upload.";
-                $stmt_update->close();
-                header("Location: fill_report.php?item_id=" . $item_id);
-                exit();
+        try {
+            if (function_exists('data_storage_reports_directory')) {
+                $storage_meta = data_storage_reports_directory($valid_reporting_doctor, $main_test_name);
+                $storage_relative_dir = $storage_meta['relative_path'];
+                $storage_absolute_dir = $storage_meta['absolute_path'];
+            } else {
+                $year = date('Y');
+                $month = date('m');
+                $day = date('d');
+                $storage_relative_dir = 'data/reports/' . $year . '/' . $month . '/uncategorized/' . $day . '/reports';
+                $storage_absolute_dir = dirname(__DIR__) . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $storage_relative_dir);
+                if (!is_dir($storage_absolute_dir) && !mkdir($storage_absolute_dir, 0775, true) && !is_dir($storage_absolute_dir)) {
+                    throw new RuntimeException('Unable to create reports directory.');
+                }
             }
-            $flash_error = 'Unable to save the report right now. Please try again.';
-            $stmt_update->close();
+
+            if (function_exists('data_storage_safe_segment')) {
+                $patient_name_segment = data_storage_safe_segment($patient_name_raw, 'patient');
+                $patient_uid_segment = data_storage_safe_segment($patient_uid_raw, 'uid');
+                $test_name_segment = data_storage_safe_segment($test_name_raw, 'test');
+            } else {
+                $patient_name_segment = preg_replace('/[^A-Za-z0-9_-]+/', '_', $patient_name_raw ?: 'patient');
+                $patient_uid_segment = preg_replace('/[^A-Za-z0-9_-]+/', '_', $patient_uid_raw ?: 'uid');
+                $test_name_segment = preg_replace('/[^A-Za-z0-9_-]+/', '_', $test_name_raw ?: 'test');
+            }
+
+            $patient_name_segment = trim((string)$patient_name_segment, '_');
+            $patient_uid_segment = trim((string)$patient_uid_segment, '_');
+            $test_name_segment = trim((string)$test_name_segment, '_');
+            if ($patient_name_segment === '') {
+                $patient_name_segment = 'patient';
+            }
+            if ($patient_uid_segment === '') {
+                $patient_uid_segment = 'uid';
+            }
+            if ($test_name_segment === '') {
+                $test_name_segment = 'test';
+            }
+
+            $copy_suffix = ($target_copy_number > 1) ? '_copy-' . $target_copy_number : '';
+            $report_file_name = $patient_name_segment . '_' . $patient_uid_segment . '_' . $test_name_segment . $copy_suffix . '.docx';
+            $report_docx_relative_path = $storage_relative_dir . '/' . $report_file_name;
+            $report_docx_absolute_path = $storage_absolute_dir . DIRECTORY_SEPARATOR . $report_file_name;
+        } catch (Throwable $e) {
+            $flash_error = 'Unable to prepare the radiologist reports folder right now. Please try again.';
+        }
+    }
+
+    if ($flash_error === '' && is_string($report_docx_absolute_path)) {
+        $docx_saved = writer_create_report_docx_file($report_docx_absolute_path, $report_content, [
+            'title' => 'Bill #' . (string)($report_details['bill_id'] ?? ''),
+            'radiologist' => $valid_reporting_doctor,
+            'bill_item_id' => (string)$item_id,
+            'main_test' => (string)($report_details['main_test_name'] ?? ''),
+        ]);
+
+        if (!$docx_saved) {
+            $flash_error = 'Unable to write the Word document in reports storage. Please try again.';
+        } elseif (function_exists('data_storage_copy_absolute_file_to_mirror')) {
+            data_storage_copy_absolute_file_to_mirror($report_docx_absolute_path);
+        }
+    }
+
+    if ($flash_error === '' && is_string($report_docx_relative_path)) {
+        $bill_items_write_table = 'bill_items';
+        if (function_exists('table_scale_find_physical_table_by_id')) {
+            $resolved_table = table_scale_find_physical_table_by_id($conn, 'bill_items', $item_id, 'id');
+            if (is_string($resolved_table) && preg_match('/^[A-Za-z0-9_]+$/', $resolved_table)) {
+                $bill_items_write_table = $resolved_table;
+            }
+        }
+
+        $stmt_update = $conn->prepare("UPDATE `{$bill_items_write_table}` SET report_content = ?, report_docx_path = ?, report_status = ?, reporting_doctor = ?, report_copy_number = ?, updated_at = NOW() WHERE id = ?");
+        if ($stmt_update) {
+            $stmt_update->bind_param("ssssii", $report_content, $report_docx_relative_path, $target_status, $valid_reporting_doctor, $target_copy_number, $item_id);
+            $saved_to_db = false;
+            if ($stmt_update->execute()) {
+                $saved_to_db = true;
+                $stage_sync_ok = true;
+                $_SESSION['writer_report_success'] = $save_mode === 'complete'
+                    ? "Copy-{$target_copy_number} for Bill #{$report_details['bill_id']} uploaded successfully. It is now available to manager and superadmin."
+                    : "Draft for Copy-{$target_copy_number} of Bill #{$report_details['bill_id']} saved in reports storage.";
+                $stmt_update->close();
+
+                if (function_exists('ensure_writer_saved_bills_stage_table')) {
+                    try {
+                        ensure_writer_saved_bills_stage_table($conn);
+
+                        if ($save_mode === 'draft') {
+                            $stage_user_id = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0;
+                            $stage_stmt = $conn->prepare("INSERT INTO writer_saved_bills_stage (bill_item_id, saved_by, updated_by) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE updated_by = VALUES(updated_by), updated_at = NOW()");
+                            if (!$stage_stmt) {
+                                throw new RuntimeException('Unable to prepare stage upsert.');
+                            }
+                            $stage_stmt->bind_param('iii', $item_id, $stage_user_id, $stage_user_id);
+                            if (!$stage_stmt->execute()) {
+                                $stage_stmt->close();
+                                throw new RuntimeException('Unable to sync draft in Saved Bills.');
+                            }
+                            $stage_stmt->close();
+                        } else {
+                            $stage_delete = $conn->prepare("DELETE FROM writer_saved_bills_stage WHERE bill_item_id = ?");
+                            if ($stage_delete) {
+                                $stage_delete->bind_param('i', $item_id);
+                                $stage_delete->execute();
+                                $stage_delete->close();
+                            }
+                        }
+                    } catch (Throwable $e) {
+                        $stage_sync_ok = false;
+                    }
+                }
+
+                if (!$stage_sync_ok) {
+                    $flash_error = 'Report document saved, but we could not move it to Saved Bills staging. Please click Save Document once again.';
+                    $_SESSION['writer_report_success'] = '';
+                    unset($_SESSION['writer_report_success']);
+                } else {
+                $success_redirect = "fill_report.php?item_id=" . $item_id;
+                if ($save_mode === 'draft') {
+                    $success_redirect = ($current_role === 'superadmin') ? '../superadmin/detailed_report.php' : 'dashboard.php';
+                }
+                header("Location: " . $success_redirect);
+                exit();
+                }
+            }
+            if (!$saved_to_db) {
+                $flash_error = 'Unable to save the report right now. Please try again.';
+                $stmt_update->close();
+            }
         } else {
             $flash_error = 'Unable to prepare the save operation right now. Please try again.';
         }
     }
 }
 
+$existing_report_html_value = '';
+$saved_report_docx_path = trim((string)($report_details['report_docx_path'] ?? ''));
+if ($saved_report_docx_path !== '' && !$is_new_copy_workspace) {
+    $saved_docx_absolute = writer_resolve_saved_docx_absolute_path($saved_report_docx_path);
+    if ($saved_docx_absolute !== null) {
+        $loaded_html = writer_extract_html_from_saved_docx($saved_docx_absolute);
+        if (is_string($loaded_html) && trim($loaded_html) !== '') {
+            $existing_report_html_value = $loaded_html;
+        }
+    }
+}
+
+if ($existing_report_html_value === '' && !$is_new_copy_workspace) {
+    $existing_report_html_value = (string)($report_details['report_content'] ?? '');
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $flash_error !== '') {
+    $posted_report_html = (string)($_POST['report_content'] ?? '');
+    if (trim($posted_report_html) !== '') {
+        $existing_report_html_value = $posted_report_html;
+    }
+}
+
 $existing_doctor = trim((string)($report_details['reporting_doctor'] ?? ''));
-$report_status = trim((string)($report_details['report_status'] ?? 'Pending'));
-$report_status_label = ($report_status === 'Completed') ? 'Uploaded' : $report_status;
+$report_status = $report_status_raw;
+if ($is_new_copy_workspace) {
+    $report_status_label = 'Preparing Copy-' . $active_copy_number;
+} elseif ($report_status === 'Completed') {
+    $report_status_label = 'Uploaded (Copy-' . $current_copy_number . ')';
+} else {
+    $report_status_label = 'Draft (Copy-' . max(1, $current_copy_number) . ')';
+}
 
 $referring_doctor = trim((string)($report_details['referring_doctor_name'] ?? ''));
 if (($report_details['referral_type'] ?? '') === 'Other' && !empty($report_details['referral_source_other'])) {
@@ -122,6 +554,11 @@ if ($referring_doctor === '') {
     $referring_doctor = 'Self';
 } elseif (stripos($referring_doctor, 'Dr.') !== 0) {
     $referring_doctor = 'Dr. ' . $referring_doctor;
+}
+
+$patient_uid = trim((string)($report_details['patient_uid'] ?? ''));
+if ($patient_uid === '') {
+    $patient_uid = 'N/A';
 }
 
 require_once '../includes/header.php';
@@ -136,7 +573,6 @@ if (is_file($tiptap_importmap_path)) {
 }
 ?>
 
-<script src="/assets/vendor/mammoth/mammoth.browser.min.js"></script>
 <script type="importmap"><?php echo $tiptap_importmap_json; ?></script>
 
 <style>
@@ -342,7 +778,7 @@ if (is_file($tiptap_importmap_path)) {
 </style>
 
 <div class="form-container">
-    <h1>Word Report Workspace: <?php echo htmlspecialchars($report_details['sub_test_name']); ?></h1>
+    <h1>Word Report Workspace: <?php echo htmlspecialchars($report_details['sub_test_name']); ?><?php echo $is_new_copy_workspace ? ' (Copy-' . (int)$active_copy_number . ')' : ''; ?></h1>
 
     <?php if ($flash_success !== ''): ?>
         <div class="reports-alert" style="margin-bottom:12px;"><?php echo htmlspecialchars($flash_success); ?></div>
@@ -353,25 +789,40 @@ if (is_file($tiptap_importmap_path)) {
 
     <div class="patient-details-header">
         <strong>Patient:</strong> <span id="patient-name"><?php echo htmlspecialchars($report_details['patient_name']); ?></span> | 
+        <strong>UID:</strong> <span id="patient-uid"><?php echo htmlspecialchars($patient_uid); ?></span> | 
         <strong>Age/Gender:</strong> <span id="patient-age"><?php echo $report_details['age']; ?></span>/<span id="patient-sex"><?php echo $report_details['sex']; ?></span> | 
+        <strong>Referred By:</strong> <span id="patient-ref-doctor"><?php echo htmlspecialchars($referring_doctor); ?></span> |
         <strong>Bill No:</strong> <span id="bill-id"><?php echo $report_details['bill_id']; ?></span> |
-        <strong>Status:</strong> <span style="font-weight:700;color:<?php echo $report_status === 'Completed' ? '#1f6d47' : '#9c4221'; ?>;"><?php echo htmlspecialchars($report_status_label); ?></span>
+        <strong>Status:</strong> <span style="font-weight:700;color:<?php echo $is_locked_workspace ? '#1f6d47' : ($is_new_copy_workspace ? '#9c4221' : ($report_status === 'Completed' ? '#1f6d47' : '#9c4221')); ?>;"><?php echo htmlspecialchars($report_status_label); ?></span>
     </div>
     <p class="description" style="margin-top:8px;">
-        Save stores a draft for writer/superadmin editing. Upload submits this report to manager and superadmin.
+        <?php if ($is_locked_workspace): ?>
+            Uploaded reports are locked and cannot be edited directly. Use "Create Copy-<?php echo (int)($current_copy_number + 1); ?>" to draft a new version and submit again.
+        <?php elseif ($is_new_copy_workspace): ?>
+            You are preparing Copy-<?php echo (int)$active_copy_number; ?> as a new version. Submit to replace the active report with this uploaded copy.
+        <?php else: ?>
+            Save writes the report into Word storage. Send to Manager submits it as Copy-<?php echo (int)$active_copy_number; ?>.
+        <?php endif; ?>
     </p>
 
-    <div id="report-data"
-         data-template-url="download_report_template.php?item_id=<?php echo urlencode((string)$item_id); ?>"
-            data-upload-image-url="upload_report_image.php"
-            data-item-id="<?php echo htmlspecialchars((string)$item_id); ?>"
-         data-referring-doctor="<?php echo htmlspecialchars($referring_doctor); ?>"
-         style="display: none;">
+    <?php if ($is_locked_workspace): ?>
+        <div class="reports-alert" style="margin-bottom:12px;">
+            Copy-<?php echo (int)$current_copy_number; ?> is locked after upload. You can still open a fresh copy workspace and submit Copy-<?php echo (int)($current_copy_number + 1); ?>.
+        </div>
+    <?php endif; ?>
+
+     <div id="report-data"
+                data-upload-image-url="upload_report_image.php"
+                data-item-id="<?php echo htmlspecialchars((string)$item_id); ?>"
+            data-is-locked="<?php echo $is_locked_workspace ? '1' : '0'; ?>"
+            data-is-new-copy-workspace="<?php echo $is_new_copy_workspace ? '1' : '0'; ?>"
+            style="display: none;">
     </div>
-    <textarea id="existing_report_html" style="display:none;"><?php echo htmlspecialchars((string)($report_details['report_content'] ?? '')); ?></textarea>
+    <textarea id="existing_report_html" style="display:none;"><?php echo htmlspecialchars($existing_report_html_value); ?></textarea>
 
     <form action="fill_report.php?item_id=<?php echo $item_id; ?>" method="POST">
-        <input type="hidden" name="save_mode" id="saveModeInput" value="<?php echo $report_status === 'Completed' ? 'complete' : 'draft'; ?>">
+        <input type="hidden" name="save_mode" id="saveModeInput" value="<?php echo ($report_status === 'Completed' || $is_new_copy_workspace) ? 'complete' : 'draft'; ?>">
+        <input type="hidden" name="copy_number" id="copyNumberInput" value="<?php echo (int)$active_copy_number; ?>">
 
         <!-- ── Reporting Doctor Selection ───────────────────────────────── -->
         <div class="fill-report-doctor-bar">
@@ -521,13 +972,16 @@ if (is_file($tiptap_importmap_path)) {
             Tab/Shift+Tab increase/decrease list level.
         </div>
         <div style="margin-top:20px; text-align: right;">
-            <a href="<?php echo htmlspecialchars($cancel_link); ?>" class="btn-cancel">Cancel</a>
-            <?php if ($report_status === 'Completed'): ?>
-                <button type="submit" class="btn-secondary" data-save-mode="draft">Save as Draft</button>
-                <button type="submit" class="btn-submit" data-save-mode="complete">Save & Re-Upload</button>
+            <?php if ($is_locked_workspace): ?>
+                <a href="<?php echo htmlspecialchars($cancel_link); ?>" class="btn-cancel">Back</a>
+                <a href="fill_report.php?item_id=<?php echo (int)$item_id; ?>&new_copy=1" class="btn-submit">Create Copy-<?php echo (int)($current_copy_number + 1); ?></a>
+            <?php elseif ($is_new_copy_workspace): ?>
+                <a href="fill_report.php?item_id=<?php echo (int)$item_id; ?>" class="btn-cancel">Back to Locked Copy-<?php echo (int)$current_copy_number; ?></a>
+                <button type="submit" class="btn-submit" data-save-mode="complete">Submit Copy-<?php echo (int)$active_copy_number; ?></button>
             <?php else: ?>
+                <a href="<?php echo htmlspecialchars($cancel_link); ?>" class="btn-cancel">Cancel</a>
                 <button type="submit" class="btn-secondary" data-save-mode="draft">Save Document</button>
-                <button type="submit" class="btn-submit" data-save-mode="complete">Upload to Manager & Superadmin</button>
+                <button type="submit" class="btn-submit" data-save-mode="complete">Send to Manager</button>
             <?php endif; ?>
         </div>
     </form>
@@ -843,9 +1297,10 @@ document.addEventListener('DOMContentLoaded', function() {
         return;
     }
 
-    const templateUrl = reportDataContainer.dataset.templateUrl || '';
     const uploadImageUrl = reportDataContainer.dataset.uploadImageUrl || 'upload_report_image.php';
     const itemId = reportDataContainer.dataset.itemId || '';
+    const isLockedWorkspace = reportDataContainer.dataset.isLocked === '1';
+    const isNewCopyWorkspace = reportDataContainer.dataset.isNewCopyWorkspace === '1';
     const existingHtml = document.getElementById('existing_report_html').value || '';
     const saveModeInput = document.getElementById('saveModeInput');
     const doctorSelect = document.getElementById('reporting_doctor_select');
@@ -868,6 +1323,28 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     let editor = null;
+
+    const disableInteractiveControls = () => {
+        toolbarButtons.forEach((button) => {
+            button.disabled = true;
+        });
+
+        [fontFamilySelect, fontSizeSelect, lineHeightSelect, colorPicker, imageWidthRange, imageInput].forEach((input) => {
+            if (input) {
+                input.disabled = true;
+            }
+        });
+
+        if (shortcutsToggle) {
+            shortcutsToggle.disabled = true;
+        }
+
+        if (doctorSelect) {
+            doctorSelect.disabled = true;
+        }
+
+        setImageToolVisibility(false);
+    };
 
     const setImageToolVisibility = (isVisible) => {
         if (!imageTools) {
@@ -924,6 +1401,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const updateToolbarState = () => {
         if (!editor) {
+            return;
+        }
+
+        if (isLockedWorkspace) {
+            disableInteractiveControls();
             return;
         }
 
@@ -1131,6 +1613,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     toolbarButtons.forEach((button) => {
         button.addEventListener('click', function() {
+            if (isLockedWorkspace) {
+                return;
+            }
             const cmd = this.dataset.cmd || '';
             if (!actionHandlers[cmd] || !editor) {
                 return;
@@ -1143,7 +1628,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (fontFamilySelect) {
         fontFamilySelect.addEventListener('change', function() {
-            if (!editor) {
+            if (!editor || isLockedWorkspace) {
                 return;
             }
             actionHandlers.setFontFamily();
@@ -1154,7 +1639,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (fontSizeSelect) {
         fontSizeSelect.addEventListener('change', function() {
-            if (!editor) {
+            if (!editor || isLockedWorkspace) {
                 return;
             }
             actionHandlers.setFontSize();
@@ -1165,7 +1650,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (lineHeightSelect) {
         lineHeightSelect.addEventListener('change', function() {
-            if (!editor) {
+            if (!editor || isLockedWorkspace) {
                 return;
             }
             actionHandlers.setLineHeight();
@@ -1176,7 +1661,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (imageWidthRange) {
         imageWidthRange.addEventListener('input', function() {
-            if (!editor || !editor.isActive('image')) {
+            if (!editor || !editor.isActive('image') || isLockedWorkspace) {
                 return;
             }
 
@@ -1190,7 +1675,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (imageInput) {
         imageInput.addEventListener('change', async function() {
-            if (!editor || !this.files || !this.files.length) {
+            if (!editor || !this.files || !this.files.length || isLockedWorkspace) {
                 return;
             }
 
@@ -1238,6 +1723,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (shortcutsToggle && shortcutsPanel) {
         shortcutsToggle.addEventListener('click', function() {
+            if (isLockedWorkspace) {
+                return;
+            }
             const expanded = this.getAttribute('aria-expanded') === 'true';
             this.setAttribute('aria-expanded', expanded ? 'false' : 'true');
             shortcutsPanel.hidden = expanded;
@@ -1246,6 +1734,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (editorMount) {
         editorMount.addEventListener('keydown', function(event) {
+            if (isLockedWorkspace) {
+                return;
+            }
             const isMod = event.ctrlKey || event.metaKey;
             if (!isMod || !editor) {
                 return;
@@ -1316,6 +1807,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }),
             WriterShortcuts,
         ],
+        editable: !isLockedWorkspace,
         content: '<p></p>',
         onCreate: () => {
             syncEditorContent();
@@ -1330,81 +1822,20 @@ document.addEventListener('DOMContentLoaded', function() {
         },
     });
 
-    const patientName = document.getElementById('patient-name').textContent;
-    const patientAge = document.getElementById('patient-age').textContent;
-    const patientSex = document.getElementById('patient-sex').textContent;
-    const billId = document.getElementById('bill-id').textContent;
-    const referredBy = reportDataContainer.dataset.referringDoctor || 'Self';
-
-    const patientHeaderHtml = `
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;" border="1">
-            <tbody>
-                <tr>
-                    <td style="padding: 8px;"><strong>Patient Name:</strong></td>
-                    <td style="padding: 8px;">${patientName}</td>
-                    <td style="padding: 8px;"><strong>Age/Gender:</strong></td>
-                    <td style="padding: 8px;">${patientAge} / ${patientSex}</td>
-                </tr>
-                <tr>
-                    <td style="padding: 8px;"><strong>Bill No:</strong></td>
-                    <td style="padding: 8px;">${billId}</td>
-                    <td style="padding: 8px;"><strong>Referred By:</strong></td>
-                    <td style="padding: 8px;"><strong>${referredBy}</strong></td>
-                </tr>
-            </tbody>
-        </table>
-        <hr style="margin-bottom: 20px;">`;
-
-    const replacements = {
-        '{{NAME}}': patientName,
-        '{{PATIENT_NAME}}': patientName,
-        '{{AGE}}': patientAge,
-        '{{SEX}}': patientSex,
-        '{{GENDER}}': patientSex,
-        '{{BILL_NO}}': billId,
-        '{{REF_DR}}': referredBy,
-        '{{REF_DOCTOR}}': referredBy,
-        '{{AGE_SEX}}': `${patientAge} / ${patientSex}`,
-    };
-
     const hydrateEditorContent = () => {
         if (existingHtml.trim() !== '') {
             setEditorHtml(existingHtml);
             return;
         }
 
-        if (!templateUrl || templateUrl.trim() === '') {
-            setEditorHtml(patientHeaderHtml);
-            return;
-        }
-
-        if (!window.mammoth || typeof window.mammoth.convertToHtml !== 'function') {
-            setEditorHtml(patientHeaderHtml + '<p style="color:#a72a5f;"><strong>Note:</strong> Template conversion library is unavailable. You can continue writing manually.</p>');
-            return;
-        }
-
-        fetch(templateUrl, { credentials: 'same-origin' })
-            .then((response) => {
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
-                }
-                return response.arrayBuffer();
-            })
-            .then((arrayBuffer) => window.mammoth.convertToHtml({ arrayBuffer }))
-            .then((result) => {
-                let html = result.value || '';
-                Object.keys(replacements).forEach((token) => {
-                    html = html.split(token).join(String(replacements[token] || ''));
-                });
-                setEditorHtml(patientHeaderHtml + html);
-            })
-            .catch((error) => {
-                console.error('Error loading DOCX template:', error);
-                setEditorHtml(patientHeaderHtml + '<p style="color:#a72a5f;"><strong>Note:</strong> Could not load template. You can still write and save the report.</p>');
-            });
+        setEditorHtml('<p></p>');
     };
 
     hydrateEditorContent();
+
+    if (isLockedWorkspace) {
+        disableInteractiveControls();
+    }
 
     document.querySelectorAll('[data-save-mode]').forEach((button) => {
         button.addEventListener('click', function() {
@@ -1415,10 +1846,24 @@ document.addEventListener('DOMContentLoaded', function() {
     const form = document.querySelector('form[action^="fill_report.php"]');
     if (form) {
         form.addEventListener('submit', function(event) {
-            const activeMode = saveModeInput.value || 'draft';
-            if (activeMode === 'complete' && (!doctorSelect || doctorSelect.value.trim() === '')) {
+            if (isLockedWorkspace) {
                 event.preventDefault();
-                alert('Please choose a reporting radiologist before uploading this report.');
+                alert('This uploaded copy is locked. Click "Create Copy" to submit a new version.');
+                return;
+            }
+
+            if (isNewCopyWorkspace && saveModeInput) {
+                saveModeInput.value = 'complete';
+            }
+
+            const activeMode = saveModeInput.value || 'draft';
+            if (!doctorSelect || doctorSelect.value.trim() === '') {
+                event.preventDefault();
+                if (activeMode === 'complete') {
+                    alert('Please choose a reporting radiologist before uploading this report.');
+                } else {
+                    alert('Please choose a reporting radiologist before saving this report.');
+                }
                 if (doctorSelect) {
                     doctorSelect.focus();
                 }
