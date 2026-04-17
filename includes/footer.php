@@ -59,6 +59,7 @@
     <?php if(isset($_SESSION['role']) && $_SESSION['role'] === 'superadmin'): ?>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <script src="<?php echo $base_url; ?>/assets/js/superadmin_final.js"></script>
     <?php else: ?>

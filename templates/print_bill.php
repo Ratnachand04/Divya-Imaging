@@ -566,9 +566,9 @@ $emptyRows = max(0, $minItemRows - count($display_items));
                     <span class="field-value"><?php echo htmlspecialchars($bill['patient_name']); ?></span>
                 </div>
                 <div class="field-group">
-                    <span class="field-label">Mobile No</span>
+                    <span class="field-label">Ref. Physician</span>
                     <span class="field-colon">:</span>
-                    <span class="field-value"><?php echo htmlspecialchars($patientMobile !== '' ? $patientMobile : '-'); ?></span>
+                    <span class="field-value"><?php echo htmlspecialchars($referralDisplay); ?></span>
                 </div>
             </div>
 
@@ -579,25 +579,25 @@ $emptyRows = max(0, $minItemRows - count($display_items));
                     <span class="field-value"><?php echo htmlspecialchars($ageGenderDisplay); ?></span>
                 </div>
                 <div class="field-group">
-                    <span class="field-label">City</span>
+                    <span class="field-label">Payment Mode</span>
                     <span class="field-colon">:</span>
-                    <span class="field-value"><?php echo htmlspecialchars($patientCity !== '' ? $patientCity : '-'); ?></span>
+                    <span class="field-value"><?php echo htmlspecialchars($paymentModeDisplay); ?></span>
                 </div>
             </div>
 
             <div class="field-row single row-ref">
                 <div class="field-group">
-                    <span class="field-label">Ref. Physician</span>
+                    <span class="field-label">Mobile No</span>
                     <span class="field-colon">:</span>
-                    <span class="field-value"><?php echo htmlspecialchars($referralDisplay); ?></span>
+                    <span class="field-value"><?php echo htmlspecialchars($patientMobile !== '' ? $patientMobile : '-'); ?></span>
                 </div>
             </div>
 
             <div class="field-row single row-pay">
                 <div class="field-group">
-                    <span class="field-label">Payment Mode</span>
+                    <span class="field-label">City</span>
                     <span class="field-colon">:</span>
-                    <span class="field-value"><?php echo htmlspecialchars($paymentModeDisplay); ?></span>
+                    <span class="field-value"><?php echo htmlspecialchars($patientCity !== '' ? $patientCity : '-'); ?></span>
                 </div>
             </div>
 
