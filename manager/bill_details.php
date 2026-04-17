@@ -10,6 +10,17 @@ ensure_bill_payment_split_columns($conn);
 ensure_payment_history_split_columns($conn);
 ensure_package_management_schema($conn);
 
+$bill_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
+$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
+$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
+$test_packages_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'test_packages', 'tp') : '`test_packages` tp';
+$screenings_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_item_screenings', 'bis') : '`bill_item_screenings` bis';
+$bill_package_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_package_items', 'bpi') : '`bill_package_items` bpi';
+$payment_history_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'payment_history', 'ph') : '`payment_history` ph';
+
 $bill_id = isset($_GET['bill_id']) ? (int)$_GET['bill_id'] : 0;
 if ($bill_id <= 0) {
     header('Location: analytics.php');
@@ -48,10 +59,10 @@ $bill_sql = "SELECT
                 p.city,
                 u.username AS receptionist_name,
                 rd.doctor_name AS referral_doctor_name
-            FROM bills b
-            JOIN patients p ON p.id = b.patient_id
-            LEFT JOIN users u ON u.id = b.receptionist_id
-            LEFT JOIN referral_doctors rd ON rd.id = b.referral_doctor_id
+            FROM {$bill_source}
+            JOIN {$patients_source} ON p.id = b.patient_id
+            LEFT JOIN {$users_source} ON u.id = b.receptionist_id
+            LEFT JOIN {$referral_doctors_source} ON rd.id = b.referral_doctor_id
             WHERE b.id = ?
             LIMIT 1";
 
@@ -66,27 +77,12 @@ if (!$bill) {
     $bill_error = 'Bill not found or no longer available.';
 }
 
-$has_item_discount = false;
-$discount_column_check = $conn->query("SHOW COLUMNS FROM bill_items LIKE 'discount_amount'");
-if ($discount_column_check && $discount_column_check->num_rows > 0) {
-    $has_item_discount = true;
-}
-if ($discount_column_check instanceof mysqli_result) {
-    $discount_column_check->free();
-}
-
-$has_screening_table = false;
-$screening_table_check = $conn->query("SHOW TABLES LIKE 'bill_item_screenings'");
-if ($screening_table_check && $screening_table_check->num_rows > 0) {
-    $has_screening_table = true;
-}
-if ($screening_table_check instanceof mysqli_result) {
-    $screening_table_check->free();
-}
+$has_item_discount = function_exists('schema_has_column') && schema_has_column($conn, 'bill_items', 'discount_amount');
+$has_screening_table = function_exists('schema_has_table') && schema_has_table($conn, 'bill_item_screenings');
 
 $item_discount_expr = $has_item_discount ? 'COALESCE(bi.discount_amount, 0) AS item_discount' : '0.00 AS item_discount';
 $screening_expr = $has_screening_table ? 'COALESCE(bis.screening_amount, 0) AS screening_amount' : '0.00 AS screening_amount';
-$screening_join = $has_screening_table ? 'LEFT JOIN bill_item_screenings bis ON bis.bill_item_id = bi.id' : '';
+$screening_join = $has_screening_table ? "LEFT JOIN {$screenings_source} ON bis.bill_item_id = bi.id" : '';
 
 $test_items = [];
 $package_breakdown_map = [];
@@ -104,9 +100,9 @@ if ($bill) {
                     t.price,
                     {$screening_expr},
                     {$item_discount_expr}
-                  FROM bill_items bi
-                                    LEFT JOIN tests t ON t.id = bi.test_id
-                                    LEFT JOIN test_packages tp ON tp.id = bi.package_id
+                  FROM {$bill_items_source}
+                                    LEFT JOIN {$tests_source} ON t.id = bi.test_id
+                                    LEFT JOIN {$test_packages_source} ON tp.id = bi.package_id
                   {$screening_join}
                   WHERE bi.bill_id = ?
                                         AND (COALESCE(bi.item_type, 'test') = 'package' OR bi.package_id IS NULL)
@@ -123,10 +119,10 @@ if ($bill) {
     }
 
     $package_items_stmt = $conn->prepare(
-        "SELECT bill_item_id, test_name, base_test_price, package_test_price
-         FROM bill_package_items
-         WHERE bill_id = ?
-         ORDER BY id ASC"
+           "SELECT bpi.bill_item_id, bpi.test_name, bpi.base_test_price, bpi.package_test_price
+            FROM {$bill_package_items_source}
+            WHERE bpi.bill_id = ?
+            ORDER BY bpi.id ASC"
     );
     if ($package_items_stmt) {
         $package_items_stmt->bind_param('i', $bill_id);
@@ -156,8 +152,8 @@ if ($bill) {
                         ph.other_amount,
                         ph.paid_at,
                         u.username AS updated_by
-                    FROM payment_history ph
-                    LEFT JOIN users u ON u.id = ph.user_id
+                    FROM {$payment_history_source}
+                    LEFT JOIN {$users_source} ON u.id = ph.user_id
                     WHERE ph.bill_id = ?
                     ORDER BY ph.paid_at DESC";
 

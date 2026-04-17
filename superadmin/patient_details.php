@@ -3,9 +3,15 @@ $page_title = "Patient Details";
 $required_role = "superadmin";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
 require_once '../includes/header.php';
 
 $sa_active_page = 'patients.php';
+
+$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
 
 $patientId = isset($_GET['patient_id']) ? (int)$_GET['patient_id'] : 0;
 if ($patientId <= 0) {
@@ -20,7 +26,7 @@ $patientInfoSql = "
         COALESCE(NULLIF(p.uid, ''), '-') AS uid,
         COALESCE(NULLIF(p.name, ''), '-') AS patient_name,
         COALESCE(NULLIF(p.city, ''), '-') AS city
-    FROM patients p
+    FROM {$patients_source}
     WHERE p.id = ?
     LIMIT 1
 ";
@@ -51,8 +57,8 @@ $summarySql = "
         COUNT(bi.id) AS total_tests,
         SUM(CASE WHEN COALESCE(bi.report_status, 'Pending') = 'Completed' THEN 1 ELSE 0 END) AS completed_reports,
         SUM(CASE WHEN COALESCE(bi.report_status, 'Pending') != 'Completed' THEN 1 ELSE 0 END) AS pending_reports
-    FROM bills b
-    LEFT JOIN bill_items bi
+    FROM {$bills_source}
+    LEFT JOIN {$bill_items_source}
         ON bi.bill_id = b.id
        AND bi.item_status = 0
     WHERE b.patient_id = ?
@@ -81,8 +87,8 @@ $billSql = "
         COUNT(bi.id) AS total_tests,
         SUM(CASE WHEN COALESCE(bi.report_status, 'Pending') = 'Completed' THEN 1 ELSE 0 END) AS completed_reports,
         SUM(CASE WHEN COALESCE(bi.report_status, 'Pending') != 'Completed' THEN 1 ELSE 0 END) AS pending_reports
-    FROM bills b
-    LEFT JOIN bill_items bi
+    FROM {$bills_source}
+    LEFT JOIN {$bill_items_source}
         ON bi.bill_id = b.id
        AND bi.item_status = 0
     WHERE b.patient_id = ?
@@ -115,11 +121,11 @@ $testSql = "
         b.created_at,
         COALESCE(CONCAT_WS(' - ', t.main_test_name, NULLIF(t.sub_test_name, '')), 'Unknown Test') AS test_name,
         COALESCE(bi.report_status, 'Pending') AS report_status
-    FROM bills b
-    JOIN bill_items bi
+    FROM {$bills_source}
+    JOIN {$bill_items_source}
         ON bi.bill_id = b.id
        AND bi.item_status = 0
-    LEFT JOIN tests t
+    LEFT JOIN {$tests_source}
         ON t.id = bi.test_id
     WHERE b.patient_id = ?
       AND b.bill_status != 'Void'

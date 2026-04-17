@@ -1,6 +1,7 @@
 <?php
 $required_role = ["writer", "superadmin"];
 require_once '../includes/auth_check.php';
+require_once '../includes/db_connect.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -78,16 +79,47 @@ if ($width > 12000 || $height > 12000) {
 }
 
 $item_id = isset($_POST['item_id']) ? (int)$_POST['item_id'] : 0;
-$year = date('Y');
-$month = date('m');
-$relative_dir = 'uploads/report_images/' . $year . '/' . $month;
+$reporting_doctor = 'unassigned_radiologist';
+$main_category = 'uncategorized';
+
 if ($item_id > 0) {
-    $relative_dir .= '/item_' . $item_id;
+    $meta_stmt = $conn->prepare(
+        "SELECT bi.reporting_doctor,
+                COALESCE(NULLIF(t.main_test_name, ''), 'uncategorized') AS main_category
+         FROM bill_items bi
+         LEFT JOIN tests t ON t.id = bi.test_id
+         WHERE bi.id = ?
+         LIMIT 1"
+    );
+    if ($meta_stmt) {
+        $meta_stmt->bind_param('i', $item_id);
+        if ($meta_stmt->execute()) {
+            $meta_row = $meta_stmt->get_result()->fetch_assoc();
+            if ($meta_row) {
+                $reporting_doctor = trim((string)($meta_row['reporting_doctor'] ?? '')) ?: $reporting_doctor;
+                $main_category = trim((string)($meta_row['main_category'] ?? '')) ?: $main_category;
+            }
+        }
+        $meta_stmt->close();
+    }
 }
 
-$project_root = dirname(__DIR__);
-$absolute_dir = $project_root . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relative_dir);
-if (!is_dir($absolute_dir) && !mkdir($absolute_dir, 0775, true)) {
+try {
+    if (function_exists('data_storage_reports_directory')) {
+        $report_path_meta = data_storage_reports_directory($reporting_doctor, $main_category);
+        $relative_dir = $report_path_meta['relative_path'];
+        $absolute_dir = $report_path_meta['absolute_path'];
+    } else {
+        $year = date('Y');
+        $month = date('m');
+        $day = date('d');
+        $relative_dir = 'data/reports/' . $year . '/' . $month . '/uncategorized/' . $day . '/reports';
+        $absolute_dir = dirname(__DIR__) . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relative_dir);
+        if (!is_dir($absolute_dir) && !mkdir($absolute_dir, 0775, true) && !is_dir($absolute_dir)) {
+            throw new RuntimeException('Unable to create reports directory.');
+        }
+    }
+} catch (Throwable $e) {
     respond_json(false, 'Unable to prepare image storage directory.', [], 500);
 }
 
@@ -103,8 +135,12 @@ if (!move_uploaded_file($tmp_name, $absolute_path)) {
     respond_json(false, 'Unable to save uploaded image.', [], 500);
 }
 
+if (function_exists('data_storage_copy_absolute_file_to_mirror')) {
+    data_storage_copy_absolute_file_to_mirror($absolute_path);
+}
+
 $relative_path = $relative_dir . '/' . $file_name;
-$public_url = '/' . ltrim($relative_path, '/');
+$public_url = '/file_proxy.php?path=' . rawurlencode($relative_path);
 
 respond_json(true, 'Image uploaded successfully.', [
     'url' => $public_url,

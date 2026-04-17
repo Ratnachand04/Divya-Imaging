@@ -4,6 +4,12 @@ header('Content-Type: application/json; charset=utf-8');
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
 
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
+$bill_edit_requests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_edit_requests', 'ber') : '`bill_edit_requests` ber';
+
 $role = $_SESSION['role'] ?? '';
 $action = isset($_GET['action']) ? trim($_GET['action']) : '';
 
@@ -25,8 +31,8 @@ switch ($action) {
             respondForbidden();
         }
         $query = "SELECT b.id, p.name AS patient_name, b.net_amount, b.balance_amount, b.updated_at
-                   FROM bills b
-                   JOIN patients p ON b.patient_id = p.id
+                                     FROM {$bills_source}
+                                     JOIN {$patients_source} ON b.patient_id = p.id
                    WHERE b.bill_status != 'Void'
                      AND b.amount_paid > 0.01
                                          AND ROUND(GREATEST(b.net_amount - COALESCE(b.amount_paid, 0), 0), 2) > 0.01
@@ -75,7 +81,7 @@ switch ($action) {
         }
 
                 if ($stmt = $conn->prepare("SELECT COUNT(DISTINCT b.id) AS total
-                                                                        FROM bills b
+                                                                        FROM {$bills_source}
                                                                         WHERE b.bill_status != 'Void'
                                                                             AND ROUND(GREATEST(b.net_amount - COALESCE(b.amount_paid, 0), 0), 2) > 0.01")) {
             $stmt->execute();
@@ -87,8 +93,8 @@ switch ($action) {
         }
 
         if ($stmt = $conn->prepare("SELECT COUNT(*) AS total
-                                    FROM bill_items bi
-                                    JOIN bills b ON bi.bill_id = b.id
+                                    FROM {$bill_items_source}
+                                    JOIN {$bills_source} ON bi.bill_id = b.id
                                     WHERE bi.report_status = 'Pending' AND b.bill_status != 'Void'")) {
             $stmt->execute();
             $stmt->bind_result($total);
@@ -108,8 +114,8 @@ switch ($action) {
         $lastRequestId = isset($_GET['last_request_id']) ? (int)$_GET['last_request_id'] : 0;
 
         $stmt = $conn->prepare("SELECT ber.id, ber.bill_id, ber.reason_for_change, ber.created_at, u.username
-                                 FROM bill_edit_requests ber
-                                 JOIN users u ON ber.receptionist_id = u.id
+                     FROM {$bill_edit_requests_source}
+                     JOIN {$users_source} ON ber.receptionist_id = u.id
                                  WHERE ber.status = 'pending'
                                  ORDER BY ber.id DESC
                                  LIMIT 1");

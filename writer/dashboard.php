@@ -9,6 +9,12 @@ $pending_uploads = [];
 $writer_task_queue = [];
 $today_task_count = 0;
 $pending_task_count = 0;
+$writer_report_success = '';
+
+if (!empty($_SESSION['writer_report_success'])) {
+    $writer_report_success = (string)$_SESSION['writer_report_success'];
+    unset($_SESSION['writer_report_success']);
+}
 
 $today = date('Y-m-d');
 $start_date = $_GET['start_date'] ?? $today;
@@ -225,9 +231,14 @@ require_once '../includes/header.php';
             <p>Select an action to begin your reporting workflow.</p>
         </div>
         <div class="page-actions">
+            <a class="btn-outline" href="saved_bills.php">Saved Bills</a>
             <a class="btn-outline" href="templates.php">Templates</a>
         </div>
     </div>
+
+    <?php if ($writer_report_success !== ''): ?>
+        <div class="reports-alert" style="margin-top:-0.5rem; margin-bottom:0.25rem;"><?php echo htmlspecialchars($writer_report_success); ?></div>
+    <?php endif; ?>
 
     <div class="writer-task-panel">
         <div class="writer-task-header">

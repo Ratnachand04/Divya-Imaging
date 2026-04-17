@@ -3,7 +3,13 @@ $page_title = "Patients";
 $required_role = "superadmin";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
 require_once '../includes/header.php';
+
+$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
 
 $sa_active_page = 'patients.php';
 
@@ -25,14 +31,14 @@ $sql = "
             ),
             'Self / Other'
         ) AS ref_doc
-    FROM patients p
-    LEFT JOIN bills b
+    FROM {$patients_source}
+    LEFT JOIN {$bills_source}
         ON b.patient_id = p.id
        AND b.bill_status != 'Void'
-    LEFT JOIN bill_items bi
+    LEFT JOIN {$bill_items_source}
         ON bi.bill_id = b.id
        AND bi.item_status = 0
-    LEFT JOIN referral_doctors rd
+    LEFT JOIN {$referral_doctors_source}
         ON rd.id = b.referral_doctor_id
        AND b.referral_type = 'Doctor'
     GROUP BY p.id, p.uid, p.name, p.city

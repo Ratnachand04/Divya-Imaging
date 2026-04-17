@@ -9,6 +9,9 @@ require_once '../includes/functions.php';
 
 ensure_bill_payment_split_columns($conn);
 
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+
 // --- 1. GET AND PREPARE FILTERS & PAGINATION ---
 $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : date('Y-m-01');
 $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : date('Y-m-t');
@@ -33,9 +36,9 @@ $where_sql = " WHERE " . implode(' AND ', $where_clauses);
 
 // --- 3. GET SUMMARY COUNTS (Full Paid, Partial Paid) ---
 $summary_query = "SELECT 
-                    SUM(CASE WHEN payment_status = 'Paid' THEN 1 ELSE 0 END) as full_paid_count,
-                    SUM(CASE WHEN payment_status = 'Partial Paid' THEN 1 ELSE 0 END) as partial_paid_count
-                  FROM bills b" . $where_sql;
+                                        SUM(CASE WHEN b.payment_status = 'Paid' THEN 1 ELSE 0 END) as full_paid_count,
+                                        SUM(CASE WHEN b.payment_status = 'Partial Paid' THEN 1 ELSE 0 END) as partial_paid_count
+                                    FROM {$bills_source}" . $where_sql;
 $stmt_summary = $conn->prepare($summary_query);
 $stmt_summary->bind_param($types, ...$params);
 $stmt_summary->execute();
@@ -46,7 +49,7 @@ $full_paid_count = $summary_result['full_paid_count'] ?? 0;
 $partial_paid_count = $summary_result['partial_paid_count'] ?? 0;
 
 // --- 4. GET TOTAL RECORD COUNT FOR PAGINATION ---
-$count_query = "SELECT COUNT(b.id) as total FROM bills b" . $where_sql;
+$count_query = "SELECT COUNT(b.id) as total FROM {$bills_source}" . $where_sql;
 $stmt_count = $conn->prepare($count_query);
 $stmt_count->bind_param($types, ...$params);
 $stmt_count->execute();
@@ -56,8 +59,8 @@ $stmt_count->close();
 
 // --- 5. GET PAGINATED DATA FOR THE TABLE ---
 $data_query = "SELECT b.id, b.invoice_number, p.uid as patient_uid, p.name as patient_name, b.net_amount, b.payment_status, b.payment_mode, b.cash_amount, b.card_amount, b.upi_amount, b.other_amount, b.created_at
-               FROM bills b
-               JOIN patients p ON b.patient_id = p.id" . $where_sql . "
+               FROM {$bills_source}
+               JOIN {$patients_source} ON b.patient_id = p.id" . $where_sql . "
                ORDER BY b.created_at DESC
                LIMIT ? OFFSET ?";
 $data_params = $params;

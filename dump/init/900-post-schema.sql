@@ -317,6 +317,111 @@ ALTER TABLE `doctor_test_payables`
   ADD CONSTRAINT `doctor_test_payables_ibfk_1` FOREIGN KEY (`doctor_id`) REFERENCES `referral_doctors` (`id`) ON DELETE CASCADE,
   ADD CONSTRAINT `doctor_test_payables_ibfk_2` FOREIGN KEY (`test_id`) REFERENCES `tests` (`id`) ON DELETE CASCADE;
 
+--
+-- Package feature constraints (applied after primary keys/indexes exist)
+--
+SET @fk_package_tests_package_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.TABLE_CONSTRAINTS
+  WHERE CONSTRAINT_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'package_tests'
+    AND CONSTRAINT_NAME = 'fk_package_tests_package'
+    AND CONSTRAINT_TYPE = 'FOREIGN KEY'
+);
+SET @fk_package_tests_package_sql = IF(
+  @fk_package_tests_package_exists = 0,
+  'ALTER TABLE package_tests ADD CONSTRAINT fk_package_tests_package FOREIGN KEY (package_id) REFERENCES test_packages(id) ON DELETE CASCADE',
+  'SELECT 1'
+);
+PREPARE stmt_fk_package_tests_package FROM @fk_package_tests_package_sql;
+EXECUTE stmt_fk_package_tests_package;
+DEALLOCATE PREPARE stmt_fk_package_tests_package;
+
+SET @fk_package_tests_test_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.TABLE_CONSTRAINTS
+  WHERE CONSTRAINT_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'package_tests'
+    AND CONSTRAINT_NAME = 'fk_package_tests_test'
+    AND CONSTRAINT_TYPE = 'FOREIGN KEY'
+);
+SET @fk_package_tests_test_sql = IF(
+  @fk_package_tests_test_exists = 0,
+  'ALTER TABLE package_tests ADD CONSTRAINT fk_package_tests_test FOREIGN KEY (test_id) REFERENCES tests(id) ON DELETE CASCADE',
+  'SELECT 1'
+);
+PREPARE stmt_fk_package_tests_test FROM @fk_package_tests_test_sql;
+EXECUTE stmt_fk_package_tests_test;
+DEALLOCATE PREPARE stmt_fk_package_tests_test;
+
+SET @fk_bill_package_items_bill_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.TABLE_CONSTRAINTS
+  WHERE CONSTRAINT_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'bill_package_items'
+    AND CONSTRAINT_NAME = 'fk_bill_package_items_bill'
+    AND CONSTRAINT_TYPE = 'FOREIGN KEY'
+);
+SET @fk_bill_package_items_bill_sql = IF(
+  @fk_bill_package_items_bill_exists = 0,
+  'ALTER TABLE bill_package_items ADD CONSTRAINT fk_bill_package_items_bill FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE CASCADE',
+  'SELECT 1'
+);
+PREPARE stmt_fk_bill_package_items_bill FROM @fk_bill_package_items_bill_sql;
+EXECUTE stmt_fk_bill_package_items_bill;
+DEALLOCATE PREPARE stmt_fk_bill_package_items_bill;
+
+SET @fk_bill_package_items_bill_item_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.TABLE_CONSTRAINTS
+  WHERE CONSTRAINT_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'bill_package_items'
+    AND CONSTRAINT_NAME = 'fk_bill_package_items_bill_item'
+    AND CONSTRAINT_TYPE = 'FOREIGN KEY'
+);
+SET @fk_bill_package_items_bill_item_sql = IF(
+  @fk_bill_package_items_bill_item_exists = 0,
+  'ALTER TABLE bill_package_items ADD CONSTRAINT fk_bill_package_items_bill_item FOREIGN KEY (bill_item_id) REFERENCES bill_items(id) ON DELETE CASCADE',
+  'SELECT 1'
+);
+PREPARE stmt_fk_bill_package_items_bill_item FROM @fk_bill_package_items_bill_item_sql;
+EXECUTE stmt_fk_bill_package_items_bill_item;
+DEALLOCATE PREPARE stmt_fk_bill_package_items_bill_item;
+
+SET @fk_bill_package_items_package_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.TABLE_CONSTRAINTS
+  WHERE CONSTRAINT_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'bill_package_items'
+    AND CONSTRAINT_NAME = 'fk_bill_package_items_package'
+    AND CONSTRAINT_TYPE = 'FOREIGN KEY'
+);
+SET @fk_bill_package_items_package_sql = IF(
+  @fk_bill_package_items_package_exists = 0,
+  'ALTER TABLE bill_package_items ADD CONSTRAINT fk_bill_package_items_package FOREIGN KEY (package_id) REFERENCES test_packages(id) ON DELETE CASCADE',
+  'SELECT 1'
+);
+PREPARE stmt_fk_bill_package_items_package FROM @fk_bill_package_items_package_sql;
+EXECUTE stmt_fk_bill_package_items_package;
+DEALLOCATE PREPARE stmt_fk_bill_package_items_package;
+
+SET @fk_bill_package_items_test_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.TABLE_CONSTRAINTS
+  WHERE CONSTRAINT_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'bill_package_items'
+    AND CONSTRAINT_NAME = 'fk_bill_package_items_test'
+    AND CONSTRAINT_TYPE = 'FOREIGN KEY'
+);
+SET @fk_bill_package_items_test_sql = IF(
+  @fk_bill_package_items_test_exists = 0,
+  'ALTER TABLE bill_package_items ADD CONSTRAINT fk_bill_package_items_test FOREIGN KEY (test_id) REFERENCES tests(id) ON DELETE CASCADE',
+  'SELECT 1'
+);
+PREPARE stmt_fk_bill_package_items_test FROM @fk_bill_package_items_test_sql;
+EXECUTE stmt_fk_bill_package_items_test;
+DEALLOCATE PREPARE stmt_fk_bill_package_items_test;
+
 -- --------------------------------------------------------
 
 --
@@ -328,6 +433,10 @@ ALTER TABLE `users` MODIFY `role` enum('manager','receptionist','accountant','wr
 UPDATE `users` SET `role` = 'platform_admin' WHERE `role` = 'developer';
 
 COMMIT;
+
+SET @OLD_CHARACTER_SET_CLIENT = IFNULL(@OLD_CHARACTER_SET_CLIENT, @@character_set_client);
+SET @OLD_CHARACTER_SET_RESULTS = IFNULL(@OLD_CHARACTER_SET_RESULTS, @@character_set_results);
+SET @OLD_COLLATION_CONNECTION = IFNULL(@OLD_COLLATION_CONNECTION, @@collation_connection);
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;

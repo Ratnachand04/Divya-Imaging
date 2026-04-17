@@ -5,6 +5,9 @@ require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
 require_once '../includes/functions.php';
 
+$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+
 // Explicitly deny patient edit attempts for receptionist role.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'edit_patient') {
     header('Content-Type: application/json');
@@ -25,8 +28,8 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
             $stmt = $conn->prepare(
                 "SELECT p.id, p.uid, p.name, p.age, p.sex, p.mobile_number, p.address, p.city,
                         COUNT(DISTINCT b.id) AS visit_count
-                 FROM patients p
-                 LEFT JOIN bills b ON b.patient_id = p.id AND b.bill_status != 'Void'
+                  FROM {$patients_source}
+                  LEFT JOIN {$bills_source} ON b.patient_id = p.id AND b.bill_status != 'Void'
                  WHERE p.uid LIKE ? OR p.name LIKE ? OR p.mobile_number LIKE ?
                  GROUP BY p.id ORDER BY p.name ASC LIMIT 100"
             );

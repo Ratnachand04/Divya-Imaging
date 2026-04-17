@@ -109,7 +109,7 @@ require_once '../includes/header.php';
     <div class="dashboard-header">
         <div>
             <h1>Report Library</h1>
-            <p class="description">Review uploaded reports saved in the in-site Word editor, open printable view, and edit anytime.</p>
+            <p class="description">Review uploaded reports, open printable view, and start the next locked copy from the Word workspace when needed.</p>
         </div>
         <div class="page-actions">
             <a class="btn-secondary" href="dashboard.php">Back to Dashboard</a>
@@ -159,7 +159,7 @@ require_once '../includes/header.php';
                                         <?php endif; ?>
                                         <div style="display:flex;gap:0.45rem;flex-wrap:wrap;">
                                             <a class="btn-view-report" href="<?php echo htmlspecialchars($report['view_url']); ?>" target="_blank" rel="noopener">View Report</a>
-                                            <a class="btn-timeline" href="<?php echo htmlspecialchars($report['edit_url']); ?>">Edit in Word App</a>
+                                            <a class="btn-timeline" href="<?php echo htmlspecialchars($report['edit_url']); ?>">Open in Word App</a>
                                         </div>
                                     </div>
                                 </td>

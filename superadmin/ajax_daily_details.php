@@ -6,6 +6,12 @@ ini_set('display_errors', 0);
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
 
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
+$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
+
 // Ensure no output has been sent yet
 if (ob_get_length()) ob_clean();
 
@@ -45,9 +51,9 @@ try {
             b.net_amount, 
             b.payment_mode,
             rd.doctor_name
-        FROM bills b
-        JOIN patients p ON b.patient_id = p.id
-        LEFT JOIN referral_doctors rd ON b.referral_doctor_id = rd.id
+        FROM {$bills_source}
+        JOIN {$patients_source} ON b.patient_id = p.id
+        LEFT JOIN {$referral_doctors_source} ON b.referral_doctor_id = rd.id
         WHERE b.created_at BETWEEN ? AND ? AND b.bill_status != 'Void'
         ORDER BY b.created_at DESC
     ";
@@ -83,9 +89,9 @@ try {
         SELECT 
             COALESCE(CONCAT_WS(' - ', t.main_test_name, NULLIF(t.sub_test_name, '')), 'Uncategorized') AS test_name,
             COUNT(*) as count
-        FROM bill_items bi
-        JOIN bills b ON bi.bill_id = b.id
-        LEFT JOIN tests t ON bi.test_id = t.id
+        FROM {$bill_items_source}
+        JOIN {$bills_source} ON bi.bill_id = b.id
+        LEFT JOIN {$tests_source} ON bi.test_id = t.id
         WHERE b.created_at BETWEEN ? AND ? AND b.bill_status != 'Void' AND bi.item_status = 0
         GROUP BY test_name
         ORDER BY count DESC

@@ -32,3 +32,6 @@ Table data files:
 - 119-data-developer_settings.sql
 - 120-data-ip_diagnostics.sql
 - 121-data-app_settings.sql
+- 122-data-test_packages.sql
+- 123-data-package_tests.sql
+- 124-data-bill_package_items.sql

@@ -6,6 +6,13 @@ require_once '../includes/db_connect.php';
 require_once '../includes/functions.php';
 require_once '../includes/header.php';
 
+$bills_source_metrics = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b_metrics') : '`bills` b_metrics';
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+$referral_doctors_source_lookup = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
+$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
+
 $start_date = $_GET['start_date'] ?? date('Y-m-01');
 $end_date = $_GET['end_date'] ?? date('Y-m-t');
 $referral_type = $_GET['referral_type'] ?? 'all'; // 'center', 'doctor', or 'all'
@@ -29,12 +36,12 @@ $discount_center_count = 0;
 $discount_doctor_count = 0;
 
 $metrics_stmt = $conn->prepare("SELECT 
-    SUM(CASE WHEN discount > 0 THEN discount ELSE 0 END) as total,
-    SUM(CASE WHEN discount_by = 'Center' AND discount > 0 THEN discount ELSE 0 END) as by_center,
-    SUM(CASE WHEN discount_by = 'Doctor' AND discount > 0 THEN discount ELSE 0 END) as by_doctor,
-    SUM(CASE WHEN discount_by = 'Center' AND discount > 0 THEN 1 ELSE 0 END) as center_count,
-    SUM(CASE WHEN discount_by = 'Doctor' AND discount > 0 THEN 1 ELSE 0 END) as doctor_count
-    FROM bills WHERE created_at BETWEEN ? AND ?");
+    SUM(CASE WHEN b_metrics.discount > 0 THEN b_metrics.discount ELSE 0 END) as total,
+    SUM(CASE WHEN b_metrics.discount_by = 'Center' AND b_metrics.discount > 0 THEN b_metrics.discount ELSE 0 END) as by_center,
+    SUM(CASE WHEN b_metrics.discount_by = 'Doctor' AND b_metrics.discount > 0 THEN b_metrics.discount ELSE 0 END) as by_doctor,
+    SUM(CASE WHEN b_metrics.discount_by = 'Center' AND b_metrics.discount > 0 THEN 1 ELSE 0 END) as center_count,
+    SUM(CASE WHEN b_metrics.discount_by = 'Doctor' AND b_metrics.discount > 0 THEN 1 ELSE 0 END) as doctor_count
+    FROM {$bills_source_metrics} WHERE b_metrics.created_at BETWEEN ? AND ?");
 $metrics_stmt->bind_param("ss", $start_date, $end_date_sql);
 $metrics_stmt->execute();
 $metrics_result = $metrics_stmt->get_result();
@@ -49,7 +56,7 @@ $metrics_stmt->close();
 
 // Fetch doctors list
 $doctors_list = [];
-$doctor_stmt = $conn->prepare("SELECT DISTINCT rd.id, rd.doctor_name FROM referral_doctors rd ORDER BY rd.doctor_name");
+$doctor_stmt = $conn->prepare("SELECT DISTINCT rd.id, rd.doctor_name FROM {$referral_doctors_source_lookup} ORDER BY rd.doctor_name");
 $doctor_stmt->execute();
 $doctor_result = $doctor_stmt->get_result();
 while ($doc = $doctor_result->fetch_assoc()) {
@@ -201,7 +208,7 @@ $doctor_stmt->close();
 
                     $where_clause = implode(" AND ", $where_clauses);
 
-                    $count_stmt = $conn->prepare("SELECT COUNT(*) AS total FROM bills b JOIN patients p ON b.patient_id = p.id WHERE $where_clause");
+                    $count_stmt = $conn->prepare("SELECT COUNT(*) AS total FROM {$bills_source} JOIN {$patients_source} ON b.patient_id = p.id WHERE $where_clause");
                     if ($count_stmt === false) {
                         die('Failed to prepare discount count statement.');
                     }
@@ -224,7 +231,7 @@ $doctor_stmt->close();
                     $data_params[] = $rows_per_page;
                     $data_params[] = $offset;
 
-                    $discount_stmt = $conn->prepare("SELECT b.id, b.created_at, b.patient_id, b.net_amount, b.discount, b.discount_by, p.uid as patient_uid, p.name as patient_name FROM bills b JOIN patients p ON b.patient_id = p.id WHERE $where_clause ORDER BY b.created_at DESC LIMIT ? OFFSET ?");
+                    $discount_stmt = $conn->prepare("SELECT b.id, b.created_at, b.patient_id, b.net_amount, b.discount, b.discount_by, p.uid as patient_uid, p.name as patient_name FROM {$bills_source} JOIN {$patients_source} ON b.patient_id = p.id WHERE $where_clause ORDER BY b.created_at DESC LIMIT ? OFFSET ?");
                     
                     $discount_stmt->bind_param($data_param_types, ...$data_params);
                     $discount_stmt->execute();
@@ -234,7 +241,7 @@ $doctor_stmt->close();
                         while ($bill = $discount_result->fetch_assoc()):
                             $bill_paid = $bill['net_amount'] + $bill['discount'];
                             // Get test names for this bill
-                            $test_stmt = $conn->prepare("SELECT GROUP_CONCAT(DISTINCT COALESCE(NULLIF(t.sub_test_name, ''), NULLIF(t.main_test_name, ''), 'Unnamed Test') SEPARATOR ', ') AS test_names FROM bill_items bi LEFT JOIN tests t ON bi.test_id = t.id WHERE bi.bill_id = ?");
+                            $test_stmt = $conn->prepare("SELECT GROUP_CONCAT(DISTINCT COALESCE(NULLIF(t.sub_test_name, ''), NULLIF(t.main_test_name, ''), 'Unnamed Test') SEPARATOR ', ') AS test_names FROM {$bill_items_source} LEFT JOIN {$tests_source} ON bi.test_id = t.id WHERE bi.bill_id = ?");
                             $test_stmt->bind_param("i", $bill['id']);
                             $test_stmt->execute();
                             $test_result = $test_stmt->get_result();

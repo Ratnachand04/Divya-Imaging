@@ -27,6 +27,7 @@ TIMESTAMP=$(date +"%Y-%m-%d_%H%M%S")
 
 BACKUP_DIR="dump/backup/${YEAR}/${MONTH}"
 BACKUP_FILE="${BACKUP_DIR}/backup_${TIMESTAMP}.sql"
+MIRROR_DIR="${BACKUP_DIR}/sql_bundle_${TIMESTAMP}"
 
 echo "Backup folder: ${BACKUP_DIR}"
 echo "Backup file:   ${BACKUP_FILE}"
@@ -63,6 +64,13 @@ if [ $? -eq 0 ] && [ -s "${BACKUP_FILE}" ]; then
     echo "Backup completed successfully!"
     echo "File: ${BACKUP_FILE}"
     echo "Size: ${FILE_SIZE}"
+
+    mkdir -p "${MIRROR_DIR}"
+    if cp -R dump/init "${MIRROR_DIR}/init"; then
+        echo "SQL bundle mirrored: ${MIRROR_DIR}"
+    else
+        echo "WARNING: SQL bundle mirror failed."
+    fi
     
     echo "Stored in dump/backup automatically."
 else

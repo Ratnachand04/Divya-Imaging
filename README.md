@@ -176,7 +176,7 @@ Key files:
 |- docker-compose.yml        Dev/full compose
 |- docker-compose.deploy.yml Deploy/pull-image compose
 |- dump/diagnostic_center_db_.sql Key schema source file
-|- dump/init/*.sql           Split SQL orchestrators (schema + tunnel + post schema)
+|- dump/init/*.sql           Split SQL orchestrators (schema + package feature + tunnel + post schema)
 |- dump/init/tables/*.sql    Per-table data SQL files sourced by tunnel
 ```
 
@@ -341,12 +341,33 @@ monthly-backup.bat
 
 Backup files are stored in: `dump/backup/YEAR/MONTH/backup_*.sql`
 
+Each backup run also mirrors the split SQL bundle to:
+
+- `dump/backup/.../sql_bundle_.../init/` (main schema flow files + per-table files)
+
 ### Automatic monthly backup
 
 Container startup validates monthly backup and configures cron:
 
 - Schedule: 1st day of month at 02:00
 - Command: `php data_backup/backup_engine.php`
+
+### One-click mirror repair
+
+Repair mirror tables by re-seeding only tables where source/mirror row counts diverge:
+
+```bat
+repair-mirror.bat
+```
+
+```bash
+./repair-mirror.sh
+```
+
+Direct command (inside web container):
+
+- `docker exec diagnostic-center-web php /var/www/html/data_backup/repair_mirror_tables.php`
+- Use `--all` to force re-seed all mirror tables.
 
 ### Restore (Docker)
 

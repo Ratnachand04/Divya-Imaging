@@ -16,12 +16,25 @@ ensureBillItemDiscountColumn($conn);
 ensure_bill_payment_split_columns($conn);
 ensure_package_management_schema($conn);
 
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
+$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
+$test_packages_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'test_packages', 'tp') : '`test_packages` tp';
+$bill_item_screenings_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_item_screenings', 'bis') : '`bill_item_screenings` bis';
+$bill_package_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_package_items', 'bpi') : '`bill_package_items` bpi';
+$package_tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'package_tests', 'pt') : '`package_tests` pt';
+$patients_source_lookup = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p_lookup') : '`patients` p_lookup';
+$referral_doctors_source_lookup = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd_lookup') : '`referral_doctors` rd_lookup';
+$tests_source_lookup = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't_lookup') : '`tests` t_lookup';
+$test_packages_source_lookup = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'test_packages', 'tp_lookup') : '`test_packages` tp_lookup';
+
 // #############################################################################
-// ### PDF SAVE PATH (relative to this file's directory) ###
+// ### PDF SAVE PATH (fallback relative to this file's directory) ###
 // #############################################################################
-// The 'YEAR/MONTH/DAY' subfolders will be auto-created inside this path.
-// Docker: mapped to a persistent volume via docker-compose.yml
-$pdf_save_path = '../saved_bills';
+// Main flow uses data_storage_receipts_directory() from includes/functions.php.
+$pdf_save_path = '../data';
 
 /**
  * Ensures the auxiliary table for storing per-item screening charges exists.
@@ -37,15 +50,11 @@ function ensureBillItemScreeningsTable(mysqli $conn) {
  * Adds the per-item discount column to bill_items when missing.
  */
 function ensureBillItemDiscountColumn(mysqli $conn) {
-    $columnCheck = $conn->query("SHOW COLUMNS FROM bill_items LIKE 'discount_amount'");
-    if ($columnCheck && $columnCheck->num_rows === 0) {
+    if (!function_exists('schema_has_column') || !schema_has_column($conn, 'bill_items', 'discount_amount')) {
         $alterSql = "ALTER TABLE bill_items ADD COLUMN discount_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER test_id";
         if (!$conn->query($alterSql)) {
             error_log('Failed to add discount_amount column to bill_items: ' . $conn->error);
         }
-    }
-    if ($columnCheck instanceof mysqli_result) {
-        $columnCheck->free();
     }
 }
 
@@ -53,12 +62,21 @@ function ensureBillItemDiscountColumn(mysqli $conn) {
  * Generates and saves the bill PDF to a structured directory.
  */
 function generateAndSaveBillPdf($bill_id, $conn, $patient_name, $base_save_path) {
+    $bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+    $patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+    $referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
+    $bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+    $tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
+    $test_packages_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'test_packages', 'tp') : '`test_packages` tp';
+    $bill_item_screenings_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_item_screenings', 'bis') : '`bill_item_screenings` bis';
+    $bill_package_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_package_items', 'bpi') : '`bill_package_items` bpi';
+
     // 1. --- Fetch all necessary bill data ---
     $stmt = $conn->prepare(
         "SELECT b.*, p.uid as patient_uid, p.name as patient_name, p.age, p.sex, p.mobile_number, rd.doctor_name as referral_doctor_name
-         FROM bills b
-         JOIN patients p ON b.patient_id = p.id
-         LEFT JOIN referral_doctors rd ON b.referral_doctor_id = rd.id
+         FROM {$bills_source}
+         JOIN {$patients_source} ON b.patient_id = p.id
+         LEFT JOIN {$referral_doctors_source} ON b.referral_doctor_id = rd.id
          WHERE b.id = ?"
     );
     $stmt->bind_param("i", $bill_id);
@@ -80,10 +98,10 @@ function generateAndSaveBillPdf($bill_id, $conn, $patient_name, $base_save_path)
                 t.sub_test_name,
                 t.price,
                 COALESCE(bis.screening_amount, 0) AS screening_amount
-         FROM bill_items bi
-         LEFT JOIN tests t ON bi.test_id = t.id
-         LEFT JOIN test_packages tp ON tp.id = bi.package_id
-         LEFT JOIN bill_item_screenings bis ON bis.bill_item_id = bi.id
+                 FROM {$bill_items_source}
+                 LEFT JOIN {$tests_source} ON bi.test_id = t.id
+                 LEFT JOIN {$test_packages_source} ON tp.id = bi.package_id
+                 LEFT JOIN {$bill_item_screenings_source} ON bis.bill_item_id = bi.id
          WHERE bi.bill_id = ?
            AND bi.item_status = 0
            AND (COALESCE(bi.item_type, 'test') = 'package' OR bi.package_id IS NULL)
@@ -95,10 +113,10 @@ function generateAndSaveBillPdf($bill_id, $conn, $patient_name, $base_save_path)
 
     $package_breakdown_map = [];
     $package_items_stmt = $conn->prepare(
-        "SELECT bill_item_id, test_name, package_test_price
-         FROM bill_package_items
-         WHERE bill_id = ?
-         ORDER BY id ASC"
+           "SELECT bpi.bill_item_id, bpi.test_name, bpi.package_test_price
+            FROM {$bill_package_items_source}
+            WHERE bpi.bill_id = ?
+            ORDER BY bpi.id ASC"
     );
     if ($package_items_stmt) {
         $package_items_stmt->bind_param('i', $bill_id);
@@ -212,13 +230,37 @@ function generateAndSaveBillPdf($bill_id, $conn, $patient_name, $base_save_path)
     $dompdf->setPaper('A4', 'portrait'); $dompdf->render();
 
     // 4. --- Create directory structure and save the file ---
-    $year = date('Y'); $month = date('m_F'); $day = date('d');
-    $directory = rtrim($base_save_path, '/') . "/{$year}/{$month}/{$day}";
-    if (!is_dir($directory)) { mkdir($directory, 0775, true); }
+    if (function_exists('data_storage_receipts_directory')) {
+        try {
+            $receipt_path_meta = data_storage_receipts_directory();
+            $directory = $receipt_path_meta['absolute_path'];
+        } catch (Throwable $e) {
+            error_log('Receipt storage path resolution failed: ' . $e->getMessage());
+            $directory = '';
+        }
+    } else {
+        $directory = '';
+    }
+
+    if ($directory === '') {
+        $year = date('Y');
+        $month = date('m');
+        $day = date('d');
+        $directory = rtrim($base_save_path, '/') . "/receipts/{$year}/{$month}/{$day}/bill_receipts";
+        if (!is_dir($directory)) {
+            mkdir($directory, 0775, true);
+        }
+    }
+
     $safe_patient_name = preg_replace('/[^A-Za-z0-9\-]/', '_', $patient_name);
     $filename = "{$bill['id']}_{$safe_patient_name}.pdf";
-    $file_path = "{$directory}/{$filename}";
+    $file_path = rtrim($directory, '/\\') . DIRECTORY_SEPARATOR . $filename;
     file_put_contents($file_path, $dompdf->output());
+
+    if (function_exists('data_storage_copy_absolute_file_to_mirror')) {
+        data_storage_copy_absolute_file_to_mirror($file_path);
+    }
+
     return true;
 }
 
@@ -279,7 +321,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 throw new Exception("Patient ID must be in DCYYYYNNNN format.");
             }
 
-            $stmt_existing = $conn->prepare("SELECT id, uid, name, age, sex, address, city, mobile_number FROM patients WHERE uid = ? LIMIT 1");
+            $stmt_existing = $conn->prepare("SELECT p_lookup.id, p_lookup.uid, p_lookup.name, p_lookup.age, p_lookup.sex, p_lookup.address, p_lookup.city, p_lookup.mobile_number FROM {$patients_source_lookup} WHERE p_lookup.uid = ? LIMIT 1");
             if (!$stmt_existing) {
                 throw new Exception("Failed to prepare patient lookup: " . $conn->error);
             }
@@ -319,7 +361,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             if (!empty($_POST['referral_doctor_id']) && $_POST['referral_doctor_id'] === 'other') {
                 $new_doctor_name = trim($_POST['other_doctor_name'] ?? '');
                 if ($new_doctor_name !== '') {
-                    $stmt_doc_check = $conn->prepare("SELECT id FROM referral_doctors WHERE doctor_name = ?");
+                    $stmt_doc_check = $conn->prepare("SELECT rd_lookup.id FROM {$referral_doctors_source_lookup} WHERE rd_lookup.doctor_name = ?");
                     $stmt_doc_check->bind_param("s", $new_doctor_name);
                     $stmt_doc_check->execute();
                     $doc_result = $stmt_doc_check->get_result();
@@ -389,7 +431,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         if (!empty($structured_tests)) {
             $test_ids = array_column($structured_tests, 'id');
             $placeholders = implode(',', array_fill(0, count($test_ids), '?'));
-            $stmt_prices = $conn->prepare("SELECT id, price FROM tests WHERE id IN ($placeholders)");
+            $stmt_prices = $conn->prepare("SELECT t_lookup.id, t_lookup.price FROM {$tests_source_lookup} WHERE t_lookup.id IN ($placeholders)");
             if (!$stmt_prices) {
                 throw new Exception("Failed to prepare test price lookup: " . $conn->error);
             }
@@ -410,7 +452,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $pkg_placeholders = implode(',', array_fill(0, count($package_ids), '?'));
             $pkg_types = str_repeat('i', count($package_ids));
 
-            $stmt_packages = $conn->prepare("SELECT id, package_code, package_name, total_base_price, package_price, discount_amount, status FROM test_packages WHERE id IN ($pkg_placeholders)");
+            $stmt_packages = $conn->prepare("SELECT tp_lookup.id, tp_lookup.package_code, tp_lookup.package_name, tp_lookup.total_base_price, tp_lookup.package_price, tp_lookup.discount_amount, tp_lookup.status FROM {$test_packages_source_lookup} WHERE tp_lookup.id IN ($pkg_placeholders)");
             if (!$stmt_packages) {
                 throw new Exception('Failed to prepare package lookup: ' . $conn->error);
             }
@@ -424,8 +466,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
             $stmt_package_tests = $conn->prepare(
                 "SELECT pt.package_id, pt.test_id, pt.base_test_price, pt.package_test_price, t.main_test_name, t.sub_test_name
-                 FROM package_tests pt
-                 JOIN tests t ON t.id = pt.test_id
+                  FROM {$package_tests_source}
+                  JOIN {$tests_source} ON t.id = pt.test_id
                  WHERE pt.package_id IN ($pkg_placeholders)
                  ORDER BY pt.package_id ASC, pt.display_order ASC, pt.id ASC"
             );
@@ -716,15 +758,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 }
 
 // --- DATA FETCHING FOR FORM ---
-$doctors_result = $conn->query("SELECT id, doctor_name FROM referral_doctors WHERE is_active = 1 ORDER BY doctor_name ASC");
-$tests_result = $conn->query("SELECT id, main_test_name, sub_test_name, price FROM tests ORDER BY main_test_name, sub_test_name ASC");
+$doctors_result = $conn->query("SELECT rd.id, rd.doctor_name FROM {$referral_doctors_source} WHERE rd.is_active = 1 ORDER BY rd.doctor_name ASC");
+$tests_result = $conn->query("SELECT t.id, t.main_test_name, t.sub_test_name, t.price FROM {$tests_source} ORDER BY t.main_test_name, t.sub_test_name ASC");
 $tests_by_category = [];
 while ($test = $tests_result->fetch_assoc()) {
     $tests_by_category[$test['main_test_name']][] = $test;
 }
 
 $packages_map = [];
-$packages_heads_result = $conn->query("SELECT id, package_code, package_name, total_base_price, package_price, discount_amount, discount_percent FROM test_packages WHERE status = 'active' ORDER BY package_name ASC");
+$packages_heads_result = $conn->query("SELECT tp.id, tp.package_code, tp.package_name, tp.total_base_price, tp.package_price, tp.discount_amount, tp.discount_percent FROM {$test_packages_source} WHERE tp.status = 'active' ORDER BY tp.package_name ASC");
 if ($packages_heads_result instanceof mysqli_result) {
     while ($pkg = $packages_heads_result->fetch_assoc()) {
         $pid = (int)$pkg['id'];
@@ -748,8 +790,8 @@ if (!empty($packages_map)) {
     $pkg_types = str_repeat('i', count($package_ids));
     $package_tests_stmt = $conn->prepare(
         "SELECT pt.package_id, pt.test_id, pt.base_test_price, pt.package_test_price, t.main_test_name, t.sub_test_name
-         FROM package_tests pt
-         JOIN tests t ON t.id = pt.test_id
+            FROM {$package_tests_source}
+            JOIN {$tests_source} ON t.id = pt.test_id
          WHERE pt.package_id IN ($pkg_placeholders)
          ORDER BY pt.package_id ASC, pt.display_order ASC, pt.id ASC"
     );

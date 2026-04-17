@@ -3,6 +3,15 @@
 $required_role = "superadmin";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
+
+$referral_doctors_source_lookup = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd_lookup') : '`referral_doctors` rd_lookup';
+$tests_source_lookup = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't_lookup') : '`tests` t_lookup';
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
+$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
 
 // --- Get filter parameters from the URL, identical to analytics.php ---
 $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : date('Y-m-01');
@@ -18,7 +27,7 @@ if ($referral_type !== 'all') {
     $active_filters[] = ["Filter Type" => "Referral Type", "Value" => ucfirst($referral_type)];
 }
 if ($doctor_id !== 'all') {
-    $stmt_doc = $conn->prepare("SELECT doctor_name FROM referral_doctors WHERE id = ?");
+    $stmt_doc = $conn->prepare("SELECT rd_lookup.doctor_name FROM {$referral_doctors_source_lookup} WHERE rd_lookup.id = ?");
     $stmt_doc->bind_param("i", $doctor_id);
     $stmt_doc->execute();
     $doc_name = $stmt_doc->get_result()->fetch_assoc()['doctor_name'] ?? 'N/A';
@@ -29,7 +38,7 @@ if ($main_test !== 'all') {
     $active_filters[] = ["Filter Type" => "Test Category", "Value" => $main_test];
 }
 if ($sub_test_id !== 'all') {
-    $stmt_test = $conn->prepare("SELECT sub_test_name FROM tests WHERE id = ?");
+    $stmt_test = $conn->prepare("SELECT t_lookup.sub_test_name FROM {$tests_source_lookup} WHERE t_lookup.id = ?");
     $stmt_test->bind_param("i", $sub_test_id);
     $stmt_test->execute();
     $test_name = $stmt_test->get_result()->fetch_assoc()['sub_test_name'] ?? 'N/A';
@@ -52,11 +61,11 @@ $query = "
         b.referral_source_other, 
         rd.doctor_name, 
         GROUP_CONCAT(t.sub_test_name SEPARATOR ', ') as tests
-    FROM bills b
-    JOIN patients p ON b.patient_id = p.id
-    JOIN bill_items bi ON b.id = bi.bill_id
-    JOIN tests t ON bi.test_id = t.id
-    LEFT JOIN referral_doctors rd ON b.referral_doctor_id = rd.id
+    FROM {$bills_source}
+    JOIN {$patients_source} ON b.patient_id = p.id
+    JOIN {$bill_items_source} ON b.id = bi.bill_id
+    JOIN {$tests_source} ON bi.test_id = t.id
+    LEFT JOIN {$referral_doctors_source} ON b.referral_doctor_id = rd.id
     WHERE b.created_at BETWEEN ? AND ?
 ";
 $params = [$start_date, $end_date . ' 23:59:59'];

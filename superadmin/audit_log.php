@@ -3,9 +3,11 @@ $page_title = "Audit Log";
 $required_role = "superadmin";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
 require_once '../includes/header.php';
 
 $sa_active_page = 'global_settings.php';
+$system_audit_log_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'system_audit_log', 'sal') : '`system_audit_log` sal';
 
 // --- Handle Filters with Session Persistence ---
 $filter_key = 'audit_log_filters';
@@ -28,21 +30,21 @@ $end_date = $_SESSION[$filter_key]['end_date'] ?? (isset($_GET['end_date']) ? $_
 $filter_action = $_SESSION[$filter_key]['action_type'] ?? (isset($_GET['action_type']) ? $_GET['action_type'] : '');
 
 // Fetch distinct action types for dropdown
-$actions_query = "SELECT DISTINCT action_type FROM system_audit_log ORDER BY action_type";
+$actions_query = "SELECT DISTINCT sal.action_type FROM {$system_audit_log_source} ORDER BY sal.action_type";
 $actions_result = $conn->query($actions_query);
 
 // Build Main Query
-$sql = "SELECT * FROM system_audit_log WHERE DATE(logged_at) BETWEEN ? AND ?";
+$sql = "SELECT sal.* FROM {$system_audit_log_source} WHERE DATE(sal.logged_at) BETWEEN ? AND ?";
 $params = [$start_date, $end_date];
 $types = "ss";
 
 if (!empty($filter_action)) {
-    $sql .= " AND action_type = ?";
+    $sql .= " AND sal.action_type = ?";
     $params[] = $filter_action;
     $types .= "s";
 }
 
-$sql .= " ORDER BY logged_at DESC";
+$sql .= " ORDER BY sal.logged_at DESC";
 
 $stmt = $conn->prepare($sql);
 $stmt->bind_param($types, ...$params);

@@ -6,6 +6,8 @@ require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
 require_once '../includes/functions.php';
 
+$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
+
 $sa_active_page = 'employees.php';
 
 $conn->query("ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR(120) NULL AFTER username");
@@ -148,7 +150,7 @@ if (!$user_id) {
 }
 
 // Fetch current user data
-$stmt_fetch_orig = $conn->prepare("SELECT username, COALESCE(NULLIF(full_name, ''), username) AS full_name, COALESCE(NULLIF(employee_role, ''), role) AS employee_role, role, COALESCE(account_details, '') AS account_details, document_path, is_active FROM users WHERE id = ?");
+$stmt_fetch_orig = $conn->prepare("SELECT u.username, COALESCE(NULLIF(u.full_name, ''), u.username) AS full_name, COALESCE(NULLIF(u.employee_role, ''), u.role) AS employee_role, u.role, COALESCE(u.account_details, '') AS account_details, u.document_path, u.is_active FROM {$users_source} WHERE u.id = ?");
 $stmt_fetch_orig->bind_param("i", $user_id);
 $stmt_fetch_orig->execute();
 $original_user = $stmt_fetch_orig->get_result()->fetch_assoc();

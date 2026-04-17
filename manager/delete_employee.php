@@ -4,6 +4,8 @@ $required_role = "manager";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
 
+$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
+
 $feedback = '';
 $user_id_to_delete = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
@@ -13,7 +15,7 @@ if (!$user_id_to_delete) {
 }
 
 // Get user info before deleting
-$stmt_fetch = $conn->prepare("SELECT username, role FROM users WHERE id = ?");
+$stmt_fetch = $conn->prepare("SELECT u.username, u.role FROM {$users_source} WHERE u.id = ?");
 $stmt_fetch->bind_param("i", $user_id_to_delete);
 $stmt_fetch->execute();
 $user = $stmt_fetch->get_result()->fetch_assoc();

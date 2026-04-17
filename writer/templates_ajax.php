@@ -70,17 +70,27 @@ function build_template_urls($documentPath) {
     if (!$documentPath) {
         return [null, null, null];
     }
-    $normalized = str_replace(['../', '..\\'], '', $documentPath);
-    $normalized = str_replace('\\', '/', $normalized);
-    $normalized = trim($normalized, '/');
+
+    $absolute = writer_locate_template_file($documentPath);
+    if (!$absolute || !is_file($absolute)) {
+        return [null, null, null];
+    }
+
+    $projectRoot = dirname(__DIR__);
+    $absoluteNormalized = str_replace('\\', '/', $absolute);
+    $rootNormalized = str_replace('\\', '/', rtrim($projectRoot, '\\/'));
+
+    if (strpos($absoluteNormalized, $rootNormalized . '/') === 0) {
+        $normalized = substr($absoluteNormalized, strlen($rootNormalized) + 1);
+    } else {
+        $normalized = trim(str_replace(['../', '..\\'], '', str_replace('\\', '/', (string)$documentPath)), '/');
+    }
+
     if ($normalized === '') {
         return [null, null, null];
     }
+
     $publicUrl = '../' . $normalized;
-    $absolute = dirname(__DIR__) . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $normalized);
-    if (!file_exists($absolute)) {
-        return [null, null, null];
-    }
     $base = get_project_base_url();
     $absoluteUrl = $base . '/' . $normalized;
     $viewerUrl = 'https://view.officeapps.live.com/op/embed.aspx?src=' . rawurlencode($absoluteUrl);
@@ -89,8 +99,8 @@ function build_template_urls($documentPath) {
 
 if (!function_exists('writer_sanitize_template_segment')) {
     function writer_sanitize_template_segment($value) {
-        $value = strtolower(trim((string)$value));
-        $value = preg_replace('/[^a-z0-9]+/', '_', $value);
+        $value = trim((string)$value);
+        $value = preg_replace('/[^A-Za-z0-9]+/', '_', $value);
         $value = preg_replace('/_+/', '_', $value);
         $value = trim($value, '_');
         return $value === '' ? 'template' : $value;
@@ -102,9 +112,9 @@ if (!function_exists('writer_build_template_storage_info')) {
         $baseSlug = writer_sanitize_template_segment($mainTestName);
         $subSlug = writer_sanitize_template_segment($subTestName);
         $projectRoot = dirname(__DIR__);
-        $relativeDir = 'uploads/report_templates/' . $baseSlug;
+        $relativeDir = 'templates/report_templates/' . $baseSlug;
         $absoluteDir = $projectRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativeDir);
-        $fileName = $baseSlug . '_' . $subSlug . '.docx';
+        $fileName = $subSlug . '.docx';
         return [
             'dir' => $absoluteDir,
             'relative' => $relativeDir . '/' . $fileName,
@@ -120,13 +130,43 @@ if (!function_exists('writer_locate_template_file')) {
         if ($normalized === '') {
             return null;
         }
+
         $projectRoot = dirname(__DIR__);
-        $absolute = $projectRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $normalized);
-        if (file_exists($absolute)) {
-            return $absolute;
+
+        $directAbsolute = $projectRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $normalized);
+        if (file_exists($directAbsolute)) {
+            return $directAbsolute;
         }
-        $legacyAbsolute = $projectRoot . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'test_documents' . DIRECTORY_SEPARATOR . basename($normalized);
-        return file_exists($legacyAbsolute) ? $legacyAbsolute : null;
+
+        $relativeCandidates = [
+            'templates/report_templates/' . $normalized,
+            'uploads/report_templates/' . $normalized,
+            'uploads/test_documents/' . basename($normalized),
+        ];
+
+        foreach ($relativeCandidates as $candidate) {
+            $absolute = $projectRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $candidate);
+            if (file_exists($absolute)) {
+                return $absolute;
+            }
+        }
+
+        $baseName = basename($normalized);
+        if ($baseName !== '') {
+            $globPatterns = [
+                $projectRoot . '/templates/report_templates/*/' . $baseName,
+                $projectRoot . '/uploads/report_templates/*/' . $baseName,
+            ];
+
+            foreach ($globPatterns as $pattern) {
+                $matches = glob($pattern);
+                if (!empty($matches)) {
+                    return $matches[0];
+                }
+            }
+        }
+
+        return null;
     }
 }
 
@@ -136,7 +176,10 @@ if (!function_exists('writer_delete_template_file')) {
         if (!$absolute) {
             return;
         }
-        $isNewStructure = strpos(str_replace('\\', '/', $absolute), '/uploads/report_templates/') !== false;
+
+        $normalized = str_replace('\\', '/', $absolute);
+        $isNewStructure = strpos($normalized, '/templates/report_templates/') !== false
+            || strpos($normalized, '/uploads/report_templates/') !== false;
         if ($isNewStructure) {
             @unlink($absolute);
         }

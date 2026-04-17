@@ -7,6 +7,16 @@ require_once '../includes/functions.php';
 
 ensure_package_management_schema($conn);
 
+$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
+$test_packages_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'test_packages', 'tp') : '`test_packages` tp';
+
+$patient_identifier_expr = function_exists('get_patient_identifier_expression')
+    ? get_patient_identifier_expression($conn, 'p')
+    : 'CAST(p.id AS CHAR)';
+
 // --- Handle Filters ---
 $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : date('Y-m-d'); // Default to today
 $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : date('Y-m-d'); // Default to today
@@ -15,7 +25,7 @@ $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : date('Y-m-d'); // Def
 $sql = "SELECT
             bi.id as bill_item_id,
             b.id as bill_id,
-            p.uid as patient_uid,
+            {$patient_identifier_expr} as patient_uid,
             p.name as patient_name,
             p.age as patient_age,
             p.sex as patient_sex,
@@ -24,11 +34,11 @@ $sql = "SELECT
             COALESCE(NULLIF(bi.package_name, ''), tp.package_name) AS package_name,
             bi.report_status,
             b.created_at as bill_date
-        FROM bill_items bi
-        JOIN bills b ON bi.bill_id = b.id
-        JOIN patients p ON b.patient_id = p.id
-        JOIN tests t ON bi.test_id = t.id
-        LEFT JOIN test_packages tp ON tp.id = bi.package_id
+        FROM {$bill_items_source}
+        JOIN {$bills_source} ON bi.bill_id = b.id
+        JOIN {$patients_source} ON b.patient_id = p.id
+        JOIN {$tests_source} ON bi.test_id = t.id
+        LEFT JOIN {$test_packages_source} ON tp.id = bi.package_id
         WHERE DATE(b.created_at) BETWEEN ? AND ?
                     AND b.bill_status != 'Void'
                     AND COALESCE(bi.report_status, 'Pending') = 'Completed'"; // Managers see reports only after writer upload
@@ -93,6 +103,7 @@ require_once '../includes/header.php';
                 <?php if ($report_items && $report_items->num_rows > 0): ?>
                     <?php while($item = $report_items->fetch_assoc()): ?>
                         <?php $report_link = "../templates/print_report.php?item_id=" . $item['bill_item_id']; ?>
+                        <?php $report_download_link = $report_link . "&download=1"; ?>
                         <tr>
                             <td><?php echo $item['bill_id']; ?></td>
                             <td><span style="font-size:0.82rem;color:#666;"><?php echo htmlspecialchars($item['patient_uid'] ?? ''); ?></span></td>
@@ -121,11 +132,12 @@ require_once '../includes/header.php';
                                 </a>
                             </td>
                              <td>
-                                <button
-                                   onclick="window.open('<?php echo $report_link; ?>');"
-                                   class="btn-action btn-primary">
-                                   Print Report
-                                </button>
+                                          <a href="<?php echo htmlspecialchars($report_download_link); ?>"
+                                              class="btn-action btn-primary"
+                                              target="_blank"
+                                              rel="noopener">
+                                              Print Report
+                                          </a>
                                 </td>
                         </tr>
                     <?php endwhile; ?>

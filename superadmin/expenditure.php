@@ -3,6 +3,7 @@ $page_title = "Financials";
 $required_role = "superadmin";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
 require_once '../includes/header.php';
 
 $sa_active_page = 'expenditure.php';
@@ -37,6 +38,16 @@ if (!function_exists('format_inr')) {
     }
 }
 
+if (!function_exists('expenditure_read_source')) {
+    function expenditure_read_source(mysqli $conn, string $tableName, string $alias): string
+    {
+        if (function_exists('table_scale_get_read_source')) {
+            return table_scale_get_read_source($conn, $tableName, $alias);
+        }
+        return '`' . $tableName . '` ' . $alias;
+    }
+}
+
 function fetchFinancialSummary(mysqli $conn, string $startDate, string $endDate): array
 {
     $summary = [
@@ -51,7 +62,7 @@ function fetchFinancialSummary(mysqli $conn, string $startDate, string $endDate)
             COALESCE(SUM(CASE WHEN b.bill_status != 'Void' THEN b.net_amount ELSE 0 END), 0) AS revenue,
             COALESCE(SUM(CASE WHEN b.bill_status != 'Void' AND b.discount_by = 'Center' THEN COALESCE(b.discount, 0) ELSE 0 END), 0) AS discount_center,
             COALESCE(SUM(CASE WHEN b.bill_status != 'Void' AND b.discount_by = 'Doctor' THEN COALESCE(b.discount, 0) ELSE 0 END), 0) AS discount_doctor
-        FROM bills b
+        FROM " . expenditure_read_source($conn, 'bills', 'b') . "
         WHERE DATE(b.created_at) BETWEEN ? AND ?
     ";
 
@@ -71,10 +82,10 @@ function fetchFinancialSummary(mysqli $conn, string $startDate, string $endDate)
     $professionalSql = "
         SELECT
             COALESCE(SUM(COALESCE(dtp.payable_amount, t.default_payable_amount, 0)), 0) AS professional_charges
-        FROM bills b
-        JOIN bill_items bi ON bi.bill_id = b.id AND bi.item_status = 0
-        LEFT JOIN tests t ON t.id = bi.test_id
-        LEFT JOIN doctor_test_payables dtp ON dtp.doctor_id = b.referral_doctor_id AND dtp.test_id = bi.test_id
+        FROM " . expenditure_read_source($conn, 'bills', 'b') . "
+        JOIN " . expenditure_read_source($conn, 'bill_items', 'bi') . " ON bi.bill_id = b.id AND bi.item_status = 0
+        LEFT JOIN " . expenditure_read_source($conn, 'tests', 't') . " ON t.id = bi.test_id
+        LEFT JOIN " . expenditure_read_source($conn, 'doctor_test_payables', 'dtp') . " ON dtp.doctor_id = b.referral_doctor_id AND dtp.test_id = bi.test_id
         WHERE b.bill_status != 'Void'
           AND DATE(b.created_at) BETWEEN ? AND ?
     ";
@@ -101,7 +112,7 @@ function fetchPaymentModeRevenue(mysqli $conn, string $startDate, string $endDat
         SELECT
             COALESCE(NULLIF(b.payment_mode, ''), 'Unspecified') AS payment_mode,
             COALESCE(SUM(b.net_amount), 0) AS total_revenue
-        FROM bills b
+                FROM " . expenditure_read_source($conn, 'bills', 'b') . "
         WHERE b.bill_status != 'Void'
           AND DATE(b.created_at) BETWEEN ? AND ?
         GROUP BY payment_mode
@@ -133,7 +144,7 @@ function fetchTopExpenditures(mysqli $conn, string $startDate, string $endDate):
         SELECT
             COALESCE(NULLIF(e.expense_type, ''), 'Uncategorised') AS expense_type,
             COALESCE(SUM(e.amount), 0) AS total_amount
-        FROM expenses e
+        FROM " . expenditure_read_source($conn, 'expenses', 'e') . "
         WHERE DATE(e.created_at) BETWEEN ? AND ?
         GROUP BY expense_type
         ORDER BY total_amount DESC
@@ -165,11 +176,11 @@ function fetchTopProfessionalCharges(mysqli $conn, string $startDate, string $en
         SELECT
             COALESCE(rd.doctor_name, 'Unknown Doctor') AS doctor_name,
             COALESCE(SUM(COALESCE(dtp.payable_amount, t.default_payable_amount, 0)), 0) AS total_amount
-        FROM bills b
-        JOIN bill_items bi ON bi.bill_id = b.id AND bi.item_status = 0
-        LEFT JOIN tests t ON t.id = bi.test_id
-        LEFT JOIN doctor_test_payables dtp ON dtp.doctor_id = b.referral_doctor_id AND dtp.test_id = bi.test_id
-        LEFT JOIN referral_doctors rd ON rd.id = b.referral_doctor_id
+        FROM " . expenditure_read_source($conn, 'bills', 'b') . "
+        JOIN " . expenditure_read_source($conn, 'bill_items', 'bi') . " ON bi.bill_id = b.id AND bi.item_status = 0
+        LEFT JOIN " . expenditure_read_source($conn, 'tests', 't') . " ON t.id = bi.test_id
+        LEFT JOIN " . expenditure_read_source($conn, 'doctor_test_payables', 'dtp') . " ON dtp.doctor_id = b.referral_doctor_id AND dtp.test_id = bi.test_id
+        LEFT JOIN " . expenditure_read_source($conn, 'referral_doctors', 'rd') . " ON rd.id = b.referral_doctor_id
         WHERE b.bill_status != 'Void'
           AND b.referral_type = 'Doctor'
           AND DATE(b.created_at) BETWEEN ? AND ?

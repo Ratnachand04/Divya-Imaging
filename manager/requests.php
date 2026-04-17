@@ -5,6 +5,11 @@ $required_role = "manager"; //
 require_once '../includes/auth_check.php'; //
 require_once '../includes/db_connect.php'; //
 
+$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
+$bill_edit_requests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_edit_requests', 'r') : '`bill_edit_requests` r';
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+
 // --- Handle Filters ---
 $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : date('Y-m-01');
 $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : date('Y-m-t');
@@ -12,7 +17,7 @@ $receptionist_filter = isset($_GET['receptionist_id']) && $_GET['receptionist_id
 $status_filter = isset($_GET['status']) && $_GET['status'] !== 'all' ? trim($_GET['status']) : 'all';
 
 // --- Fetch Receptionists for Filter Dropdown ---
-$receptionists_result = $conn->query("SELECT id, username FROM users WHERE role = 'receptionist' ORDER BY username");
+$receptionists_result = $conn->query("SELECT u.id, u.username FROM {$users_source} WHERE u.role = 'receptionist' ORDER BY u.username");
 $receptionists = $receptionists_result->fetch_all(MYSQLI_ASSOC);
 
 // --- Fetch ALL requests, using LEFT JOINs and applying filters ---
@@ -21,10 +26,10 @@ $sql = "SELECT
             u.username AS receptionist,
             p.name as patient_name,
             p.uid as patient_uid
-        FROM bill_edit_requests r
-        JOIN users u ON r.receptionist_id = u.id
-        LEFT JOIN bills b ON r.bill_id = b.id
-        LEFT JOIN patients p ON b.patient_id = p.id
+    FROM {$bill_edit_requests_source}
+    JOIN {$users_source} ON r.receptionist_id = u.id
+    LEFT JOIN {$bills_source} ON r.bill_id = b.id
+    LEFT JOIN {$patients_source} ON b.patient_id = p.id
         "; // Base query joining necessary tables
 
 $where_clauses = ["DATE(r.created_at) BETWEEN ? AND ?"];

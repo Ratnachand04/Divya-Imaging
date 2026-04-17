@@ -6,6 +6,8 @@ require_once '../includes/db_connect.php';
 require_once '../includes/functions.php';
 require_once '../includes/header.php';
 
+$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
+
 $sa_active_page = 'global_settings.php';
 $feedback = isset($_SESSION['feedback']) ? $_SESSION['feedback'] : '';
 unset($_SESSION['feedback']);
@@ -22,7 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_employee_access']
     } elseif (!in_array($role, $allowedRoles, true)) {
         $feedback = "<div class='error-banner'>Invalid role selected.</div>";
     } else {
-        $stmt_check = $conn->prepare("SELECT id FROM users WHERE username = ?");
+        $stmt_check = $conn->prepare("SELECT u.id FROM {$users_source} WHERE u.username = ?");
         $stmt_check->bind_param('s', $username);
         $stmt_check->execute();
         $stmt_check->store_result();
@@ -46,7 +48,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_employee_access']
     }
 }
 
-$accounts = $conn->query("SELECT id, username, role, is_active, created_at FROM users WHERE role IN ('receptionist', 'accountant', 'writer', 'manager') AND COALESCE(NULLIF(full_name, ''), '') = '' ORDER BY username ASC");
+$accounts = $conn->query("SELECT u.id, u.username, u.role, u.is_active, u.created_at FROM {$users_source} WHERE u.role IN ('receptionist', 'accountant', 'writer', 'manager') AND COALESCE(NULLIF(u.full_name, ''), '') = '' ORDER BY u.username ASC");
 ?>
 
 <link rel="stylesheet" href="<?php echo $base_url; ?>/assets/css/superadmin_shell.css?v=<?php echo time(); ?>">

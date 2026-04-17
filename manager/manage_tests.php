@@ -3,11 +3,15 @@ $page_title = "Manage Tests";
 $required_role = "manager"; //
 require_once '../includes/auth_check.php'; //
 require_once '../includes/db_connect.php'; //
+require_once '../includes/functions.php';
+
+$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
+$tests_source_lookup = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't_lookup') : '`tests` t_lookup';
 
 if (!function_exists('sanitize_template_segment')) {
     function sanitize_template_segment($value) {
-        $value = strtolower(trim((string)$value));
-        $value = preg_replace('/[^a-z0-9]+/', '_', $value);
+        $value = trim((string)$value);
+        $value = preg_replace('/[^A-Za-z0-9]+/', '_', $value);
         $value = preg_replace('/_+/', '_', $value);
         $value = trim($value, '_');
         return $value === '' ? 'template' : $value;
@@ -19,9 +23,9 @@ if (!function_exists('build_template_storage_info')) {
         $baseSlug = sanitize_template_segment($mainTestName);
         $subSlug = sanitize_template_segment($subTestName);
         $projectRoot = dirname(__DIR__);
-        $relativeDir = 'uploads/report_templates/' . $baseSlug;
+        $relativeDir = 'templates/report_templates/' . $baseSlug;
         $absoluteDir = $projectRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativeDir);
-        $fileName = $baseSlug . '_' . $subSlug . '.docx';
+        $fileName = $subSlug . '.docx';
         $absolutePath = $absoluteDir . DIRECTORY_SEPARATOR . $fileName;
         $relativePath = $relativeDir . '/' . $fileName;
         return [
@@ -41,15 +45,42 @@ if (!function_exists('locate_template_file')) {
         }
 
         $projectRoot = dirname(__DIR__);
-        $absolute = $projectRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $normalized);
-        if (file_exists($absolute)) {
-            return ['public' => '../' . $normalized, 'absolute' => $absolute];
+        $directAbsolute = $projectRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $normalized);
+        if (file_exists($directAbsolute)) {
+            return ['public' => '../' . $normalized, 'absolute' => $directAbsolute];
         }
 
-        $legacyFile = basename($normalized);
-        $legacyAbsolute = $projectRoot . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'test_documents' . DIRECTORY_SEPARATOR . $legacyFile;
-        if (file_exists($legacyAbsolute)) {
-            return ['public' => '../uploads/test_documents/' . $legacyFile, 'absolute' => $legacyAbsolute];
+        $relativeCandidates = [
+            'templates/report_templates/' . $normalized,
+            'uploads/report_templates/' . $normalized,
+            'uploads/test_documents/' . basename($normalized),
+        ];
+
+        foreach ($relativeCandidates as $candidate) {
+            $absolute = $projectRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $candidate);
+            if (file_exists($absolute)) {
+                return ['public' => '../' . $candidate, 'absolute' => $absolute];
+            }
+        }
+
+        $baseName = basename($normalized);
+        if ($baseName !== '') {
+            $globPatterns = [
+                $projectRoot . '/templates/report_templates/*/' . $baseName,
+                $projectRoot . '/uploads/report_templates/*/' . $baseName,
+            ];
+
+            foreach ($globPatterns as $pattern) {
+                $matches = glob($pattern);
+                if (!empty($matches)) {
+                    $match = str_replace('\\', '/', $matches[0]);
+                    $rootNormalized = str_replace('\\', '/', rtrim($projectRoot, '\\/'));
+                    if (strpos($match, $rootNormalized . '/') === 0) {
+                        $relative = substr($match, strlen($rootNormalized) + 1);
+                        return ['public' => '../' . $relative, 'absolute' => $matches[0]];
+                    }
+                }
+            }
         }
 
         return ['public' => null, 'absolute' => null];
@@ -63,7 +94,9 @@ if (!function_exists('delete_template_file')) {
             return;
         }
 
-        $isNewStructure = strpos(str_replace('\\', '/', $info['absolute']), '/uploads/report_templates/') !== false;
+        $normalized = str_replace('\\', '/', $info['absolute']);
+        $isNewStructure = strpos($normalized, '/templates/report_templates/') !== false
+            || strpos($normalized, '/uploads/report_templates/') !== false;
         if ($isNewStructure) {
             @unlink($info['absolute']);
         }
@@ -123,7 +156,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // --- Check if test name already exists (for ADDING only) ---
         if (!$test_id) { //
-            $stmt_check = $conn->prepare("SELECT id FROM tests WHERE main_test_name = ? AND sub_test_name = ?"); //
+            $stmt_check = $conn->prepare("SELECT t_lookup.id FROM {$tests_source_lookup} WHERE t_lookup.main_test_name = ? AND t_lookup.sub_test_name = ?"); //
             $stmt_check->bind_param("ss", $main_test_name, $sub_test_name); //
             $stmt_check->execute(); //
             $stmt_check->store_result(); //
@@ -181,7 +214,7 @@ $is_editing = isset($_GET['edit']); //
 
 if ($is_editing && !$feedback) { // Only fetch if editing AND no error occurred on POST
     $edit_id = (int)$_GET['edit']; //
-    $edit_stmt = $conn->prepare("SELECT id, main_test_name, sub_test_name, price, default_payable_amount, document FROM tests WHERE id = ?"); //
+    $edit_stmt = $conn->prepare("SELECT t.id, t.main_test_name, t.sub_test_name, t.price, t.default_payable_amount, t.document FROM {$tests_source} WHERE t.id = ?"); //
     $edit_stmt->bind_param("i", $edit_id); //
     $edit_stmt->execute(); //
     $edit_test = $edit_stmt->get_result()->fetch_assoc(); //
@@ -193,24 +226,24 @@ $filter_main_test = isset($_GET['main_test']) && $_GET['main_test'] !== 'all' ? 
 $filter_sub_test = isset($_GET['sub_test']) ? trim($_GET['sub_test']) : ''; //
 
 // --- Fetch distinct main test names FOR FILTER AND FORM DROPDOWNS ---
-$categories_result = $conn->query("SELECT DISTINCT main_test_name FROM tests ORDER BY main_test_name ASC"); //
+$categories_result = $conn->query("SELECT DISTINCT t.main_test_name FROM {$tests_source} ORDER BY t.main_test_name ASC"); //
 $categories = $categories_result->fetch_all(MYSQLI_ASSOC); //
 // --- NEW: Convert to a simple array for easier checking ---
 $existing_categories = array_column($categories, 'main_test_name');
 
 // --- Fetch all tests FOR THE TABLE DISPLAY (with filters applied - Existing Logic) ---
-$sql = "SELECT id, main_test_name, sub_test_name, price, default_payable_amount, document FROM tests"; //
+$sql = "SELECT t.id, t.main_test_name, t.sub_test_name, t.price, t.default_payable_amount, t.document FROM {$tests_source}"; //
 $where_clauses = []; //
 $params = []; //
 $types = ''; //
 
 if ($filter_main_test !== 'all') { //
-    $where_clauses[] = "main_test_name = ?"; //
+    $where_clauses[] = "t.main_test_name = ?"; //
     $params[] = $filter_main_test; //
     $types .= 's'; //
 }
 if (!empty($filter_sub_test)) { //
-    $where_clauses[] = "sub_test_name LIKE ?"; //
+    $where_clauses[] = "t.sub_test_name LIKE ?"; //
     $params[] = "%{$filter_sub_test}%"; //
     $types .= 's'; //
 }
@@ -219,7 +252,7 @@ if (!empty($where_clauses)) { //
     $sql .= " WHERE " . implode(" AND ", $where_clauses); //
 }
 
-$sql .= " ORDER BY main_test_name, sub_test_name"; //
+$sql .= " ORDER BY t.main_test_name, t.sub_test_name"; //
 
 $stmt_tests = $conn->prepare($sql); //
 if ($stmt_tests === false) { die("Error preparing test list query: " . $conn->error); } //

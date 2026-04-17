@@ -7,6 +7,7 @@ if (session_status() === PHP_SESSION_NONE) {
 
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
 
 if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'superadmin') {
     http_response_code(403);
@@ -37,6 +38,10 @@ if ($endObj < $startObj) {
 $startDateSql = $conn->real_escape_string($startObj->format('Y-m-d') . ' 00:00:00');
 $endDateSql = $conn->real_escape_string($endObj->format('Y-m-d') . ' 23:59:59');
 
+$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
+$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+
 $majorTests = [];
 
 $majorSql = "
@@ -45,9 +50,9 @@ $majorSql = "
         COUNT(CASE WHEN b.id IS NOT NULL THEN bi.id END) AS total_test_count,
         COALESCE(SUM(CASE WHEN b.bill_status != 'Void' AND b.created_at BETWEEN '{$startDateSql}' AND '{$endDateSql}' THEN (t.price - bi.discount_amount) ELSE 0 END), 0) AS total_revenue,
         COALESCE(SUM(CASE WHEN bi.report_status = 'Completed' AND b.bill_status != 'Void' AND b.created_at BETWEEN '{$startDateSql}' AND '{$endDateSql}' THEN 1 ELSE 0 END), 0) AS total_reports_done
-    FROM tests t
-    LEFT JOIN bill_items bi ON bi.test_id = t.id AND bi.item_status = 0
-    LEFT JOIN bills b ON b.id = bi.bill_id AND b.bill_status != 'Void' AND b.created_at BETWEEN '{$startDateSql}' AND '{$endDateSql}'
+    FROM {$tests_source}
+    LEFT JOIN {$bill_items_source} ON bi.test_id = t.id AND bi.item_status = 0
+    LEFT JOIN {$bills_source} ON b.id = bi.bill_id AND b.bill_status != 'Void' AND b.created_at BETWEEN '{$startDateSql}' AND '{$endDateSql}'
     GROUP BY t.main_test_name
     ORDER BY t.main_test_name ASC
 ";
@@ -68,9 +73,9 @@ $subSql = "
         COUNT(CASE WHEN b.id IS NOT NULL THEN bi.id END) AS billed_count,
         COUNT(CASE WHEN b.id IS NOT NULL THEN bi.id END) AS performed_count,
         COALESCE(SUM(CASE WHEN bi.report_status = 'Completed' AND b.bill_status != 'Void' AND b.created_at BETWEEN '{$startDateSql}' AND '{$endDateSql}' THEN 1 ELSE 0 END), 0) AS done_count
-    FROM tests t
-    LEFT JOIN bill_items bi ON bi.test_id = t.id AND bi.item_status = 0
-    LEFT JOIN bills b ON b.id = bi.bill_id AND b.bill_status != 'Void' AND b.created_at BETWEEN '{$startDateSql}' AND '{$endDateSql}'
+    FROM {$tests_source}
+    LEFT JOIN {$bill_items_source} ON bi.test_id = t.id AND bi.item_status = 0
+    LEFT JOIN {$bills_source} ON b.id = bi.bill_id AND b.bill_status != 'Void' AND b.created_at BETWEEN '{$startDateSql}' AND '{$endDateSql}'
     GROUP BY t.main_test_name, t.id, sub_test_name
     ORDER BY t.main_test_name ASC, sub_test_name ASC
 ";

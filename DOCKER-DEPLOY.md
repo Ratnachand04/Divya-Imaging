@@ -221,6 +221,8 @@ docker exec diagnostic-center-db mysqldump -u root -proot_password diagnostic_ce
 backup-db.bat          # Windows
 ```
 
+Included backup scripts also mirror the split SQL init bundle into `dump/backup/.../sql_bundle_.../` at backup time.
+
 ### Restore
 ```bash
 docker exec -i diagnostic-center-db mysql -u root -proot_password diagnostic_center_db < backup.sql

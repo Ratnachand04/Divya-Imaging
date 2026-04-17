@@ -5,6 +5,8 @@ require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
 require_once '../includes/functions.php';
 
+$expenses_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'expenses', 'e') : '`expenses` e';
+
 $error_message = '';
 $expense_id = 0;
 
@@ -19,7 +21,7 @@ if ($expense_id <= 0) {
     exit();
 }
 
-$expense_stmt = $conn->prepare("SELECT id, expense_type, amount, status, proof_path, accountant_id, created_at FROM expenses WHERE id = ?");
+$expense_stmt = $conn->prepare("SELECT e.id, e.expense_type, e.amount, e.status, e.proof_path, e.accountant_id, e.created_at FROM {$expenses_source} WHERE e.id = ?");
 $expense_stmt->bind_param('i', $expense_id);
 $expense_stmt->execute();
 $expense_result = $expense_stmt->get_result();
@@ -58,17 +60,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } elseif ($_FILES['proof']['size'] > $max_size) {
                 $error_message = 'Proof file must be under 5 MB.';
             } else {
-                $target_dir = '../uploads/expenses/';
-                if (!is_dir($target_dir)) {
-                    mkdir($target_dir, 0777, true);
+                try {
+                    $proof_path_meta = data_storage_expense_proof_directory($expense['expense_type'] ?? 'general');
+                    $target_dir = rtrim($proof_path_meta['absolute_path'], DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
+                    $storage_dir = rtrim($proof_path_meta['storage_path'], '/');
+                } catch (Throwable $e) {
+                    $target_dir = '';
+                    $storage_dir = '';
+                    $error_message = 'Unable to prepare expense proof directory.';
                 }
-                $target_file = $target_dir . uniqid('expense_', true) . '.' . $file_extension;
-                if (move_uploaded_file($_FILES['proof']['tmp_name'], $target_file)) {
-                    $new_proof_path = $target_file;
-                    $proof_updated = true;
-                    $uploaded_file_path = $target_file;
-                } else {
-                    $error_message = 'Unable to upload the proof. Please retry.';
+
+                if ($target_dir !== '' && $storage_dir !== '') {
+                    $target_file = $target_dir . uniqid('expense_', true) . '.' . $file_extension;
+                    if (move_uploaded_file($_FILES['proof']['tmp_name'], $target_file)) {
+                        $new_proof_path = $storage_dir . '/' . basename($target_file);
+                        $proof_updated = true;
+                        $uploaded_file_path = $new_proof_path;
+                        if (function_exists('data_storage_copy_absolute_file_to_mirror')) {
+                            data_storage_copy_absolute_file_to_mirror($target_file);
+                        }
+                    } else {
+                        $error_message = 'Unable to upload the proof. Please retry.';
+                    }
                 }
             }
         } else {

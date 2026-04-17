@@ -8,6 +8,16 @@ require_once '../includes/functions.php';
 ensure_bill_payment_split_columns($conn);
 ensure_package_management_schema($conn);
 
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
+$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
+$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
+$test_packages_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'test_packages', 'tp') : '`test_packages` tp';
+$bill_item_screenings_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_item_screenings', 'bis') : '`bill_item_screenings` bis';
+$bill_package_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_package_items', 'bpi') : '`bill_package_items` bpi';
+
 if (!isset($_GET['bill_id']) || !is_numeric($_GET['bill_id'])) {
     header("Location: generate_bill.php");
     exit();
@@ -17,10 +27,10 @@ $bill_id = (int)$_GET['bill_id'];
 
 $stmt = $conn->prepare(
     "SELECT b.*, p.uid as patient_uid, p.name as patient_name, p.age, p.sex, p.address, p.city, p.mobile_number, u.username as receptionist_username, rd.doctor_name as referral_doctor_name, b.referral_source_other
-     FROM bills b
-     JOIN patients p ON b.patient_id = p.id
-     JOIN users u ON b.receptionist_id = u.id
-     LEFT JOIN referral_doctors rd ON b.referral_doctor_id = rd.id
+    FROM {$bills_source}
+    JOIN {$patients_source} ON b.patient_id = p.id
+    JOIN {$users_source} ON b.receptionist_id = u.id
+    LEFT JOIN {$referral_doctors_source} ON b.referral_doctor_id = rd.id
      WHERE b.id = ?"
 );
 $stmt->bind_param("i", $bill_id);
@@ -65,10 +75,10 @@ $preview_rows = [];
                             t.sub_test_name,
                             t.price,
                             COALESCE(bis.screening_amount, 0) AS screening_amount
-                     FROM bill_items bi
-                     LEFT JOIN tests t ON bi.test_id = t.id
-                     LEFT JOIN test_packages tp ON tp.id = bi.package_id
-                     LEFT JOIN bill_item_screenings bis ON bis.bill_item_id = bi.id
+                                         FROM {$bill_items_source}
+                                         LEFT JOIN {$tests_source} ON bi.test_id = t.id
+                                         LEFT JOIN {$test_packages_source} ON tp.id = bi.package_id
+                                         LEFT JOIN {$bill_item_screenings_source} ON bis.bill_item_id = bi.id
                      WHERE bi.bill_id = ?
                        AND bi.item_status = 0
                        AND (COALESCE(bi.item_type, 'test') = 'package' OR bi.package_id IS NULL)
@@ -80,10 +90,10 @@ $items_result = $items_stmt->get_result();
 
         $package_breakdown_map = [];
         $package_items_stmt = $conn->prepare(
-            "SELECT bill_item_id, test_name, base_test_price, package_test_price
-             FROM bill_package_items
-             WHERE bill_id = ?
-             ORDER BY id ASC"
+              "SELECT bpi.bill_item_id, bpi.test_name, bpi.base_test_price, bpi.package_test_price
+               FROM {$bill_package_items_source}
+               WHERE bpi.bill_id = ?
+               ORDER BY bpi.id ASC"
         );
         if ($package_items_stmt) {
             $package_items_stmt->bind_param('i', $bill_id);

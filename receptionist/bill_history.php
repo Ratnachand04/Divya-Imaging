@@ -7,6 +7,13 @@ require_once '../includes/functions.php';
 
 ensure_bill_payment_split_columns($conn);
 
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
+$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
+$bill_item_screenings_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_item_screenings', 'bis') : '`bill_item_screenings` bis';
+
 // --- Handle All Filters ---
 $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : date('Y-m-d');
 $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : date('Y-m-d');
@@ -32,9 +39,9 @@ $base_query = "SELECT
         b.id, p.uid as patient_uid, p.name as patient_name, b.gross_amount, b.discount, b.net_amount,
     b.amount_paid, b.balance_amount, b.created_at, b.payment_mode, b.cash_amount, b.card_amount, b.upi_amount, b.other_amount, b.payment_status, b.referral_type,
         rd.doctor_name as ref_physician_name
-    FROM bills b
-    JOIN patients p ON b.patient_id = p.id
-    LEFT JOIN referral_doctors rd ON b.referral_doctor_id = rd.id"; //
+    FROM {$bills_source}
+    JOIN {$patients_source} ON b.patient_id = p.id
+    LEFT JOIN {$referral_doctors_source} ON b.referral_doctor_id = rd.id"; //
 
 $where_clauses = ["b.receptionist_id = ?", "b.bill_status != 'Void'", "DATE(b.created_at) BETWEEN ? AND ?"]; //
 $params = [$receptionist_id, $start_date, $end_date]; //
@@ -128,26 +135,17 @@ function bh_csv_amount($value) {
 }
 
 function bh_has_table(mysqli $conn, $table_name) {
-    $safe_table = $conn->real_escape_string((string)$table_name);
-    $result = $conn->query("SHOW TABLES LIKE '{$safe_table}'");
-    if (!$result) {
+    if (!function_exists('schema_has_table')) {
         return false;
     }
-    $exists = $result->num_rows > 0;
-    $result->free();
-    return $exists;
+    return schema_has_table($conn, (string)$table_name);
 }
 
 function bh_has_column(mysqli $conn, $table_name, $column_name) {
-    $safe_table = $conn->real_escape_string((string)$table_name);
-    $safe_column = $conn->real_escape_string((string)$column_name);
-    $result = $conn->query("SHOW COLUMNS FROM {$safe_table} LIKE '{$safe_column}'");
-    if (!$result) {
+    if (!function_exists('schema_has_column')) {
         return false;
     }
-    $exists = $result->num_rows > 0;
-    $result->free();
-    return $exists;
+    return schema_has_column($conn, (string)$table_name, (string)$column_name);
 }
 
 function bh_normalize_category($raw_category) {
@@ -247,10 +245,10 @@ $daily_grand_totals = bh_amount_template();
 
 $daily_bills = [];
 $daily_bill_stmt = $conn->prepare("SELECT id, net_amount, discount, amount_paid, balance_amount, cash_amount, card_amount, upi_amount, other_amount
-                                  FROM bills
-                                  WHERE receptionist_id = ?
-                                    AND bill_status != 'Void'
-                                    AND DATE(created_at) = ?");
+                                                                    FROM {$bills_source}
+                                                                    WHERE b.receptionist_id = ?
+                                                                        AND b.bill_status != 'Void'
+                                                                        AND DATE(b.created_at) = ?");
 if ($daily_bill_stmt) {
     $daily_bill_stmt->bind_param('is', $receptionist_id, $summary_date);
     $daily_bill_stmt->execute();
@@ -270,7 +268,7 @@ if (!empty($daily_bills)) {
     $placeholders = implode(',', array_fill(0, count($bill_ids), '?'));
 
     $screening_join_sql = $has_screening_table
-        ? 'LEFT JOIN bill_item_screenings bis ON bis.bill_item_id = bi.id'
+        ? "LEFT JOIN {$bill_item_screenings_source} ON bis.bill_item_id = bi.id"
         : '';
     $screening_amount_sql = $has_screening_table
         ? 'COALESCE(bis.screening_amount, 0) AS screening_amount'
@@ -285,8 +283,8 @@ if (!empty($daily_bills)) {
                                COALESCE(t.price, 0) AS base_price,
                                {$item_discount_sql},
                                {$screening_amount_sql}
-                        FROM bill_items bi
-                        JOIN tests t ON t.id = bi.test_id
+                                                FROM {$bill_items_source}
+                                                JOIN {$tests_source} ON t.id = bi.test_id
                         {$screening_join_sql}
                         WHERE bi.bill_id IN ({$placeholders})
                           AND bi.item_status = 0

@@ -14,6 +14,7 @@ mkdir -p dump/backup
 
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 BACKUP_FILE="dump/backup/diagnostic_center_db_${TIMESTAMP}.sql"
+MIRROR_DIR="dump/backup/sql_bundle_${TIMESTAMP}"
 
 # Load env vars
 if [ -f .env ]; then
@@ -31,6 +32,13 @@ if [ $? -eq 0 ]; then
     echo ""
     echo "Backup completed: $BACKUP_FILE"
     echo "Size: $(du -h "$BACKUP_FILE" | cut -f1)"
+
+    mkdir -p "$MIRROR_DIR"
+    if cp -R dump/init "$MIRROR_DIR/init"; then
+        echo "SQL bundle mirrored: $MIRROR_DIR"
+    else
+        echo "WARNING: SQL bundle mirror failed."
+    fi
 else
     echo ""
     echo "ERROR: Backup failed. Is the database container running?"

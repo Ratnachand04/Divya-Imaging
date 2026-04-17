@@ -6,6 +6,8 @@ require_once '../includes/db_connect.php';
 require_once '../includes/functions.php';
 require_once '../includes/header.php';
 
+$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
+
 $sa_active_page = 'global_settings.php';
 $feedback = '';
 
@@ -15,7 +17,7 @@ if ($userId <= 0) {
     exit;
 }
 
-$stmt = $conn->prepare("SELECT id, username, role, is_active, COALESCE(NULLIF(full_name, ''), '') AS full_name FROM users WHERE id = ? LIMIT 1");
+$stmt = $conn->prepare("SELECT u.id, u.username, u.role, u.is_active, COALESCE(NULLIF(u.full_name, ''), '') AS full_name FROM {$users_source} WHERE u.id = ? LIMIT 1");
 $stmt->bind_param('i', $userId);
 $stmt->execute();
 $user = $stmt->get_result()->fetch_assoc();

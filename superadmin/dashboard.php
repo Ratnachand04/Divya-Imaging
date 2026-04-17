@@ -3,7 +3,17 @@ $page_title = "Superadmin Dashboard";
 $required_role = "superadmin";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
 require_once '../includes/header.php';
+
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
+$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
+$expenses_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'expenses', 'e') : '`expenses` e';
+$bill_edit_log_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_edit_log', 'l') : '`bill_edit_log` l';
+$system_audit_log_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'system_audit_log', 'sal') : '`system_audit_log` sal';
+$notification_queue_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'notification_queue', 'nq') : '`notification_queue` nq';
 
 if (!function_exists('summarize_change_label')) {
     function summarize_change_label($action_type, $details) {
@@ -49,14 +59,14 @@ if (!function_exists('summarize_change_label')) {
 
 // 1. Test Count
 // Total Tests Performed (All time)
-$sql_total_tests = "SELECT COUNT(*) as count FROM bill_items bi JOIN bills b ON bi.bill_id = b.id WHERE bi.item_status = 0 AND b.bill_status != 'Void'";
+$sql_total_tests = "SELECT COUNT(*) as count FROM {$bill_items_source} JOIN {$bills_source} ON bi.bill_id = b.id WHERE bi.item_status = 0 AND b.bill_status != 'Void'";
 $total_tests = 0;
 if ($res = $conn->query($sql_total_tests)) {
     $total_tests = $res->fetch_assoc()['count'];
 }
 
 // Today's Tests & Revenue
-$sql_today_stats = "SELECT COUNT(bi.id) as test_count, SUM(b.net_amount) as revenue FROM bills b LEFT JOIN bill_items bi ON b.id = bi.bill_id AND bi.item_status = 0 WHERE b.bill_status != 'Void' AND DATE(b.created_at) = CURDATE()";
+$sql_today_stats = "SELECT COUNT(bi.id) as test_count, SUM(b.net_amount) as revenue FROM {$bills_source} LEFT JOIN {$bill_items_source} ON b.id = bi.bill_id AND bi.item_status = 0 WHERE b.bill_status != 'Void' AND DATE(b.created_at) = CURDATE()";
 $today_tests = 0;
 $today_revenue = 0;
 if ($res = $conn->query($sql_today_stats)) {
@@ -66,7 +76,7 @@ if ($res = $conn->query($sql_today_stats)) {
 }
 
 // Monthly Tests
-$sql_month_tests = "SELECT COUNT(*) as count FROM bill_items bi JOIN bills b ON bi.bill_id = b.id WHERE bi.item_status = 0 AND b.bill_status != 'Void' AND MONTH(b.created_at) = MONTH(CURDATE()) AND YEAR(b.created_at) = YEAR(CURDATE())";
+$sql_month_tests = "SELECT COUNT(*) as count FROM {$bill_items_source} JOIN {$bills_source} ON bi.bill_id = b.id WHERE bi.item_status = 0 AND b.bill_status != 'Void' AND MONTH(b.created_at) = MONTH(CURDATE()) AND YEAR(b.created_at) = YEAR(CURDATE())";
 $month_tests = 0;
 if ($res = $conn->query($sql_month_tests)) {
     $month_tests = $res->fetch_assoc()['count'];
@@ -74,49 +84,49 @@ if ($res = $conn->query($sql_month_tests)) {
 
 // 2. Doctor-Wise Count
 // Total Doctors
-$sql_doctors = "SELECT COUNT(*) as count FROM referral_doctors";
+$sql_doctors = "SELECT COUNT(*) as count FROM {$referral_doctors_source}";
 $total_doctors = 0;
 if ($res = $conn->query($sql_doctors)) {
     $total_doctors = $res->fetch_assoc()['count'];
 }
 
 // Active Doctors (Master List)
-$sql_active_master = "SELECT COUNT(*) as count FROM referral_doctors WHERE is_active = 1";
+$sql_active_master = "SELECT COUNT(*) as count FROM {$referral_doctors_source} WHERE rd.is_active = 1";
 $active_doctors_master = 0;
 if ($res = $conn->query($sql_active_master)) {
     $active_doctors_master = $res->fetch_assoc()['count'];
 }
 
 // Active Doctors (This Month)
-$sql_active_docs = "SELECT COUNT(DISTINCT referral_doctor_id) as count FROM bills WHERE referral_type='Doctor' AND MONTH(created_at) = MONTH(CURDATE()) AND YEAR(created_at) = YEAR(CURDATE())";
+$sql_active_docs = "SELECT COUNT(DISTINCT b.referral_doctor_id) as count FROM {$bills_source} WHERE b.referral_type='Doctor' AND MONTH(b.created_at) = MONTH(CURDATE()) AND YEAR(b.created_at) = YEAR(CURDATE())";
 $active_doctors_month = 0;
 if ($res = $conn->query($sql_active_docs)) {
     $active_doctors_month = $res->fetch_assoc()['count'];
 }
 
 // Total Tests Referred (by doctors)
-$sql_doc_tests = "SELECT COUNT(*) as count FROM bills WHERE referral_type = 'Doctor' AND bill_status != 'Void'";
+$sql_doc_tests = "SELECT COUNT(*) as count FROM {$bills_source} WHERE b.referral_type = 'Doctor' AND b.bill_status != 'Void'";
 $total_doc_tests = 0;
 if ($res = $conn->query($sql_doc_tests)) {
     $total_doc_tests = $res->fetch_assoc()['count'];
 }
 
 // Active Doctors Today
-$sql_active_docs_today = "SELECT COUNT(DISTINCT referral_doctor_id) as count FROM bills WHERE referral_type='Doctor' AND bill_status != 'Void' AND DATE(created_at) = CURDATE()";
+$sql_active_docs_today = "SELECT COUNT(DISTINCT b.referral_doctor_id) as count FROM {$bills_source} WHERE b.referral_type='Doctor' AND b.bill_status != 'Void' AND DATE(b.created_at) = CURDATE()";
 $active_doctors_today = 0;
 if ($res = $conn->query($sql_active_docs_today)) {
     $active_doctors_today = $res->fetch_assoc()['count'];
 }
 
 // Tests linked to doctors today
-$sql_tests_today_doctors = "SELECT COUNT(bi.id) as count FROM bills b JOIN bill_items bi ON b.id = bi.bill_id AND bi.item_status = 0 WHERE b.bill_status != 'Void' AND b.referral_type = 'Doctor' AND DATE(b.created_at) = CURDATE()";
+$sql_tests_today_doctors = "SELECT COUNT(bi.id) as count FROM {$bills_source} JOIN {$bill_items_source} ON b.id = bi.bill_id AND bi.item_status = 0 WHERE b.bill_status != 'Void' AND b.referral_type = 'Doctor' AND DATE(b.created_at) = CURDATE()";
 $tests_today_doctors = 0;
 if ($res = $conn->query($sql_tests_today_doctors)) {
     $tests_today_doctors = $res->fetch_assoc()['count'];
 }
 
 // Doctor revenue today
-$sql_today_doctor_revenue = "SELECT SUM(net_amount) as total FROM bills WHERE referral_type = 'Doctor' AND bill_status != 'Void' AND DATE(created_at) = CURDATE()";
+$sql_today_doctor_revenue = "SELECT SUM(b.net_amount) as total FROM {$bills_source} WHERE b.referral_type = 'Doctor' AND b.bill_status != 'Void' AND DATE(b.created_at) = CURDATE()";
 $today_doctor_revenue = 0;
 if ($res = $conn->query($sql_today_doctor_revenue)) {
     $today_doctor_revenue = $res->fetch_assoc()['total'] ?? 0;
@@ -127,21 +137,21 @@ $avg_revenue_per_doctor = $active_doctors_today > 0 ? ($today_doctor_revenue / $
 
 // 3. Audit Log
 // Active Users (Total users)
-$sql_users = "SELECT COUNT(*) as count FROM users";
+$sql_users = "SELECT COUNT(*) as count FROM {$users_source}";
 $total_users = 0;
 if ($res = $conn->query($sql_users)) {
     $total_users = $res->fetch_assoc()['count'];
 }
 
 // Actions Today
-$sql_actions_today = "SELECT COUNT(*) as count FROM system_audit_log WHERE DATE(logged_at) = CURDATE()";
+$sql_actions_today = "SELECT COUNT(*) as count FROM {$system_audit_log_source} WHERE DATE(sal.logged_at) = CURDATE()";
 $actions_today = 0;
 if ($res = $conn->query($sql_actions_today)) {
     $actions_today = $res->fetch_assoc()['count'];
 }
 
 // Bill edits logged today by receptionists
-$sql_bill_edits_today = "SELECT COUNT(*) as count FROM bill_edit_log l JOIN users u ON l.editor_id = u.id WHERE u.role = 'receptionist' AND DATE(l.changed_at) = CURDATE()";
+$sql_bill_edits_today = "SELECT COUNT(*) as count FROM {$bill_edit_log_source} JOIN {$users_source} ON l.editor_id = u.id WHERE u.role = 'receptionist' AND DATE(l.changed_at) = CURDATE()";
 $bill_edits_today = 0;
 if ($res = $conn->query($sql_bill_edits_today)) {
     $bill_edits_today = $res->fetch_assoc()['count'];
@@ -149,7 +159,7 @@ if ($res = $conn->query($sql_bill_edits_today)) {
 
 // Latest notable change today
 $latest_change_summary = 'No changes today';
-$sql_latest_change = "SELECT action_type, details FROM system_audit_log WHERE DATE(logged_at) = CURDATE() ORDER BY logged_at DESC LIMIT 1";
+$sql_latest_change = "SELECT sal.action_type, sal.details FROM {$system_audit_log_source} WHERE DATE(sal.logged_at) = CURDATE() ORDER BY sal.logged_at DESC LIMIT 1";
 if ($res = $conn->query($sql_latest_change)) {
     if ($row = $res->fetch_assoc()) {
         $latest_change_summary = summarize_change_label($row['action_type'], $row['details']);
@@ -165,9 +175,9 @@ $sql_top_doc = "
         COUNT(b.id) AS total_bills,
         COUNT(DISTINCT b.patient_id) AS total_patients,
         COUNT(bi.id) AS total_tests
-    FROM bills b
-    JOIN referral_doctors rd ON b.referral_doctor_id = rd.id
-    LEFT JOIN bill_items bi ON bi.bill_id = b.id AND bi.item_status = 0
+    FROM {$bills_source}
+    JOIN {$referral_doctors_source} ON b.referral_doctor_id = rd.id
+    LEFT JOIN {$bill_items_source} ON bi.bill_id = b.id AND bi.item_status = 0
     WHERE
         b.referral_type = 'Doctor'
         AND b.bill_status != 'Void'
@@ -192,7 +202,7 @@ if ($res = $conn->query($sql_top_doc)) {
 }
 
 // 6. Employees Breakdown
-$sql_roles = "SELECT role, COUNT(*) as count FROM users WHERE is_active = 1 GROUP BY role";
+$sql_roles = "SELECT u.role as role, COUNT(*) as count FROM {$users_source} WHERE u.is_active = 1 GROUP BY u.role";
 $roles_count = ['receptionist' => 0, 'accountant' => 0, 'manager' => 0, 'superadmin' => 0, 'writer' => 0];
 if ($res = $conn->query($sql_roles)) {
     while($row = $res->fetch_assoc()) {
@@ -215,39 +225,38 @@ $role_labels = [
 // 7. Notifications (Broadcasts)
 $queued_broadcasts = 0;
 $total_broadcasts = 0;
-$check_table = $conn->query("SHOW TABLES LIKE 'notification_queue'");
-if ($check_table && $check_table->num_rows > 0) {
+if (function_exists('schema_has_table') && schema_has_table($conn, 'notification_queue')) {
     // Queued
-    if ($res = $conn->query("SELECT COUNT(*) as count FROM notification_queue WHERE status = 'Queued'")) {
+    if ($res = $conn->query("SELECT COUNT(*) as count FROM {$notification_queue_source} WHERE nq.status = 'Queued'")) {
         $queued_broadcasts = $res->fetch_assoc()['count'];
     }
     // Total
-    if ($res = $conn->query("SELECT COUNT(*) as count FROM notification_queue")) {
+    if ($res = $conn->query("SELECT COUNT(*) as count FROM {$notification_queue_source}")) {
         $total_broadcasts = $res->fetch_assoc()['count'];
     }
 }
 
 // 8. Expenditure
 // Total Expenditure
-$sql_expenses = "SELECT SUM(amount) as total FROM expenses";
+$sql_expenses = "SELECT SUM(e.amount) as total FROM {$expenses_source}";
 $total_expenditure = 0;
 if ($res = $conn->query($sql_expenses)) {
     $total_expenditure = $res->fetch_assoc()['total'] ?? 0;
 }
 // Month Expenditure (till date)
-$sql_month_exp = "SELECT SUM(amount) as total FROM expenses WHERE MONTH(created_at) = MONTH(CURDATE()) AND YEAR(created_at) = YEAR(CURDATE())";
+$sql_month_exp = "SELECT SUM(e.amount) as total FROM {$expenses_source} WHERE MONTH(e.created_at) = MONTH(CURDATE()) AND YEAR(e.created_at) = YEAR(CURDATE())";
 $month_expenditure = 0;
 if ($res = $conn->query($sql_month_exp)) {
     $month_expenditure = $res->fetch_assoc()['total'] ?? 0;
 }
 // Today Expenditure
-$sql_today_exp = "SELECT SUM(amount) as total FROM expenses WHERE DATE(created_at) = CURDATE()";
+$sql_today_exp = "SELECT SUM(e.amount) as total FROM {$expenses_source} WHERE DATE(e.created_at) = CURDATE()";
 $today_expenditure = 0;
 if ($res = $conn->query($sql_today_exp)) {
     $today_expenditure = $res->fetch_assoc()['total'] ?? 0;
 }
 // Most spent category for current month
-$sql_most_spent = "SELECT expense_type, SUM(amount) as total FROM expenses WHERE MONTH(created_at) = MONTH(CURDATE()) AND YEAR(created_at) = YEAR(CURDATE()) GROUP BY expense_type ORDER BY total DESC LIMIT 1";
+$sql_most_spent = "SELECT e.expense_type, SUM(e.amount) as total FROM {$expenses_source} WHERE MONTH(e.created_at) = MONTH(CURDATE()) AND YEAR(e.created_at) = YEAR(CURDATE()) GROUP BY e.expense_type ORDER BY total DESC LIMIT 1";
 $most_spent_category = 'N/A';
 $most_spent_amount = 0;
 if ($res = $conn->query($sql_most_spent)) {
@@ -259,26 +268,26 @@ if ($res = $conn->query($sql_most_spent)) {
 
 // 9. Monthly Analysis
 // Total Revenue (All time)
-$sql_total_revenue = "SELECT SUM(net_amount) as total FROM bills WHERE bill_status != 'Void'";
+$sql_total_revenue = "SELECT SUM(b.net_amount) as total FROM {$bills_source} WHERE b.bill_status != 'Void'";
 $total_revenue_all = 0;
 if ($res = $conn->query($sql_total_revenue)) {
     $total_revenue_all = $res->fetch_assoc()['total'] ?? 0;
 }
 
 // Current Month Revenue
-$sql_month_revenue = "SELECT SUM(net_amount) as total FROM bills WHERE bill_status != 'Void' AND MONTH(created_at) = MONTH(CURDATE()) AND YEAR(created_at) = YEAR(CURDATE())";
+$sql_month_revenue = "SELECT SUM(b.net_amount) as total FROM {$bills_source} WHERE b.bill_status != 'Void' AND MONTH(b.created_at) = MONTH(CURDATE()) AND YEAR(b.created_at) = YEAR(CURDATE())";
 $month_revenue = 0;
 if ($res = $conn->query($sql_month_revenue)) {
     $month_revenue = $res->fetch_assoc()['total'] ?? 0;
 }
 
 // Last Month Revenue for Growth
-$sql_last_month = "SELECT SUM(net_amount) as total FROM bills WHERE bill_status != 'Void' AND MONTH(created_at) = MONTH(CURDATE() - INTERVAL 1 MONTH) AND YEAR(created_at) = YEAR(CURDATE() - INTERVAL 1 MONTH)";
+$sql_last_month = "SELECT SUM(b.net_amount) as total FROM {$bills_source} WHERE b.bill_status != 'Void' AND MONTH(b.created_at) = MONTH(CURDATE() - INTERVAL 1 MONTH) AND YEAR(b.created_at) = YEAR(CURDATE() - INTERVAL 1 MONTH)";
 $last_month_rev = 0;
 if ($res = $conn->query($sql_last_month)) {
     $last_month_rev = $res->fetch_assoc()['total'] ?? 0;
 }
-$sql_last_month_tests = "SELECT COUNT(*) as count FROM bill_items bi JOIN bills b ON bi.bill_id = b.id WHERE bi.item_status = 0 AND b.bill_status != 'Void' AND MONTH(b.created_at) = MONTH(CURDATE() - INTERVAL 1 MONTH) AND YEAR(b.created_at) = YEAR(CURDATE() - INTERVAL 1 MONTH)";
+$sql_last_month_tests = "SELECT COUNT(*) as count FROM {$bill_items_source} JOIN {$bills_source} ON bi.bill_id = b.id WHERE bi.item_status = 0 AND b.bill_status != 'Void' AND MONTH(b.created_at) = MONTH(CURDATE() - INTERVAL 1 MONTH) AND YEAR(b.created_at) = YEAR(CURDATE() - INTERVAL 1 MONTH)";
 $last_month_tests = 0;
 if ($res = $conn->query($sql_last_month_tests)) {
     $last_month_tests = $res->fetch_assoc()['count'];
@@ -291,12 +300,12 @@ $last_month_avg_rev_per_test = $last_month_tests > 0 ? ($last_month_rev / $last_
 
 // Monthly discount breakdown (Doctor vs Center)
 $sql_month_discount_breakdown = "SELECT 
-    SUM(CASE WHEN discount_by = 'Doctor' THEN COALESCE(discount, 0) ELSE 0 END) AS doctor_discount,
-    SUM(CASE WHEN discount_by != 'Doctor' THEN COALESCE(discount, 0) ELSE 0 END) AS center_discount
-FROM bills
-WHERE bill_status != 'Void'
-  AND MONTH(created_at) = MONTH(CURDATE())
-  AND YEAR(created_at) = YEAR(CURDATE())";
+        SUM(CASE WHEN b.discount_by = 'Doctor' THEN COALESCE(b.discount, 0) ELSE 0 END) AS doctor_discount,
+        SUM(CASE WHEN b.discount_by != 'Doctor' THEN COALESCE(b.discount, 0) ELSE 0 END) AS center_discount
+FROM {$bills_source}
+WHERE b.bill_status != 'Void'
+    AND MONTH(b.created_at) = MONTH(CURDATE())
+    AND YEAR(b.created_at) = YEAR(CURDATE())";
 $month_discount_doctor = 0;
 $month_discount_center = 0;
 if ($res = $conn->query($sql_month_discount_breakdown)) {

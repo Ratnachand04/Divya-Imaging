@@ -3,7 +3,15 @@ $page_title = "Test Details";
 $required_role = "superadmin";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
 require_once '../includes/header.php';
+
+$tests_source_lookup = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't_lookup') : '`tests` t_lookup';
+$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
+$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
 
 $test_id = isset($_GET['test_id']) ? (int)$_GET['test_id'] : 0;
 $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : date('Y-01-01');
@@ -16,7 +24,7 @@ if (!$test_id) {
 }
 
 // Fetch Test Info
-$stmt = $conn->prepare("SELECT main_test_name, sub_test_name, price FROM tests WHERE id = ?");
+$stmt = $conn->prepare("SELECT t_lookup.main_test_name, t_lookup.sub_test_name, t_lookup.price FROM {$tests_source_lookup} WHERE t_lookup.id = ?");
 $stmt->bind_param("i", $test_id);
 $stmt->execute();
 $test_info = $stmt->get_result()->fetch_assoc();
@@ -42,11 +50,11 @@ $sql = "SELECT
             b.payment_status,
             t.price as standard_price,
             bi.discount_amount
-        FROM bill_items bi
-        JOIN bills b ON bi.bill_id = b.id
-        JOIN patients p ON b.patient_id = p.id
-        JOIN tests t ON bi.test_id = t.id
-        LEFT JOIN referral_doctors rd ON b.referral_doctor_id = rd.id
+        FROM {$bill_items_source}
+        JOIN {$bills_source} ON bi.bill_id = b.id
+        JOIN {$patients_source} ON b.patient_id = p.id
+        JOIN {$tests_source} ON bi.test_id = t.id
+        LEFT JOIN {$referral_doctors_source} ON b.referral_doctor_id = rd.id
         WHERE bi.test_id = ? 
         AND bi.item_status = 0 
         AND b.bill_status != 'Void'

@@ -3,6 +3,13 @@ $page_title = "Professional Charges";
 $required_role = "accountant";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
+
+$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
+$referral_doctors_source_filter = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'd_filter') : '`referral_doctors` d_filter';
+$referral_doctors_source_history = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'd') : '`referral_doctors` d';
+$users_source_history = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
+$doctor_payout_history_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'doctor_payout_history', 'h') : '`doctor_payout_history` h';
 
 $feedback = '';
 $feedback_type = '';
@@ -14,15 +21,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['mark_as_paid'])) {
     $end_date = $_POST['end_date'];
     $accountant_id = $_SESSION['user_id'];
     $proof_path = null;
+
+    $doctor_name = 'doctor_' . $doctor_id;
+    $doctor_stmt = $conn->prepare("SELECT rd.doctor_name FROM {$referral_doctors_source} WHERE rd.id = ? LIMIT 1");
+    if ($doctor_stmt) {
+        $doctor_stmt->bind_param('i', $doctor_id);
+        if ($doctor_stmt->execute()) {
+            $doctor_row = $doctor_stmt->get_result()->fetch_assoc();
+            if ($doctor_row && !empty($doctor_row['doctor_name'])) {
+                $doctor_name = (string)$doctor_row['doctor_name'];
+            }
+        }
+        $doctor_stmt->close();
+    }
+
     if (isset($_FILES['payout_proof']) && $_FILES['payout_proof']['error'] == 0) {
-        $target_dir = "../uploads/payout_proofs/";
-        if (!is_dir($target_dir)) { mkdir($target_dir, 0777, true); }
-        $file_extension = pathinfo($_FILES["payout_proof"]["name"], PATHINFO_EXTENSION);
-        $target_file = $target_dir . "payout_{$doctor_id}_" . uniqid() . '.' . $file_extension;
-        if (move_uploaded_file($_FILES["payout_proof"]["tmp_name"], $target_file)) {
-            $proof_path = $target_file;
+        $file_extension = strtolower(pathinfo($_FILES['payout_proof']['name'], PATHINFO_EXTENSION));
+        $allowed_extensions = ['xls', 'xlsx', 'csv'];
+
+        if (!in_array($file_extension, $allowed_extensions, true)) {
+            $feedback = 'Warning: Only Excel/CSV files (.xls, .xlsx, .csv) are allowed for professional charge sheets.';
+            $feedback_type = 'error';
         } else {
-            $feedback = "Warning: A proof file was selected but failed to upload."; $feedback_type = 'error';
+            try {
+                $proof_path_meta = data_storage_professional_charges_directory($doctor_name);
+                $target_dir = rtrim($proof_path_meta['absolute_path'], DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
+                $storage_dir = rtrim($proof_path_meta['storage_path'], '/');
+                $target_file = $target_dir . "payout_{$doctor_id}_" . uniqid() . '.' . $file_extension;
+
+                if (move_uploaded_file($_FILES['payout_proof']['tmp_name'], $target_file)) {
+                    $proof_path = $storage_dir . '/' . basename($target_file);
+                    if (function_exists('data_storage_copy_absolute_file_to_mirror')) {
+                        data_storage_copy_absolute_file_to_mirror($target_file);
+                    }
+                } else {
+                    $feedback = "Warning: A proof file was selected but failed to upload.";
+                    $feedback_type = 'error';
+                }
+            } catch (Throwable $e) {
+                $feedback = 'Warning: Unable to prepare professional charges storage directory.';
+                $feedback_type = 'error';
+            }
         }
     }
     $stmt = $conn->prepare("INSERT INTO doctor_payout_history (doctor_id, payout_amount, payout_period_start, payout_period_end, proof_path, accountant_id) VALUES (?, ?, ?, ?, ?, ?)");
@@ -45,8 +84,8 @@ if (isset($_GET['doctor_id']) && $_GET['doctor_id'] !== '') {
     $doctor_id_filter = (int) $_POST['doctor_id'];
 }
 
-$doctors = $conn->query("SELECT id, doctor_name FROM referral_doctors WHERE is_active = 1 ORDER BY doctor_name");
-$history_query = "SELECT h.*, d.doctor_name, u.username as accountant_name FROM doctor_payout_history h JOIN referral_doctors d ON h.doctor_id = d.id JOIN users u ON h.accountant_id = u.id WHERE h.paid_at BETWEEN ? AND ?";
+$doctors = $conn->query("SELECT d_filter.id, d_filter.doctor_name FROM {$referral_doctors_source_filter} WHERE d_filter.is_active = 1 ORDER BY d_filter.doctor_name");
+$history_query = "SELECT h.*, d.doctor_name, u.username as accountant_name FROM {$doctor_payout_history_source} JOIN {$referral_doctors_source_history} ON h.doctor_id = d.id JOIN {$users_source_history} ON h.accountant_id = u.id WHERE h.paid_at BETWEEN ? AND ?";
 $history_params = [$start_date_filter, $end_date_filter . ' 23:59:59'];
 $history_types = 'ss';
 if ($doctor_id_filter) {
@@ -230,7 +269,7 @@ require_once '../includes/header.php';
                         <input type="hidden" name="end_date" value="${escapeHtml(endValue)}">
                         <div class="form-group-inline">
                             <label for="payout_proof_${doctorId}">Proof:</label>
-                            <input type="file" name="payout_proof" id="payout_proof_${doctorId}" accept=".pdf,.jpg,.png" ${isPayable ? '' : 'disabled'}>
+                            <input type="file" name="payout_proof" id="payout_proof_${doctorId}" accept=".xls,.xlsx,.csv" ${isPayable ? '' : 'disabled'}>
                         </div>
                         <button type="submit" name="mark_as_paid" class="btn-action btn-paid" ${isPayable ? '' : 'disabled title="No payout due"'}>${isPayable ? 'Mark as Paid' : 'Cleared'}</button>
                     </form>

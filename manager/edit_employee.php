@@ -6,6 +6,8 @@ require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
 require_once '../includes/functions.php';
 
+$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
+
 $feedback = '';
 $user_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 if (!$user_id) {
@@ -14,7 +16,7 @@ if (!$user_id) {
 }
 
 // Fetch current user data
-$stmt_fetch_orig = $conn->prepare("SELECT username, role, is_active FROM users WHERE id = ?");
+$stmt_fetch_orig = $conn->prepare("SELECT u.username, u.role, u.is_active FROM {$users_source} WHERE u.id = ?");
 $stmt_fetch_orig->bind_param("i", $user_id);
 $stmt_fetch_orig->execute();
 $original_user = $stmt_fetch_orig->get_result()->fetch_assoc();

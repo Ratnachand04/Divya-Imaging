@@ -2,6 +2,11 @@
 $page_title = "Manage Doctors";
 $required_role = "manager";
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
+
+$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
+$doctor_test_payables_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'doctor_test_payables', 'dtp') : '`doctor_test_payables` dtp';
+$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
 
 $feedback = '';
 
@@ -68,21 +73,21 @@ $is_editing = isset($_GET['edit']);
 if ($is_editing) {
     $edit_id = (int)$_GET['edit'];
     // --- UPDATED: Removed default_payable_amount from SELECT ---
-    $edit_stmt = $conn->prepare("SELECT id, doctor_name, hospital_name, phone_number, email, address, city, is_active FROM referral_doctors WHERE id = ?");
+    $edit_stmt = $conn->prepare("SELECT rd.id, rd.doctor_name, rd.hospital_name, rd.phone_number, rd.email, rd.address, rd.city, rd.is_active FROM {$referral_doctors_source} WHERE rd.id = ?");
     $edit_stmt->bind_param("i", $edit_id);
     $edit_stmt->execute();
     $edit_doctor = $edit_stmt->get_result()->fetch_assoc();
     $edit_stmt->close();
 
     // Fetch existing specific payables for this doctor
-    $payable_res = $conn->query("SELECT test_id, payable_amount FROM doctor_test_payables WHERE doctor_id = $edit_id");
+    $payable_res = $conn->query("SELECT dtp.test_id, dtp.payable_amount FROM {$doctor_test_payables_source} WHERE dtp.doctor_id = $edit_id");
     while($row = $payable_res->fetch_assoc()) {
         $existing_payables[$row['test_id']] = $row['payable_amount'];
     }
 }
 
 // Fetch tests including their default payable amount (needed for placeholder)
-$tests_result = $conn->query("SELECT id, main_test_name, sub_test_name, price, default_payable_amount FROM tests ORDER BY main_test_name, sub_test_name");
+$tests_result = $conn->query("SELECT t.id, t.main_test_name, t.sub_test_name, t.price, t.default_payable_amount FROM {$tests_source} ORDER BY t.main_test_name, t.sub_test_name");
 $tests = $tests_result->fetch_all(MYSQLI_ASSOC);
 $test_categories = [];
 foreach ($tests as $test) { $test_categories[$test['main_test_name']] = true; } // Collect unique categories
@@ -93,17 +98,17 @@ sort($test_categories);
 $filter_status = isset($_GET['status']) ? $_GET['status'] : 'all';
 $search_term = isset($_GET['search']) ? trim($_GET['search']) : '';
 // --- UPDATED: Removed default_payable_amount from SELECT ---
-$doctors_query = "SELECT id, doctor_name, phone_number, email, is_active FROM referral_doctors";
+$doctors_query = "SELECT rd.id, rd.doctor_name, rd.phone_number, rd.email, rd.is_active FROM {$referral_doctors_source}";
 $where_clauses = [];
 $params = [];
 $types = '';
 if ($filter_status !== 'all') {
-    $where_clauses[] = "is_active = ?";
+    $where_clauses[] = "rd.is_active = ?";
     $params[] = ($filter_status === 'active') ? 1 : 0;
     $types .= 'i';
 }
 if (!empty($search_term)) {
-    $where_clauses[] = "(doctor_name LIKE ? OR phone_number LIKE ? OR email LIKE ?)";
+    $where_clauses[] = "(rd.doctor_name LIKE ? OR rd.phone_number LIKE ? OR rd.email LIKE ?)";
     $like_term = "%{$search_term}%";
     $params[] = $like_term; $params[] = $like_term; $params[] = $like_term;
     $types .= 'sss';
@@ -111,7 +116,7 @@ if (!empty($search_term)) {
 if (!empty($where_clauses)) {
     $doctors_query .= " WHERE " . implode(' AND ', $where_clauses);
 }
-$doctors_query .= " ORDER BY doctor_name ASC";
+$doctors_query .= " ORDER BY rd.doctor_name ASC";
 $stmt_doctors = $conn->prepare($doctors_query);
 if (!empty($params)) {
     $stmt_doctors->bind_param($types, ...$params);
