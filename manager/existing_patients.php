@@ -19,7 +19,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
                  FROM patients p
                  LEFT JOIN bills b ON b.patient_id = p.id AND b.bill_status != 'Void'
                  WHERE p.uid LIKE ? OR p.name LIKE ? OR p.mobile_number LIKE ?
-                 GROUP BY p.id ORDER BY p.name ASC LIMIT 100"
+                  GROUP BY p.id
+                  HAVING COUNT(DISTINCT b.id) > 0
+                  ORDER BY p.name ASC LIMIT 100"
             );
             $stmt->bind_param('sss', $like, $like, $like);
         } else {
@@ -28,7 +30,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
                         COUNT(DISTINCT b.id) AS visit_count
                  FROM patients p
                  LEFT JOIN bills b ON b.patient_id = p.id AND b.bill_status != 'Void'
-                 GROUP BY p.id ORDER BY p.id DESC LIMIT 100"
+                  GROUP BY p.id
+                  HAVING COUNT(DISTINCT b.id) > 0
+                  ORDER BY p.id DESC LIMIT 100"
             );
         }
         $stmt->execute();
