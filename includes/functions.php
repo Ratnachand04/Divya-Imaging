@@ -38,49 +38,70 @@ function log_system_action($conn, $action_type, $target_id = null, $details = ''
 }
 
 /**
- * Ensures flexible app settings storage exists and is migration-friendly.
+ * Ensures bill edit request workflow schema supports lifecycle, remarks, and timeline events.
  *
  * @param mysqli $conn The database connection object.
  * @throws Exception When schema operations fail.
  */
-function app_settings_ensure_schema(mysqli $conn) {
-    $create_sql = "CREATE TABLE IF NOT EXISTS app_settings (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        setting_scope VARCHAR(50) NOT NULL DEFAULT 'global',
-        scope_id INT NOT NULL DEFAULT 0,
-        setting_key VARCHAR(120) NOT NULL,
-        setting_value LONGTEXT DEFAULT NULL,
-        value_type VARCHAR(20) NOT NULL DEFAULT 'string',
-        category VARCHAR(80) DEFAULT NULL,
-        metadata_json JSON DEFAULT NULL,
-        updated_by INT DEFAULT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_scope_key (setting_scope, scope_id, setting_key)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci";
+function ensure_bill_edit_request_workflow_schema(mysqli $conn): void {
+    static $is_checked = false;
 
-    if (!$conn->query($create_sql)) {
-        throw new Exception('Unable to ensure app_settings table: ' . $conn->error);
+    if ($is_checked) {
+        return;
     }
 
-    $columns = [
-        'setting_scope' => "VARCHAR(50) NOT NULL DEFAULT 'global' AFTER id",
-        'scope_id' => "INT NOT NULL DEFAULT 0 AFTER setting_scope",
-        'setting_key' => "VARCHAR(120) NOT NULL AFTER scope_id",
-        'setting_value' => "LONGTEXT NULL AFTER setting_key",
-        'value_type' => "VARCHAR(20) NOT NULL DEFAULT 'string' AFTER setting_value",
-        'category' => "VARCHAR(80) NULL AFTER value_type",
-        'metadata_json' => "JSON NULL AFTER category",
-        'updated_by' => "INT NULL AFTER metadata_json",
-        'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP AFTER updated_by",
-        'updated_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at"
+    $create_requests_sql = "CREATE TABLE IF NOT EXISTS bill_edit_requests (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        bill_id INT NOT NULL,
+        receptionist_id INT NOT NULL,
+        reason_for_change TEXT NOT NULL,
+        status VARCHAR(30) NOT NULL DEFAULT 'pending',
+        manager_comment TEXT NULL,
+        receptionist_response TEXT NULL,
+        manager_unread TINYINT(1) NOT NULL DEFAULT 1,
+        receptionist_unread TINYINT(1) NOT NULL DEFAULT 0,
+        last_manager_action_at DATETIME NULL,
+        last_receptionist_action_at DATETIME NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        KEY idx_ber_status (status),
+        KEY idx_ber_receptionist_status (receptionist_id, status),
+        KEY idx_ber_created_at (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci";
+
+    if (!$conn->query($create_requests_sql)) {
+        throw new Exception('Unable to ensure bill_edit_requests table: ' . $conn->error);
+    }
+
+    $added_manager_unread = false;
+    $added_receptionist_unread = false;
+    $added_updated_at = false;
+
+    $request_columns = [
+        'manager_comment' => "TEXT NULL AFTER reason_for_change",
+        'receptionist_response' => "TEXT NULL AFTER manager_comment",
+        'manager_unread' => "TINYINT(1) NOT NULL DEFAULT 1 AFTER receptionist_response",
+        'receptionist_unread' => "TINYINT(1) NOT NULL DEFAULT 0 AFTER manager_unread",
+        'last_manager_action_at' => "DATETIME NULL AFTER receptionist_unread",
+        'last_receptionist_action_at' => "DATETIME NULL AFTER last_manager_action_at",
+        'updated_at' => "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at",
     ];
 
-    foreach ($columns as $name => $definition) {
-        $check = $conn->query("SHOW COLUMNS FROM app_settings LIKE '{$name}'");
+    foreach ($request_columns as $column_name => $definition) {
+        $check = $conn->query("SHOW COLUMNS FROM bill_edit_requests LIKE '{$column_name}'");
         if ($check && $check->num_rows === 0) {
-            if (!$conn->query("ALTER TABLE app_settings ADD COLUMN {$name} {$definition}")) {
-                throw new Exception('Unable to add app_settings.' . $name . ': ' . $conn->error);
+            if (!$conn->query("ALTER TABLE bill_edit_requests ADD COLUMN {$column_name} {$definition}")) {
+                throw new Exception('Unable to add bill_edit_requests.' . $column_name . ': ' . $conn->error);
+            }
+
+            if ($column_name === 'manager_unread') {
+                $added_manager_unread = true;
+            }
+            if ($column_name === 'receptionist_unread') {
+                $added_receptionist_unread = true;
+            }
+            if ($column_name === 'updated_at') {
+                $added_updated_at = true;
             }
         }
         if ($check instanceof mysqli_result) {
@@ -88,14 +109,217 @@ function app_settings_ensure_schema(mysqli $conn) {
         }
     }
 
-    $idx = $conn->query("SHOW INDEX FROM app_settings WHERE Key_name = 'idx_scope_key'");
-    if ($idx && $idx->num_rows === 0) {
-        if (!$conn->query("ALTER TABLE app_settings ADD INDEX idx_scope_key (setting_scope, scope_id, setting_key)")) {
-            throw new Exception('Unable to add app_settings index idx_scope_key: ' . $conn->error);
-        }
+    if ($added_updated_at) {
+        $conn->query("UPDATE bill_edit_requests SET updated_at = created_at WHERE updated_at IS NULL");
     }
-    if ($idx instanceof mysqli_result) {
-        $idx->free();
+
+    if ($added_manager_unread) {
+        $conn->query("UPDATE bill_edit_requests
+                      SET manager_unread = CASE WHEN LOWER(REPLACE(TRIM(status), ' ', '_')) = 'pending' THEN 1 ELSE 0 END");
+    }
+
+    if ($added_receptionist_unread) {
+        $conn->query("UPDATE bill_edit_requests
+                      SET receptionist_unread = CASE
+                        WHEN LOWER(REPLACE(TRIM(status), ' ', '_')) IN ('approved', 'rejected', 'query_raised', 'completed') THEN 1
+                        ELSE 0
+                      END");
+    }
+
+    $conn->query("UPDATE bill_edit_requests
+                  SET status = LOWER(REPLACE(REPLACE(TRIM(status), '-', '_'), ' ', '_'))");
+
+    $conn->query("UPDATE bill_edit_requests
+                  SET status = CASE
+                    WHEN status IN ('pending', 'open', 'new') THEN 'pending'
+                    WHEN status IN ('query', 'queryraised', 'query_raised') THEN 'query_raised'
+                    WHEN status IN ('approved') THEN 'approved'
+                    WHEN status IN ('rejected', 'declined') THEN 'rejected'
+                    WHEN status IN ('completed', 'done', 'closed') THEN 'completed'
+                    ELSE 'pending'
+                  END");
+
+    $create_events_sql = "CREATE TABLE IF NOT EXISTS bill_edit_request_events (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        request_id INT NOT NULL,
+        actor_role VARCHAR(20) NOT NULL,
+        actor_user_id INT NULL,
+        action_type VARCHAR(50) NOT NULL,
+        old_status VARCHAR(30) NULL,
+        new_status VARCHAR(30) NULL,
+        comment_text TEXT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY idx_ber_events_request (request_id),
+        KEY idx_ber_events_created (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci";
+
+    if (!$conn->query($create_events_sql)) {
+        throw new Exception('Unable to ensure bill_edit_request_events table: ' . $conn->error);
+    }
+
+    $seed_events_sql = "INSERT INTO bill_edit_request_events
+        (request_id, actor_role, actor_user_id, action_type, old_status, new_status, comment_text, created_at)
+        SELECT r.id, 'system', NULL, 'request_seeded', NULL, r.status, r.reason_for_change, r.created_at
+        FROM bill_edit_requests r
+        WHERE NOT EXISTS (
+            SELECT 1 FROM bill_edit_request_events e WHERE e.request_id = r.id
+        )";
+    $conn->query($seed_events_sql);
+
+    $is_checked = true;
+}
+
+/**
+ * Normalizes bill edit request status to canonical workflow states.
+ *
+ * @param mixed $status Raw status value.
+ * @return string Canonical status key.
+ */
+function normalize_bill_edit_request_status($status): string {
+    $raw = strtolower(trim((string)$status));
+    if ($raw === '') {
+        return 'pending';
+    }
+
+    $token = str_replace(['-', ' '], '_', $raw);
+    $compact = str_replace('_', '', $token);
+
+    if (in_array($token, ['pending', 'open', 'new'], true) || in_array($compact, ['pending', 'open', 'new'], true)) {
+        return 'pending';
+    }
+    if (in_array($token, ['query', 'query_raised', 'queryraised'], true) || in_array($compact, ['query', 'queryraised'], true)) {
+        return 'query_raised';
+    }
+    if (in_array($token, ['approved'], true) || in_array($compact, ['approved'], true)) {
+        return 'approved';
+    }
+    if (in_array($token, ['rejected', 'declined'], true) || in_array($compact, ['rejected', 'declined'], true)) {
+        return 'rejected';
+    }
+    if (in_array($token, ['completed', 'done', 'closed'], true) || in_array($compact, ['completed', 'done', 'closed'], true)) {
+        return 'completed';
+    }
+
+    return 'pending';
+}
+
+/**
+ * Returns a human-readable request status label.
+ *
+ * @param mixed $status Raw status value.
+ * @return string Display label.
+ */
+function get_bill_edit_request_status_label($status): string {
+    $normalized = normalize_bill_edit_request_status($status);
+    $labels = [
+        'pending' => 'Pending',
+        'query_raised' => 'Query Raised',
+        'approved' => 'Approved',
+        'rejected' => 'Rejected',
+        'completed' => 'Completed',
+    ];
+
+    return $labels[$normalized] ?? 'Pending';
+}
+
+/**
+ * Returns CSS class token for request status pills.
+ *
+ * @param mixed $status Raw status value.
+ * @return string CSS class name.
+ */
+function get_bill_edit_request_status_class($status): string {
+    $normalized = normalize_bill_edit_request_status($status);
+    return 'status-' . str_replace('_', '-', $normalized);
+}
+
+/**
+ * Appends an event entry to bill edit request timeline.
+ *
+ * @param mysqli $conn The database connection object.
+ * @param int $request_id Request id.
+ * @param string $actor_role manager|receptionist|system.
+ * @param int|null $actor_user_id User id if available.
+ * @param string $action_type Semantic action key.
+ * @param string|null $old_status Previous status key.
+ * @param string|null $new_status New status key.
+ * @param string $comment Optional comment text.
+ */
+function log_bill_edit_request_event(
+    mysqli $conn,
+    int $request_id,
+    string $actor_role,
+    $actor_user_id,
+    string $action_type,
+    $old_status = null,
+    $new_status = null,
+    string $comment = ''
+): void {
+    ensure_bill_edit_request_workflow_schema($conn);
+
+    if ($request_id <= 0) {
+        return;
+    }
+
+    $actor = strtolower(trim($actor_role));
+    if (!in_array($actor, ['manager', 'receptionist', 'system'], true)) {
+        $actor = 'system';
+    }
+
+    $action = trim($action_type);
+    if ($action === '') {
+        $action = 'status_updated';
+    }
+
+    $old = $old_status === null ? null : normalize_bill_edit_request_status($old_status);
+    $new = $new_status === null ? null : normalize_bill_edit_request_status($new_status);
+    $note = trim($comment);
+    if ($note === '') {
+        $note = null;
+    }
+
+    if ($actor_user_id === null) {
+        $stmt = $conn->prepare("INSERT INTO bill_edit_request_events
+            (request_id, actor_role, actor_user_id, action_type, old_status, new_status, comment_text, created_at)
+            VALUES (?, ?, NULL, ?, ?, ?, ?, NOW())");
+        if (!$stmt) {
+            return;
+        }
+        $stmt->bind_param('isssss', $request_id, $actor, $action, $old, $new, $note);
+        $stmt->execute();
+        $stmt->close();
+        return;
+    }
+
+    $actor_id = (int)$actor_user_id;
+    $stmt = $conn->prepare("INSERT INTO bill_edit_request_events
+        (request_id, actor_role, actor_user_id, action_type, old_status, new_status, comment_text, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, NOW())");
+    if (!$stmt) {
+        return;
+    }
+    $stmt->bind_param('isissss', $request_id, $actor, $actor_id, $action, $old, $new, $note);
+    $stmt->execute();
+    $stmt->close();
+}
+
+/**
+ * Validates that app_settings schema exists from SQL init files.
+ *
+ * @param mysqli $conn The database connection object.
+ * @throws Exception When app_settings table is missing.
+ */
+function app_settings_ensure_schema(mysqli $conn) {
+    $check = $conn->query("SHOW TABLES LIKE 'app_settings'");
+    if (!$check || $check->num_rows === 0) {
+        if ($check instanceof mysqli_result) {
+            $check->free();
+        }
+        throw new Exception('Missing app_settings table. Run SQL init bundle (001-main-schema.sql -> 500-data-flow-tunnel.sql -> 900-post-schema.sql).');
+    }
+
+    if ($check instanceof mysqli_result) {
+        $check->free();
     }
 }
 
@@ -249,6 +473,142 @@ function app_settings_set(
 }
 
 /**
+ * Returns the fixed reporting radiologist list used across manager and writer pages.
+ *
+ * @return array<int, string>
+ */
+function get_reporting_radiologist_list(): array {
+    return [
+        'Dr. G. Mamatha MD (RD)',
+        'Dr. G. Sri Kanth DMRD',
+        'Dr. P. Madhu Babu MD',
+        'Dr. Sahithi Chowdary',
+        'Dr. SVN. Vamsi Krishna MD(RD)',
+        'Dr. T. Koushik MD(RD)',
+        'Dr. T. Rajeshwar Rao MD DMRD',
+    ];
+}
+
+/**
+ * Detects patient identifier columns available in current schema.
+ *
+ * @param mysqli $conn The database connection object.
+ * @return array{uid: bool, registration_id: bool}
+ */
+function get_patient_identifier_columns(mysqli $conn): array {
+    static $cached = null;
+
+    if ($cached !== null) {
+        return $cached;
+    }
+
+    $cached = [
+        'uid' => false,
+        'registration_id' => false,
+    ];
+
+    $result = $conn->query("SHOW COLUMNS FROM patients");
+    if ($result instanceof mysqli_result) {
+        while ($row = $result->fetch_assoc()) {
+            $field = isset($row['Field']) ? (string)$row['Field'] : '';
+            if ($field === 'uid' || $field === 'registration_id') {
+                $cached[$field] = true;
+            }
+        }
+        $result->free();
+    }
+
+    return $cached;
+}
+
+/**
+ * Resolves the writable patient identifier column name.
+ *
+ * @param mysqli $conn The database connection object.
+ * @return string
+ * @throws Exception When neither uid nor registration_id exists.
+ */
+function get_patient_identifier_insert_column(mysqli $conn): string {
+    $columns = get_patient_identifier_columns($conn);
+    if ($columns['uid']) {
+        return 'uid';
+    }
+    if ($columns['registration_id']) {
+        return 'registration_id';
+    }
+
+    throw new Exception('Patients table is missing identifier column (uid/registration_id).');
+}
+
+/**
+ * Builds a SQL expression for patient identifier lookup in SELECT/WHERE queries.
+ *
+ * @param mysqli $conn The database connection object.
+ * @param string $tableAlias SQL alias for patients table.
+ * @return string
+ */
+function get_patient_identifier_expression(mysqli $conn, string $tableAlias = 'p'): string {
+    $alias = preg_replace('/[^A-Za-z0-9_]/', '', $tableAlias);
+    if ($alias === '') {
+        $alias = 'p';
+    }
+
+    $columns = get_patient_identifier_columns($conn);
+    if ($columns['uid'] && $columns['registration_id']) {
+        return "COALESCE(NULLIF({$alias}.uid, ''), NULLIF({$alias}.registration_id, ''))";
+    }
+    if ($columns['uid']) {
+        return "{$alias}.uid";
+    }
+    if ($columns['registration_id']) {
+        return "{$alias}.registration_id";
+    }
+
+    return "CAST({$alias}.id AS CHAR)";
+}
+
+/**
+ * Generates the next patient identifier using whichever identifier column exists.
+ *
+ * @param mysqli $conn The database connection object.
+ * @return string
+ * @throws Exception On query errors.
+ */
+function generate_next_patient_identifier(mysqli $conn): string {
+    $column = get_patient_identifier_insert_column($conn);
+    $year = date('Y');
+    $prefix = 'DC' . $year;
+
+    $sql = "SELECT `{$column}` AS patient_code FROM patients WHERE `{$column}` LIKE CONCAT(?, '%') ORDER BY `{$column}` DESC LIMIT 1 FOR UPDATE";
+    $stmt = $conn->prepare($sql);
+    if (!$stmt) {
+        throw new Exception('Unable to prepare patient identifier query: ' . $conn->error);
+    }
+
+    $stmt->bind_param('s', $prefix);
+    if (!$stmt->execute()) {
+        $err = $stmt->error;
+        $stmt->close();
+        throw new Exception('Unable to fetch latest patient identifier: ' . $err);
+    }
+
+    $result = $stmt->get_result();
+    $latest = $result ? $result->fetch_assoc() : null;
+    $stmt->close();
+
+    $next_number = 1;
+    $latestCode = ($latest && isset($latest['patient_code'])) ? (string)$latest['patient_code'] : '';
+    if ($latestCode !== '' && strpos($latestCode, $prefix) === 0) {
+        $suffix = substr($latestCode, strlen($prefix));
+        if ($suffix !== '' && ctype_digit($suffix)) {
+            $next_number = (int)$suffix + 1;
+        }
+    }
+
+    return $prefix . str_pad((string)$next_number, 4, '0', STR_PAD_LEFT);
+}
+
+/**
  * Ensures patient uid schema exists and is enforced.
  *
  * @param mysqli $conn The database connection object.
@@ -340,6 +700,105 @@ function generate_patient_uid(mysqli $conn) {
 }
 
 /**
+ * Normalizes payment status labels to canonical values used by the app.
+ *
+ * @param mixed $payment_status Raw status value.
+ * @param string $fallback Fallback canonical status.
+ * @return string Canonical status label.
+ */
+function normalize_payment_status_label($payment_status, string $fallback = 'Due'): string {
+    $allowed = ['Paid', 'Due', 'Partial Paid'];
+    if (!in_array($fallback, $allowed, true)) {
+        $fallback = 'Due';
+    }
+
+    $raw = trim((string)$payment_status);
+    if ($raw === '') {
+        return $fallback;
+    }
+
+    $normalized = strtolower((string)preg_replace('/[\s_\-]+/', '', $raw));
+    $map = [
+        'paid' => 'Paid',
+        'fullpaid' => 'Paid',
+        'due' => 'Due',
+        'pending' => 'Due',
+        'partialpaid' => 'Partial Paid',
+        'partiallypaid' => 'Partial Paid',
+        'halfpaid' => 'Partial Paid',
+    ];
+
+    if (isset($map[$normalized])) {
+        return $map[$normalized];
+    }
+
+    return $fallback;
+}
+
+/**
+ * Ensures bills.payment_status supports Partial Paid and migrates legacy Half Paid rows.
+ *
+ * @param mysqli $conn The database connection object.
+ * @throws Exception When schema operations fail.
+ */
+function ensure_bill_payment_status_schema(mysqli $conn): void {
+    $status_col_check = $conn->query("SHOW COLUMNS FROM bills LIKE 'payment_status'");
+    if (!$status_col_check || $status_col_check->num_rows === 0) {
+        if ($status_col_check instanceof mysqli_result) {
+            $status_col_check->free();
+        }
+        return;
+    }
+
+    $status_col = $status_col_check->fetch_assoc();
+    if ($status_col_check instanceof mysqli_result) {
+        $status_col_check->free();
+    }
+
+    $column_type = (string)($status_col['Type'] ?? '');
+    $column_type_lc = strtolower($column_type);
+
+    if (strpos($column_type_lc, 'enum(') === 0) {
+        $enum_matches = [];
+        preg_match_all("/'((?:\\\\'|[^'])*)'/", $column_type, $enum_matches);
+        $enum_values = [];
+        foreach (($enum_matches[1] ?? []) as $enum_raw) {
+            $enum_values[] = str_replace("\\'", "'", (string)$enum_raw);
+        }
+
+        if (!in_array('Partial Paid', $enum_values, true)) {
+            if (!in_array('Paid', $enum_values, true)) {
+                $enum_values[] = 'Paid';
+            }
+            if (!in_array('Due', $enum_values, true)) {
+                $enum_values[] = 'Due';
+            }
+            $enum_values[] = 'Partial Paid';
+
+            $escaped_values = array_map(static function (string $value): string {
+                return "'" . str_replace("'", "''", $value) . "'";
+            }, array_values(array_unique($enum_values)));
+
+            $enum_sql = implode(',', $escaped_values);
+            if (!$conn->query("ALTER TABLE bills MODIFY COLUMN payment_status ENUM({$enum_sql}) NOT NULL DEFAULT 'Due'")) {
+                throw new Exception('Unable to update bills.payment_status enum values: ' . $conn->error);
+            }
+        }
+    } elseif (preg_match('/^varchar\((\d+)\)$/i', $column_type, $matches)) {
+        $length = (int)$matches[1];
+        if ($length < 20) {
+            if (!$conn->query("ALTER TABLE bills MODIFY COLUMN payment_status VARCHAR(20) NOT NULL DEFAULT 'Due'")) {
+                throw new Exception('Unable to expand bills.payment_status length: ' . $conn->error);
+            }
+        }
+    }
+
+    if (!$conn->query("UPDATE bills SET payment_status = 'Partial Paid' WHERE payment_status = 'Half Paid'")) {
+        throw new Exception('Unable to migrate legacy payment_status values: ' . $conn->error);
+    }
+}
+
+/**
  * Ensures split payment amount columns exist on bills.
  *
  * @param mysqli $conn The database connection object.
@@ -370,6 +829,8 @@ function ensure_bill_payment_split_columns(mysqli $conn) {
             $check->free();
         }
     }
+
+    ensure_bill_payment_status_schema($conn);
 
     $is_checked = true;
 }
@@ -539,6 +1000,74 @@ function resolve_payment_mode_from_split(array $split, string $fallback_mode = '
 }
 
 /**
+ * Converts a currency amount to integer paise to avoid float drift.
+ *
+ * @param mixed $amount Input amount.
+ * @return int Amount in paise.
+ */
+function currency_to_paise($amount): int {
+    if (is_string($amount)) {
+        $amount = trim($amount);
+        if ($amount === '') {
+            return 0;
+        }
+    }
+
+    if (!is_numeric($amount)) {
+        return 0;
+    }
+
+    return (int)round((((float)$amount) + 0.0000001) * 100);
+}
+
+/**
+ * Converts integer paise back to two-decimal currency amount.
+ *
+ * @param int $paise Amount in paise.
+ * @return float Currency amount.
+ */
+function paise_to_currency(int $paise): float {
+    return round($paise / 100, 2);
+}
+
+/**
+ * Normalizes any money value to two decimal places.
+ *
+ * @param mixed $amount Input amount.
+ * @return float Normalized amount.
+ */
+function normalize_currency_amount($amount): float {
+    return paise_to_currency(currency_to_paise($amount));
+}
+
+/**
+ * Snaps near-whole paise anomalies (..01 / ..99) to whole rupees when preferred.
+ *
+ * This guards against awkward artifacts that typically come from floating
+ * imprecision or accidental spinner changes in whole-rupee billing flows.
+ *
+ * @param int $amount_paise Amount in paise.
+ * @param bool $prefer_whole Whether whole-rupee snapping should be applied.
+ * @return int Normalized amount in paise.
+ */
+function snap_near_whole_paise(int $amount_paise, bool $prefer_whole = true): int {
+    if (!$prefer_whole || $amount_paise <= 0) {
+        return $amount_paise;
+    }
+
+    $paise_part = $amount_paise % 100;
+    if ($paise_part < 0) {
+        $paise_part += 100;
+    }
+
+    if ($paise_part === 1 || $paise_part === 99) {
+        return (int)round($amount_paise / 100) * 100;
+    }
+
+    return $amount_paise;
+}
+
+/**
  * Validates split-payment input and returns normalized split values.
  *
  * @param array $source Source data (typically $_POST).
@@ -549,7 +1078,8 @@ function resolve_payment_mode_from_split(array $split, string $fallback_mode = '
  */
 function build_payment_split_from_input(array $source, $payment_mode, float $expected_amount): array {
     $mode = sanitize_payment_mode_input((string)$payment_mode);
-    $expected = round(max(0.0, $expected_amount), 2);
+    $expected_paise = max(0, currency_to_paise($expected_amount));
+    $prefer_whole_split = ($expected_paise % 100) === 0;
 
     $fields = [
         'cash' => 'split_cash_amount',
@@ -559,7 +1089,7 @@ function build_payment_split_from_input(array $source, $payment_mode, float $exp
     ];
 
     $raw = [];
-    $split = ['cash' => 0.0, 'card' => 0.0, 'upi' => 0.0, 'other' => 0.0];
+    $split_paise = ['cash' => 0, 'card' => 0, 'upi' => 0, 'other' => 0];
 
     foreach ($fields as $key => $field_name) {
         $raw_val = isset($source[$field_name]) ? trim((string)$source[$field_name]) : '';
@@ -572,15 +1102,17 @@ function build_payment_split_from_input(array $source, $payment_mode, float $exp
             throw new Exception('Please enter valid numeric split amounts.');
         }
 
-        $amount = round((float)$raw_val, 2);
-        if ($amount < 0) {
+        $amount_paise = currency_to_paise($raw_val);
+        if ($amount_paise < 0) {
             throw new Exception('Split amounts cannot be negative.');
         }
 
-        $split[$key] = $amount;
+        $amount_paise = snap_near_whole_paise($amount_paise, $prefer_whole_split);
+
+        $split_paise[$key] = $amount_paise;
     }
 
-    if ($expected <= 0.0001) {
+    if ($expected_paise <= 0) {
         return [
             'cash_amount' => 0.0,
             'card_amount' => 0.0,
@@ -590,56 +1122,56 @@ function build_payment_split_from_input(array $source, $payment_mode, float $exp
     }
 
     if ($mode === 'Cash') {
-        $split = ['cash' => $expected, 'card' => 0.0, 'upi' => 0.0, 'other' => 0.0];
+        $split_paise = ['cash' => $expected_paise, 'card' => 0, 'upi' => 0, 'other' => 0];
     } elseif ($mode === 'Card') {
-        $split = ['cash' => 0.0, 'card' => $expected, 'upi' => 0.0, 'other' => 0.0];
+        $split_paise = ['cash' => 0, 'card' => $expected_paise, 'upi' => 0, 'other' => 0];
     } elseif ($mode === 'UPI') {
-        $split = ['cash' => 0.0, 'card' => 0.0, 'upi' => $expected, 'other' => 0.0];
+        $split_paise = ['cash' => 0, 'card' => 0, 'upi' => $expected_paise, 'other' => 0];
     } elseif ($mode === 'Cash + Card') {
         if ($raw['cash'] === '' || $raw['card'] === '') {
             throw new Exception('Please enter both Cash and Card split amounts.');
         }
-        if ($split['cash'] <= 0 || $split['card'] <= 0) {
+        if ($split_paise['cash'] <= 0 || $split_paise['card'] <= 0) {
             throw new Exception('Cash and Card split amounts must be greater than zero.');
         }
-        if ($split['upi'] > 0 || $split['other'] > 0) {
+        if ($split_paise['upi'] > 0 || $split_paise['other'] > 0) {
             throw new Exception('Only Cash and Card amounts are allowed for Cash + Card mode.');
         }
     } elseif ($mode === 'UPI + Cash') {
         if ($raw['upi'] === '' || $raw['cash'] === '') {
             throw new Exception('Please enter both UPI and Cash split amounts.');
         }
-        if ($split['upi'] <= 0 || $split['cash'] <= 0) {
+        if ($split_paise['upi'] <= 0 || $split_paise['cash'] <= 0) {
             throw new Exception('UPI and Cash split amounts must be greater than zero.');
         }
-        if ($split['card'] > 0 || $split['other'] > 0) {
+        if ($split_paise['card'] > 0 || $split_paise['other'] > 0) {
             throw new Exception('Only UPI and Cash amounts are allowed for UPI + Cash mode.');
         }
     } elseif ($mode === 'Card + UPI') {
         if ($raw['card'] === '' || $raw['upi'] === '') {
             throw new Exception('Please enter both Card and UPI split amounts.');
         }
-        if ($split['card'] <= 0 || $split['upi'] <= 0) {
+        if ($split_paise['card'] <= 0 || $split_paise['upi'] <= 0) {
             throw new Exception('Card and UPI split amounts must be greater than zero.');
         }
-        if ($split['cash'] > 0 || $split['other'] > 0) {
+        if ($split_paise['cash'] > 0 || $split_paise['other'] > 0) {
             throw new Exception('Only Card and UPI amounts are allowed for Card + UPI mode.');
         }
     }
 
-    $sum = round($split['cash'] + $split['card'] + $split['upi'] + $split['other'], 2);
-    if (abs($sum - $expected) > 0.01) {
+    $sum_paise = $split_paise['cash'] + $split_paise['card'] + $split_paise['upi'] + $split_paise['other'];
+    if ($sum_paise !== $expected_paise) {
         throw new Exception('Split amounts must exactly match the payment amount.');
     }
-    if ($sum > ($expected + 0.01)) {
+    if ($sum_paise > $expected_paise) {
         throw new Exception('Split amounts cannot exceed the payment amount.');
     }
 
     return [
-        'cash_amount' => round($split['cash'], 2),
-        'card_amount' => round($split['card'], 2),
-        'upi_amount' => round($split['upi'], 2),
-        'other_amount' => round($split['other'], 2),
+        'cash_amount' => paise_to_currency($split_paise['cash']),
+        'card_amount' => paise_to_currency($split_paise['card']),
+        'upi_amount' => paise_to_currency($split_paise['upi']),
+        'other_amount' => paise_to_currency($split_paise['other']),
     ];
 }
 
@@ -694,9 +1226,9 @@ function format_payment_mode_display(array $row, bool $with_breakdown = true): s
  * @return float Pending amount rounded to 2 decimals.
  */
 function calculate_pending_amount(float $net_amount, float $amount_paid): float {
-    $net = round(max(0.0, $net_amount), 2);
-    $paid = round(max(0.0, $amount_paid), 2);
-    return round(max($net - $paid, 0.0), 2);
+    $net_paise = max(0, currency_to_paise($net_amount));
+    $paid_paise = max(0, currency_to_paise($amount_paid));
+    return paise_to_currency(max($net_paise - $paid_paise, 0));
 }
 
 /**
@@ -713,13 +1245,13 @@ function calculate_pending_amount(float $net_amount, float $amount_paid): float 
  * @return string Derived status label.
  */
 function derive_payment_status_from_amounts(float $net_amount, float $amount_paid, string $pending_label = 'Due'): string {
-    $paid = round(max(0.0, $amount_paid), 2);
-    $pending = calculate_pending_amount($net_amount, $paid);
+    $paid_paise = max(0, currency_to_paise($amount_paid));
+    $pending_paise = currency_to_paise(calculate_pending_amount($net_amount, $amount_paid));
 
-    if ($pending <= 0.01) {
+    if ($pending_paise <= 0) {
         return 'Paid';
     }
-    if ($paid > 0.01) {
+    if ($paid_paise > 0) {
         return 'Partial Paid';
     }
     return $pending_label;
@@ -788,7 +1320,10 @@ function ensure_package_management_schema(mysqli $conn) {
     $create_package_tests_sql = "CREATE TABLE IF NOT EXISTS package_tests (
         id INT AUTO_INCREMENT PRIMARY KEY,
         package_id INT NOT NULL,
-        test_id INT NOT NULL,
+        test_id INT NULL,
+        custom_test_name VARCHAR(255) NULL DEFAULT NULL,
+        is_custom TINYINT(1) NOT NULL DEFAULT 0,
+        test_category VARCHAR(255) NULL DEFAULT NULL,
         base_test_price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
         package_test_price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
         display_order INT DEFAULT 0,
@@ -809,7 +1344,7 @@ function ensure_package_management_schema(mysqli $conn) {
         bill_id INT NOT NULL,
         bill_item_id INT NOT NULL,
         package_id INT NOT NULL,
-        test_id INT NOT NULL,
+        test_id INT NULL,
         test_name VARCHAR(255) NOT NULL,
         base_test_price DECIMAL(10,2) DEFAULT 0.00,
         package_test_price DECIMAL(10,2) DEFAULT 0.00,
@@ -825,6 +1360,50 @@ function ensure_package_management_schema(mysqli $conn) {
 
     if (!$conn->query($create_bill_package_items_sql)) {
         throw new Exception('Unable to ensure bill_package_items table: ' . $conn->error);
+    }
+
+    $package_tests_test_id_check = $conn->query("SHOW COLUMNS FROM package_tests LIKE 'test_id'");
+    if ($package_tests_test_id_check && $package_tests_test_id_check->num_rows > 0) {
+        $test_id_col = $package_tests_test_id_check->fetch_assoc();
+        if (isset($test_id_col['Null']) && strtoupper((string)$test_id_col['Null']) !== 'YES') {
+            if (!$conn->query("ALTER TABLE package_tests MODIFY COLUMN test_id INT NULL")) {
+                throw new Exception('Unable to update package_tests.test_id nullability: ' . $conn->error);
+            }
+        }
+    }
+    if ($package_tests_test_id_check instanceof mysqli_result) {
+        $package_tests_test_id_check->free();
+    }
+
+    $package_tests_columns = [
+        'custom_test_name' => "VARCHAR(255) NULL DEFAULT NULL AFTER test_id",
+        'is_custom' => "TINYINT(1) NOT NULL DEFAULT 0 AFTER custom_test_name",
+        'test_category' => "VARCHAR(255) NULL DEFAULT NULL AFTER is_custom",
+    ];
+
+    foreach ($package_tests_columns as $column_name => $definition) {
+        $check = $conn->query("SHOW COLUMNS FROM package_tests LIKE '{$column_name}'");
+        if ($check && $check->num_rows === 0) {
+            if (!$conn->query("ALTER TABLE package_tests ADD COLUMN {$column_name} {$definition}")) {
+                throw new Exception('Unable to add package_tests.' . $column_name . ': ' . $conn->error);
+            }
+        }
+        if ($check instanceof mysqli_result) {
+            $check->free();
+        }
+    }
+
+    $bill_package_test_id_check = $conn->query("SHOW COLUMNS FROM bill_package_items LIKE 'test_id'");
+    if ($bill_package_test_id_check && $bill_package_test_id_check->num_rows > 0) {
+        $test_id_col = $bill_package_test_id_check->fetch_assoc();
+        if (isset($test_id_col['Null']) && strtoupper((string)$test_id_col['Null']) !== 'YES') {
+            if (!$conn->query("ALTER TABLE bill_package_items MODIFY COLUMN test_id INT NULL")) {
+                throw new Exception('Unable to update bill_package_items.test_id nullability: ' . $conn->error);
+            }
+        }
+    }
+    if ($bill_package_test_id_check instanceof mysqli_result) {
+        $bill_package_test_id_check->free();
     }
 
     $bill_item_columns = [
@@ -1004,14 +1583,17 @@ function fetch_package_details(mysqli $conn, int $package_id, bool $active_only 
     }
 
     $package['tests'] = [];
-    $tests_sql = "SELECT pt.test_id,
-                         t.main_test_name,
-                         t.sub_test_name,
+        $tests_sql = "SELECT pt.test_id,
+                    pt.custom_test_name,
+                    pt.is_custom,
+                    pt.test_category,
+                    t.main_test_name,
+                    t.sub_test_name,
                          pt.base_test_price,
                          pt.package_test_price,
                          pt.display_order
                   FROM package_tests pt
-                  JOIN tests t ON t.id = pt.test_id
+                LEFT JOIN tests t ON t.id = pt.test_id
                   WHERE pt.package_id = ?
                   ORDER BY pt.display_order ASC, pt.id ASC";
     $tests_stmt = $conn->prepare($tests_sql);

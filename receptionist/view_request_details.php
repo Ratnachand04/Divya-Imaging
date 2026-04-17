@@ -1,11 +1,13 @@
 <?php
 $page_title = 'Request Details';
-$required_role = 'manager';
+$required_role = 'receptionist';
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
 require_once '../includes/functions.php';
 
 ensure_bill_edit_request_workflow_schema($conn);
+
+$receptionist_id = (int)($_SESSION['user_id'] ?? 0);
 
 if (!isset($_GET['request_id']) || !is_numeric($_GET['request_id'])) {
     $_SESSION['feedback'] = "<div class='error-banner'>Invalid request ID.</div>";
@@ -14,6 +16,78 @@ if (!isset($_GET['request_id']) || !is_numeric($_GET['request_id'])) {
 }
 
 $request_id = (int)$_GET['request_id'];
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_query_response'])) {
+    $query_response = trim((string)($_POST['query_response'] ?? ''));
+
+    if ($query_response === '') {
+        $_SESSION['feedback'] = "<div class='error-banner'>Please enter a response before submitting.</div>";
+        header('Location: view_request_details.php?request_id=' . $request_id . '#query-response');
+        exit();
+    }
+
+    $conn->begin_transaction();
+    try {
+        $lock_stmt = $conn->prepare('SELECT id, status FROM bill_edit_requests WHERE id = ? AND receptionist_id = ? FOR UPDATE');
+        if (!$lock_stmt) {
+            throw new Exception('Failed to verify request status.');
+        }
+        $lock_stmt->bind_param('ii', $request_id, $receptionist_id);
+        $lock_stmt->execute();
+        $locked = $lock_stmt->get_result()->fetch_assoc();
+        $lock_stmt->close();
+
+        if (!$locked) {
+            throw new Exception('Request not found.');
+        }
+
+        $status_key = normalize_bill_edit_request_status($locked['status'] ?? 'pending');
+        if ($status_key !== 'query_raised') {
+            throw new Exception('Only Query Raised requests can be responded to.');
+        }
+
+        $update_stmt = $conn->prepare("UPDATE bill_edit_requests
+            SET status = 'pending',
+                receptionist_response = ?,
+                reason_for_change = ?,
+                manager_unread = 1,
+                receptionist_unread = 0,
+                last_receptionist_action_at = NOW(),
+                updated_at = NOW()
+            WHERE id = ? AND receptionist_id = ?");
+        if (!$update_stmt) {
+            throw new Exception('Failed to update request.');
+        }
+        $update_stmt->bind_param('ssii', $query_response, $query_response, $request_id, $receptionist_id);
+        if (!$update_stmt->execute()) {
+            $err = $update_stmt->error;
+            $update_stmt->close();
+            throw new Exception('Failed to update request: ' . $err);
+        }
+        $update_stmt->close();
+
+        log_bill_edit_request_event(
+            $conn,
+            $request_id,
+            'receptionist',
+            $receptionist_id,
+            'query_responded',
+            'query_raised',
+            'pending',
+            $query_response
+        );
+
+        $conn->commit();
+        $_SESSION['feedback'] = "<div class='success-banner'>Your response has been sent to manager. Request is now pending review.</div>";
+        header('Location: view_request_details.php?request_id=' . $request_id);
+        exit();
+    } catch (Exception $e) {
+        $conn->rollback();
+        $_SESSION['feedback'] = "<div class='error-banner'>" . htmlspecialchars($e->getMessage()) . "</div>";
+        header('Location: view_request_details.php?request_id=' . $request_id . '#query-response');
+        exit();
+    }
+}
 
 $request_stmt = $conn->prepare("SELECT
         r.id AS request_id,
@@ -24,26 +98,24 @@ $request_stmt = $conn->prepare("SELECT
         r.receptionist_response,
         r.created_at AS requested_at,
         r.updated_at,
-        r.manager_unread,
-        u.username AS receptionist_name,
+        r.receptionist_unread,
         b.id AS bill_exists,
+        b.created_at AS bill_created_at,
         b.gross_amount,
         b.discount,
         b.net_amount,
-        b.created_at AS bill_created_at,
         p.uid AS patient_uid,
         p.name AS patient_name,
         p.age,
         p.sex
     FROM bill_edit_requests r
-    JOIN users u ON r.receptionist_id = u.id
     LEFT JOIN bills b ON r.bill_id = b.id
     LEFT JOIN patients p ON b.patient_id = p.id
-    WHERE r.id = ?");
+    WHERE r.id = ? AND r.receptionist_id = ?");
 if (!$request_stmt) {
     die('Failed to prepare request details query: ' . $conn->error);
 }
-$request_stmt->bind_param('i', $request_id);
+$request_stmt->bind_param('ii', $request_id, $receptionist_id);
 $request_stmt->execute();
 $request_details = $request_stmt->get_result()->fetch_assoc();
 $request_stmt->close();
@@ -57,38 +129,14 @@ if (!$request_details) {
 $status_key = normalize_bill_edit_request_status($request_details['status'] ?? 'pending');
 $status_label = get_bill_edit_request_status_label($status_key);
 $status_class = get_bill_edit_request_status_class($status_key);
-$can_manager_take_action = in_array($status_key, ['pending', 'query_raised'], true);
-$can_open_editor = ($status_key === 'approved' && !empty($request_details['bill_exists']));
+$can_reply_query = ($status_key === 'query_raised');
 
-if (!empty($request_details['manager_unread'])) {
-    $mark_read_stmt = $conn->prepare('UPDATE bill_edit_requests SET manager_unread = 0 WHERE id = ?');
+if (!empty($request_details['receptionist_unread'])) {
+    $mark_read_stmt = $conn->prepare('UPDATE bill_edit_requests SET receptionist_unread = 0 WHERE id = ? AND receptionist_id = ?');
     if ($mark_read_stmt) {
-        $mark_read_stmt->bind_param('i', $request_id);
+        $mark_read_stmt->bind_param('ii', $request_id, $receptionist_id);
         $mark_read_stmt->execute();
         $mark_read_stmt->close();
-    }
-}
-
-$bill_items = [];
-$bill_id = (int)$request_details['bill_id'];
-if (!empty($request_details['bill_exists'])) {
-    $items_stmt = $conn->prepare("SELECT
-            CASE
-                WHEN bi.item_type = 'package' THEN CONCAT('Package: ', COALESCE(bi.package_name, 'Unnamed Package'))
-                ELSE COALESCE(CONCAT(t.main_test_name, ' - ', t.sub_test_name), 'Custom Test')
-            END AS item_name,
-            CASE WHEN bi.item_type = 'package' THEN 'Package' ELSE 'Test' END AS item_type,
-            COALESCE(t.price, 0) AS item_price,
-            COALESCE(bi.discount_amount, 0) AS discount_amount
-        FROM bill_items bi
-        LEFT JOIN tests t ON bi.test_id = t.id
-        WHERE bi.bill_id = ?
-        ORDER BY bi.id ASC");
-    if ($items_stmt) {
-        $items_stmt->bind_param('i', $bill_id);
-        $items_stmt->execute();
-        $bill_items = $items_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-        $items_stmt->close();
     }
 }
 
@@ -120,7 +168,7 @@ $action_labels = [
     'approved_by_manager' => 'Approved by manager',
     'rejected_by_manager' => 'Rejected by manager',
     'query_raised_by_manager' => 'Query raised by manager',
-    'query_responded' => 'Receptionist replied to query',
+    'query_responded' => 'Response submitted by receptionist',
     'completed_by_manager' => 'Completed by manager',
     'status_updated' => 'Status updated',
 ];
@@ -132,7 +180,7 @@ require_once '../includes/header.php';
     <div class="dashboard-header">
         <div>
             <h1>Request #<?php echo (int)$request_id; ?></h1>
-            <p>Review request details, context, timeline, and take manager action when needed.</p>
+            <p>Track manager decision, remarks, and full request timeline.</p>
         </div>
         <a href="requests.php" class="btn-cancel">Back to Requests</a>
     </div>
@@ -147,16 +195,15 @@ require_once '../includes/header.php';
         <div class="detail-grid">
             <p><strong>Request ID:</strong> #<?php echo (int)$request_details['request_id']; ?></p>
             <p><strong>Status:</strong> <span class="<?php echo htmlspecialchars($status_class); ?>"><?php echo htmlspecialchars($status_label); ?></span></p>
-            <p><strong>Receptionist:</strong> <?php echo htmlspecialchars((string)$request_details['receptionist_name']); ?></p>
+            <p><strong>Bill ID:</strong> #<?php echo (int)$request_details['bill_id']; ?></p>
             <p><strong>Requested At:</strong> <?php echo date('d-m-Y h:i A', strtotime((string)$request_details['requested_at'])); ?></p>
             <p><strong>Last Updated:</strong> <?php echo date('d-m-Y h:i A', strtotime((string)$request_details['updated_at'])); ?></p>
-            <p><strong>Bill ID:</strong> #<?php echo (int)$request_details['bill_id']; ?></p>
-            <p style="grid-column: 1 / -1;"><strong>Original Request Reason:</strong><br><?php echo nl2br(htmlspecialchars((string)$request_details['reason_for_change'])); ?></p>
+            <p style="grid-column: 1 / -1;"><strong>Your Request:</strong><br><?php echo nl2br(htmlspecialchars((string)$request_details['reason_for_change'])); ?></p>
             <?php if (!empty($request_details['manager_comment'])): ?>
             <p style="grid-column: 1 / -1;"><strong>Manager Remarks / Query:</strong><br><?php echo nl2br(htmlspecialchars((string)$request_details['manager_comment'])); ?></p>
             <?php endif; ?>
             <?php if (!empty($request_details['receptionist_response'])): ?>
-            <p style="grid-column: 1 / -1;"><strong>Receptionist Follow-up Response:</strong><br><?php echo nl2br(htmlspecialchars((string)$request_details['receptionist_response'])); ?></p>
+            <p style="grid-column: 1 / -1;"><strong>Your Latest Response:</strong><br><?php echo nl2br(htmlspecialchars((string)$request_details['receptionist_response'])); ?></p>
             <?php endif; ?>
         </div>
     </div>
@@ -174,82 +221,24 @@ require_once '../includes/header.php';
                 <p><strong>Net Amount:</strong> ₹<?php echo number_format((float)$request_details['net_amount'], 2); ?></p>
             </div>
         <?php else: ?>
-            <div class="error-banner" style="margin-bottom:0;">Associated bill or patient record is no longer available. Request can still be reviewed from timeline context.</div>
+            <div class="error-banner" style="margin-bottom:0;">Associated bill or patient record is no longer available.</div>
         <?php endif; ?>
     </div>
 
-    <div class="detail-section">
-        <h3>Bill Items Snapshot</h3>
-        <?php if (!empty($bill_items)): ?>
-            <div class="table-responsive">
-                <table class="data-table minimal-padding">
-                    <thead>
-                        <tr>
-                            <th>Item Type</th>
-                            <th>Item Name</th>
-                            <th>Price (₹)</th>
-                            <th>Discount (₹)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($bill_items as $item): ?>
-                        <tr>
-                            <td><?php echo htmlspecialchars((string)$item['item_type']); ?></td>
-                            <td><?php echo htmlspecialchars((string)$item['item_name']); ?></td>
-                            <td><?php echo number_format((float)$item['item_price'], 2); ?></td>
-                            <td><?php echo number_format((float)$item['discount_amount'], 2); ?></td>
-                        </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
+    <?php if ($can_reply_query): ?>
+    <div class="detail-section" id="query-response">
+        <h3>Respond to Manager Query</h3>
+        <form method="POST" action="view_request_details.php?request_id=<?php echo (int)$request_id; ?>#query-response">
+            <div class="form-group">
+                <label for="query_response">Clarification / Updated Reason</label>
+                <textarea id="query_response" name="query_response" rows="4" required></textarea>
             </div>
-        <?php else: ?>
-            <p style="margin:0;">No bill item records available for this request.</p>
-        <?php endif; ?>
-    </div>
-
-    <div class="detail-section">
-        <h3>Manager Actions</h3>
-        <?php if ($can_manager_take_action): ?>
-            <form method="POST" action="update_request_status.php" id="manager-request-action-form">
-                <input type="hidden" name="request_id" value="<?php echo (int)$request_id; ?>">
-                <input type="hidden" name="return_to" value="details">
-                <input type="hidden" name="open_editor" id="open_editor" value="0">
-
-                <div class="form-group" style="margin-bottom:0.8rem;">
-                    <label for="manager_comment">Manager Comment / Query (required only for Raise Query)</label>
-                    <textarea id="manager_comment" name="manager_comment" rows="3" placeholder="Add optional remarks for approval/rejection, or mandatory query text."><?php echo htmlspecialchars((string)($request_details['manager_comment'] ?? '')); ?></textarea>
-                </div>
-
-                <div class="actions-container" style="justify-content:flex-start;flex-wrap:wrap;">
-                    <button type="submit" class="btn-submit" name="action" value="approve" onclick="document.getElementById('open_editor').value='1';">Approve and Open Bill Editor</button>
-                    <button type="submit" class="btn-cancel" name="action" value="raise_query" onclick="document.getElementById('open_editor').value='0'; return validateManagerQueryComment();">Raise Query</button>
-                    <button type="submit" class="btn-action btn-delete" name="action" value="reject" onclick="document.getElementById('open_editor').value='0'; return confirm('Reject this request?');">Reject</button>
-                </div>
-            </form>
-
-            <?php if (!empty($request_details['bill_exists'])): ?>
-            <form method="POST" action="delete_bill.php" style="margin-top:0.75rem;">
-                <input type="hidden" name="bill_id" value="<?php echo (int)$request_details['bill_id']; ?>">
-                <input type="hidden" name="request_id" value="<?php echo (int)$request_id; ?>">
-                <input type="hidden" name="return_to" value="request_details">
-                <button type="submit" class="btn-action btn-delete" onclick="return confirm('This will permanently delete Bill #<?php echo (int)$request_details['bill_id']; ?> and related records. Continue?');">Delete Bill Permanently</button>
-            </form>
-            <?php endif; ?>
-        <?php elseif ($can_open_editor): ?>
             <div class="actions-container" style="justify-content:flex-start;">
-                <a class="btn-submit" href="../receptionist/generate_bill.php?edit_id=<?php echo (int)$request_details['bill_id']; ?>&request_id=<?php echo (int)$request_id; ?>">Open Bill Editor</a>
+                <button type="submit" name="submit_query_response" class="btn-submit">Send Response</button>
             </div>
-            <form method="POST" action="delete_bill.php" style="margin-top:0.75rem;">
-                <input type="hidden" name="bill_id" value="<?php echo (int)$request_details['bill_id']; ?>">
-                <input type="hidden" name="request_id" value="<?php echo (int)$request_id; ?>">
-                <input type="hidden" name="return_to" value="request_details">
-                <button type="submit" class="btn-action btn-delete" onclick="return confirm('This will permanently delete Bill #<?php echo (int)$request_details['bill_id']; ?> and related records. Continue?');">Delete Bill Permanently</button>
-            </form>
-        <?php else: ?>
-            <p style="margin:0;">No manager action available for this request in its current status.</p>
-        <?php endif; ?>
+        </form>
     </div>
+    <?php endif; ?>
 
     <div class="detail-section">
         <h3>Request Timeline</h3>
@@ -305,21 +294,5 @@ require_once '../includes/header.php';
         <?php endif; ?>
     </div>
 </div>
-
-<script>
-function validateManagerQueryComment() {
-    var field = document.getElementById('manager_comment');
-    if (!field) {
-        return true;
-    }
-    var value = (field.value || '').trim();
-    if (value.length === 0) {
-        alert('Please add a query comment before raising query.');
-        field.focus();
-        return false;
-    }
-    return true;
-}
-</script>
 
 <?php require_once '../includes/footer.php'; ?>
