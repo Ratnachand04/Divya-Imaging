@@ -3,11 +3,25 @@ $page_title = "Radiologist Details";
 $required_role = "superadmin";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
 require_once '../includes/header.php';
 
 $sa_active_page = 'test_count.php';
 
-$conn->query("ALTER TABLE bill_items ADD COLUMN IF NOT EXISTS reporting_doctor VARCHAR(150) DEFAULT NULL");
+$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
+$doctor_test_payables_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'doctor_test_payables', 'dtp') : '`doctor_test_payables` dtp';
+
+if (function_exists('table_scale_apply_alter_to_all_physical_tables')) {
+    table_scale_apply_alter_to_all_physical_tables($conn, 'bill_items', "ADD COLUMN IF NOT EXISTS reporting_doctor VARCHAR(150) DEFAULT NULL");
+} elseif (function_exists('schema_has_column')) {
+    if (!schema_has_column($conn, 'bill_items', 'reporting_doctor')) {
+        $conn->query("ALTER TABLE bill_items ADD COLUMN reporting_doctor VARCHAR(150) DEFAULT NULL");
+    }
+} else {
+    $conn->query("ALTER TABLE bill_items ADD COLUMN IF NOT EXISTS reporting_doctor VARCHAR(150) DEFAULT NULL");
+}
 
 $radiologist = isset($_GET['radiologist']) ? trim($_GET['radiologist']) : '';
 if ($radiologist === '') {
@@ -29,8 +43,8 @@ $summarySql = "
         COUNT(*) AS total_allotted,
         SUM(CASE WHEN bi.report_status = 'Completed' THEN 1 ELSE 0 END) AS completed_count,
         SUM(CASE WHEN COALESCE(bi.report_status, 'Pending') = 'Pending' THEN 1 ELSE 0 END) AS pending_count
-    FROM bill_items bi
-    JOIN bills b ON b.id = bi.bill_id
+        FROM {$bill_items_source}
+        JOIN {$bills_source} ON b.id = bi.bill_id
     WHERE bi.item_status = 0
       AND b.bill_status != 'Void'
       AND bi.reporting_doctor = ?
@@ -53,10 +67,10 @@ $detailsSql = "
         COUNT(DISTINCT b.patient_id) AS patient_count,
         COALESCE(SUM(t.price - bi.discount_amount), 0) AS revenue,
         COALESCE(SUM(COALESCE(dtp.payable_amount, t.default_payable_amount, 0)), 0) AS professional_charges
-    FROM bill_items bi
-    JOIN bills b ON b.id = bi.bill_id
-    JOIN tests t ON t.id = bi.test_id
-    LEFT JOIN doctor_test_payables dtp ON dtp.doctor_id = b.referral_doctor_id AND dtp.test_id = bi.test_id
+        FROM {$bill_items_source}
+        JOIN {$bills_source} ON b.id = bi.bill_id
+        JOIN {$tests_source} ON t.id = bi.test_id
+        LEFT JOIN {$doctor_test_payables_source} ON dtp.doctor_id = b.referral_doctor_id AND dtp.test_id = bi.test_id
     WHERE bi.item_status = 0
       AND b.bill_status != 'Void'
       AND bi.reporting_doctor = ?

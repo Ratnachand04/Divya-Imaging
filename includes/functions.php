@@ -38,22 +38,156 @@ function log_system_action($conn, $action_type, $target_id = null, $details = ''
 }
 
 /**
+ * Returns whether a base table exists in current schema.
+ *
+ * @param mysqli $conn Database connection.
+ * @param string $table_name Table name.
+ * @return bool
+ */
+function schema_has_table(mysqli $conn, string $table_name): bool {
+    $table = trim($table_name);
+    if ($table === '' || !preg_match('/^[A-Za-z0-9_]+$/', $table)) {
+        return false;
+    }
+
+    $stmt = $conn->prepare("SELECT 1
+                            FROM information_schema.TABLES
+                            WHERE TABLE_SCHEMA = DATABASE()
+                              AND TABLE_NAME = ?
+                            LIMIT 1");
+    if (!$stmt) {
+        return false;
+    }
+
+    $stmt->bind_param('s', $table);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    $exists = $res && (bool)$res->fetch_row();
+    $stmt->close();
+
+    return $exists;
+}
+
+/**
+ * Returns whether a column exists in a table in current schema.
+ *
+ * @param mysqli $conn Database connection.
+ * @param string $table_name Table name.
+ * @param string $column_name Column name.
+ * @return bool
+ */
+function schema_has_column(mysqli $conn, string $table_name, string $column_name): bool {
+    $table = trim($table_name);
+    $column = trim($column_name);
+    if ($table === '' || $column === '' || !preg_match('/^[A-Za-z0-9_]+$/', $table) || !preg_match('/^[A-Za-z0-9_]+$/', $column)) {
+        return false;
+    }
+
+    $stmt = $conn->prepare("SELECT 1
+                            FROM information_schema.COLUMNS
+                            WHERE TABLE_SCHEMA = DATABASE()
+                              AND TABLE_NAME = ?
+                              AND COLUMN_NAME = ?
+                            LIMIT 1");
+    if (!$stmt) {
+        return false;
+    }
+
+    $stmt->bind_param('ss', $table, $column);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    $exists = $res && (bool)$res->fetch_row();
+    $stmt->close();
+
+    return $exists;
+}
+
+/**
+ * Returns metadata for a single column in current schema.
+ *
+ * @param mysqli $conn Database connection.
+ * @param string $table_name Table name.
+ * @param string $column_name Column name.
+ * @return array<string, mixed>|null
+ */
+function schema_get_column_metadata(mysqli $conn, string $table_name, string $column_name): ?array {
+    $table = trim($table_name);
+    $column = trim($column_name);
+    if ($table === '' || $column === '' || !preg_match('/^[A-Za-z0-9_]+$/', $table) || !preg_match('/^[A-Za-z0-9_]+$/', $column)) {
+        return null;
+    }
+
+    $stmt = $conn->prepare("SELECT COLUMN_NAME,
+                                   COLUMN_TYPE,
+                                   IS_NULLABLE,
+                                   COLUMN_DEFAULT,
+                                   EXTRA,
+                                   DATA_TYPE,
+                                   COLLATION_NAME
+                            FROM information_schema.COLUMNS
+                            WHERE TABLE_SCHEMA = DATABASE()
+                              AND TABLE_NAME = ?
+                              AND COLUMN_NAME = ?
+                            LIMIT 1");
+    if (!$stmt) {
+        return null;
+    }
+
+    $stmt->bind_param('ss', $table, $column);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    $row = $res ? $res->fetch_assoc() : null;
+    $stmt->close();
+
+    return is_array($row) ? $row : null;
+}
+
+/**
+ * Lists column names for a table in current schema.
+ *
+ * @param mysqli $conn Database connection.
+ * @param string $table_name Table name.
+ * @return array<int, string>
+ */
+function schema_list_columns(mysqli $conn, string $table_name): array {
+    $columns = [];
+    $table = trim($table_name);
+    if ($table === '' || !preg_match('/^[A-Za-z0-9_]+$/', $table)) {
+        return $columns;
+    }
+
+    $stmt = $conn->prepare("SELECT COLUMN_NAME
+                            FROM information_schema.COLUMNS
+                            WHERE TABLE_SCHEMA = DATABASE()
+                              AND TABLE_NAME = ?
+                            ORDER BY ORDINAL_POSITION");
+    if (!$stmt) {
+        return $columns;
+    }
+
+    $stmt->bind_param('s', $table);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    while ($res && ($row = $res->fetch_assoc())) {
+        $col = (string)($row['COLUMN_NAME'] ?? '');
+        if ($col !== '') {
+            $columns[] = $col;
+        }
+    }
+    $stmt->close();
+
+    return $columns;
+}
+
+/**
  * Validates that app_settings schema exists from SQL init files.
  *
  * @param mysqli $conn The database connection object.
  * @throws Exception When app_settings table is missing.
  */
 function app_settings_ensure_schema(mysqli $conn) {
-    $check = $conn->query("SHOW TABLES LIKE 'app_settings'");
-    if (!$check || $check->num_rows === 0) {
-        if ($check instanceof mysqli_result) {
-            $check->free();
-        }
+    if (!schema_has_table($conn, 'app_settings')) {
         throw new Exception('Missing app_settings table. Run SQL init bundle (001-main-schema.sql -> 500-data-flow-tunnel.sql -> 900-post-schema.sql).');
-    }
-
-    if ($check instanceof mysqli_result) {
-        $check->free();
     }
 }
 
@@ -224,6 +358,400 @@ function get_reporting_radiologist_list(): array {
 }
 
 /**
+ * Returns project root path used by filesystem storage helpers.
+ *
+ * @return string
+ */
+function data_storage_project_root_path(): string {
+    static $root_path = null;
+
+    if ($root_path !== null) {
+        return $root_path;
+    }
+
+    $root_path = dirname(__DIR__);
+    return $root_path;
+}
+
+/**
+ * Converts arbitrary labels into a filesystem-safe folder segment.
+ *
+ * @param string|null $value Raw segment value.
+ * @param string $fallback Fallback value if segment becomes empty.
+ * @return string
+ */
+function data_storage_safe_segment($value, string $fallback = 'unknown'): string {
+    $segment = trim((string)$value);
+    if ($segment === '') {
+        return $fallback;
+    }
+
+    $segment = str_replace(['\\', '/'], '-', $segment);
+    $segment = preg_replace('/[^A-Za-z0-9. _-]/', '', $segment);
+    $segment = preg_replace('/\s+/', '_', (string)$segment);
+    $segment = trim((string)$segment, ' ._-');
+
+    if ($segment === '') {
+        return $fallback;
+    }
+
+    return $segment;
+}
+
+/**
+ * Ensures and returns one path inside project data storage.
+ *
+ * @param array<int, string> $segments Folder segments under data/.
+ * @return array{relative_path: string, storage_path: string, absolute_path: string}
+ */
+function data_storage_prepare_path(array $segments): array {
+    $clean_segments = [];
+    foreach ($segments as $index => $segment) {
+        $fallback = 'segment_' . ($index + 1);
+        $clean_segments[] = data_storage_safe_segment($segment, $fallback);
+    }
+
+    $relative_parts = ['data'];
+    $root_path = data_storage_project_root_path();
+    $absolute_current = $root_path . DIRECTORY_SEPARATOR . 'data';
+
+    if (!is_dir($absolute_current) && !mkdir($absolute_current, 0777, true) && !is_dir($absolute_current)) {
+        throw new RuntimeException('Unable to create data storage root path: data');
+    }
+    @chmod($absolute_current, 0777);
+
+    foreach ($clean_segments as $segment) {
+        $relative_parts[] = $segment;
+        $absolute_current .= DIRECTORY_SEPARATOR . $segment;
+
+        if (!is_dir($absolute_current) && !mkdir($absolute_current, 0777, true) && !is_dir($absolute_current)) {
+            throw new RuntimeException('Unable to create data storage path: ' . implode('/', $relative_parts));
+        }
+
+        // Keep nested storage folders writable when CLI/root creates them.
+        @chmod($absolute_current, 0777);
+    }
+
+    $relative_path = implode('/', $relative_parts);
+    $absolute_path = $absolute_current;
+
+    if (!is_writable($absolute_path)) {
+        throw new RuntimeException('Data storage path is not writable: ' . $relative_path);
+    }
+
+    return [
+        'relative_path' => $relative_path,
+        'storage_path' => '../' . $relative_path,
+        'absolute_path' => $absolute_path,
+    ];
+}
+
+/**
+ * Creates the base data storage folders required by the application.
+ */
+function ensure_data_storage_base_structure(): void {
+    static $initialized = false;
+
+    if ($initialized) {
+        return;
+    }
+
+    $base_folders = [
+        'receipts',
+        'reports',
+        'expenses',
+        'professional_charges',
+        'monthly_reports',
+        'daily_reports',
+    ];
+
+    foreach ($base_folders as $folder) {
+        data_storage_prepare_path([$folder]);
+    }
+
+    $initialized = true;
+}
+
+/**
+ * Builds receipts storage hierarchy:
+ * receipts/year/month/date/bill_receipts
+ *
+ * @param DateTimeInterface|null $for_date Optional target date.
+ * @return array{relative_path: string, storage_path: string, absolute_path: string}
+ */
+function data_storage_receipts_directory(?DateTimeInterface $for_date = null): array {
+    $dt = $for_date ?: new DateTimeImmutable('now');
+    return data_storage_prepare_path([
+        'receipts',
+        $dt->format('Y'),
+        $dt->format('m'),
+        $dt->format('d'),
+        'bill_receipts',
+    ]);
+}
+
+/**
+ * Builds reports storage hierarchy:
+ * reports/radiologist/year/month/main_category/date/reports
+ *
+ * @param string $radiologist_name Reporting radiologist name.
+ * @param string $main_category Main test category.
+ * @param DateTimeInterface|null $for_date Optional target date.
+ * @return array{relative_path: string, storage_path: string, absolute_path: string}
+ */
+function data_storage_reports_directory(string $radiologist_name, string $main_category, ?DateTimeInterface $for_date = null): array {
+    $dt = $for_date ?: new DateTimeImmutable('now');
+    return data_storage_prepare_path([
+        'reports',
+        data_storage_safe_segment($radiologist_name, 'unassigned_radiologist'),
+        $dt->format('Y'),
+        $dt->format('m'),
+        data_storage_safe_segment($main_category, 'uncategorized'),
+        $dt->format('d'),
+        'reports',
+    ]);
+}
+
+/**
+ * Builds expense proof storage hierarchy:
+ * expenses/year/month/category/date/proof
+ *
+ * @param string $expense_category Expense category label.
+ * @param DateTimeInterface|null $for_date Optional target date.
+ * @return array{relative_path: string, storage_path: string, absolute_path: string}
+ */
+function data_storage_expense_proof_directory(string $expense_category, ?DateTimeInterface $for_date = null): array {
+    $dt = $for_date ?: new DateTimeImmutable('now');
+    return data_storage_prepare_path([
+        'expenses',
+        $dt->format('Y'),
+        $dt->format('m'),
+        data_storage_safe_segment($expense_category, 'general'),
+        $dt->format('d'),
+        'proof',
+    ]);
+}
+
+/**
+ * Builds professional charges storage hierarchy:
+ * professional_charges/doctor/year/month/excel_sheet
+ *
+ * @param string $doctor_name Doctor name label.
+ * @param DateTimeInterface|null $for_date Optional target date.
+ * @return array{relative_path: string, storage_path: string, absolute_path: string}
+ */
+function data_storage_professional_charges_directory(string $doctor_name, ?DateTimeInterface $for_date = null): array {
+    $dt = $for_date ?: new DateTimeImmutable('now');
+    return data_storage_prepare_path([
+        'professional_charges',
+        data_storage_safe_segment($doctor_name, 'doctor'),
+        $dt->format('Y'),
+        $dt->format('m'),
+        'excel_sheet',
+    ]);
+}
+
+/**
+ * Builds monthly reports storage hierarchy:
+ * monthly_reports/year/month
+ *
+ * @param DateTimeInterface|null $for_date Optional target date.
+ * @return array{relative_path: string, storage_path: string, absolute_path: string}
+ */
+function data_storage_monthly_reports_directory(?DateTimeInterface $for_date = null): array {
+    $dt = $for_date ?: new DateTimeImmutable('now');
+    return data_storage_prepare_path([
+        'monthly_reports',
+        $dt->format('Y'),
+        $dt->format('m'),
+    ]);
+}
+
+/**
+ * Builds daily reports storage hierarchy:
+ * daily_reports/year/month/date
+ *
+ * @param DateTimeInterface|null $for_date Optional target date.
+ * @return array{relative_path: string, storage_path: string, absolute_path: string}
+ */
+function data_storage_daily_reports_directory(?DateTimeInterface $for_date = null): array {
+    $dt = $for_date ?: new DateTimeImmutable('now');
+    return data_storage_prepare_path([
+        'daily_reports',
+        $dt->format('Y'),
+        $dt->format('m'),
+        $dt->format('d'),
+    ]);
+}
+
+/**
+ * Normalizes a project-relative storage path and rejects traversal patterns.
+ *
+ * @param string $path Relative path from request/DB.
+ * @return string|null Normalized relative path or null when invalid.
+ */
+function data_storage_normalize_relative_path(string $path): ?string {
+    $candidate = trim(str_replace('\\', '/', $path));
+    if ($candidate === '' || strpos($candidate, "\0") !== false) {
+        return null;
+    }
+
+    while (strpos($candidate, '../') === 0) {
+        $candidate = substr($candidate, 3);
+    }
+    while (strpos($candidate, './') === 0) {
+        $candidate = substr($candidate, 2);
+    }
+
+    $candidate = ltrim($candidate, '/');
+    if ($candidate === '') {
+        return null;
+    }
+
+    $parts = explode('/', $candidate);
+    $clean_parts = [];
+    foreach ($parts as $part) {
+        $seg = trim($part);
+        if ($seg === '' || $seg === '.') {
+            continue;
+        }
+        if ($seg === '..') {
+            return null;
+        }
+        $clean_parts[] = $seg;
+    }
+
+    if (empty($clean_parts)) {
+        return null;
+    }
+
+    return implode('/', $clean_parts);
+}
+
+/**
+ * Converts an absolute file path under project root to project-relative storage path.
+ *
+ * @param string $absolute_path Absolute file path.
+ * @return string|null Project-relative path or null when outside root.
+ */
+function data_storage_relative_from_absolute_path(string $absolute_path): ?string {
+    $root_real = realpath(data_storage_project_root_path());
+    if ($root_real === false) {
+        return null;
+    }
+
+    $absolute_real = realpath($absolute_path);
+    if ($absolute_real === false) {
+        return null;
+    }
+
+    $root_norm = str_replace('\\', '/', $root_real);
+    $absolute_norm = str_replace('\\', '/', $absolute_real);
+
+    if (strpos($absolute_norm, $root_norm . '/') !== 0) {
+        return null;
+    }
+
+    $relative = substr($absolute_norm, strlen($root_norm) + 1);
+    return data_storage_normalize_relative_path($relative ?: '');
+}
+
+/**
+ * Maps a primary storage relative path to its mirrored relative path.
+ *
+ * @param string $relative_path Normalized project-relative path.
+ * @return string Mirror-relative path under data/mirror.
+ */
+function data_storage_mirror_relative_path(string $relative_path): string {
+    $relative = data_storage_normalize_relative_path($relative_path) ?: '';
+    if ($relative === '') {
+        return 'data/mirror/invalid_path';
+    }
+
+    if (strpos($relative, 'data/') === 0) {
+        $suffix = substr($relative, 5);
+        return 'data/mirror/' . ltrim((string)$suffix, '/');
+    }
+
+    return 'data/mirror/legacy/' . $relative;
+}
+
+/**
+ * Copies a stored project-relative file to mirrored storage path.
+ *
+ * @param string $path Stored DB path or relative path.
+ * @return string|null Mirror storage path in DB format (../data/...) when copied.
+ */
+function data_storage_copy_file_to_mirror(string $path): ?string {
+    $relative = data_storage_normalize_relative_path($path);
+    if ($relative === null) {
+        return null;
+    }
+
+    $root = data_storage_project_root_path();
+    $source_absolute = $root . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relative);
+    if (!is_file($source_absolute)) {
+        return null;
+    }
+
+    $mirror_relative = data_storage_mirror_relative_path($relative);
+    $mirror_absolute = $root . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $mirror_relative);
+    $mirror_dir = dirname($mirror_absolute);
+    if (!is_dir($mirror_dir) && !mkdir($mirror_dir, 0777, true) && !is_dir($mirror_dir)) {
+        return null;
+    }
+    @chmod($mirror_dir, 0777);
+
+    if (!@copy($source_absolute, $mirror_absolute)) {
+        return null;
+    }
+
+    return '../' . $mirror_relative;
+}
+
+/**
+ * Copies an absolute project file to mirrored storage path.
+ *
+ * @param string $absolute_path Absolute path under project root.
+ * @return string|null Mirror storage path in DB format when copied.
+ */
+function data_storage_copy_absolute_file_to_mirror(string $absolute_path): ?string {
+    $relative = data_storage_relative_from_absolute_path($absolute_path);
+    if ($relative === null) {
+        return null;
+    }
+
+    return data_storage_copy_file_to_mirror($relative);
+}
+
+/**
+ * Resolves a stored file path to an existing absolute file path, primary first then mirror.
+ *
+ * @param string $path Stored DB path or relative path.
+ * @return string|null Absolute file path when found.
+ */
+function data_storage_resolve_primary_or_mirror(string $path): ?string {
+    $relative = data_storage_normalize_relative_path($path);
+    if ($relative === null) {
+        return null;
+    }
+
+    $root = data_storage_project_root_path();
+    $primary_absolute = $root . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relative);
+    if (is_file($primary_absolute)) {
+        return $primary_absolute;
+    }
+
+    $mirror_relative = data_storage_mirror_relative_path($relative);
+    $mirror_absolute = $root . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $mirror_relative);
+    if (is_file($mirror_absolute)) {
+        return $mirror_absolute;
+    }
+
+    return null;
+}
+
+/**
  * Detects patient identifier columns available in current schema.
  *
  * @param mysqli $conn The database connection object.
@@ -241,15 +769,11 @@ function get_patient_identifier_columns(mysqli $conn): array {
         'registration_id' => false,
     ];
 
-    $result = $conn->query("SHOW COLUMNS FROM patients");
-    if ($result instanceof mysqli_result) {
-        while ($row = $result->fetch_assoc()) {
-            $field = isset($row['Field']) ? (string)$row['Field'] : '';
-            if ($field === 'uid' || $field === 'registration_id') {
-                $cached[$field] = true;
-            }
+    $columns = schema_list_columns($conn, 'patients');
+    foreach ($columns as $field) {
+        if ($field === 'uid' || $field === 'registration_id') {
+            $cached[$field] = true;
         }
-        $result->free();
     }
 
     return $cached;
@@ -343,6 +867,73 @@ function generate_next_patient_identifier(mysqli $conn): string {
 }
 
 /**
+ * Returns allowed bookmark statuses for writer saved bills staging.
+ *
+ * @return array<string, string>
+ */
+function writer_saved_bills_status_options(): array {
+    return [
+        'completed' => 'Completed',
+        'needs_changes' => 'Needs Changes',
+        'needs_approval' => 'Needs Approval',
+    ];
+}
+
+/**
+ * Normalizes bookmark status for writer saved bills staging.
+ *
+ * @param string|null $status Raw status value.
+ * @return string One of allowed status keys.
+ */
+function writer_saved_bills_normalize_status(?string $status): string {
+    $value = strtolower(trim((string)$status));
+    $options = writer_saved_bills_status_options();
+    if (isset($options[$value])) {
+        return $value;
+    }
+    return 'completed';
+}
+
+/**
+ * Ensures writer saved bills staging table exists.
+ *
+ * @param mysqli $conn The database connection object.
+ * @throws Exception When schema operations fail.
+ */
+function ensure_writer_saved_bills_stage_table(mysqli $conn): void {
+    static $is_checked = false;
+
+    if ($is_checked) {
+        return;
+    }
+
+    $create_sql = "CREATE TABLE IF NOT EXISTS writer_saved_bills_stage (
+        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        bill_item_id INT UNSIGNED NOT NULL,
+        bookmark_status ENUM('completed','needs_changes','needs_approval') NOT NULL DEFAULT 'completed',
+        saved_by INT UNSIGNED DEFAULT NULL,
+        updated_by INT UNSIGNED DEFAULT NULL,
+        saved_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_writer_saved_bill_item (bill_item_id),
+        INDEX idx_writer_saved_status (bookmark_status),
+        INDEX idx_writer_saved_updated_at (updated_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci";
+
+    if (!$conn->query($create_sql)) {
+        throw new Exception('Unable to ensure writer_saved_bills_stage table: ' . $conn->error);
+    }
+
+    if (!schema_has_column($conn, 'writer_saved_bills_stage', 'updated_by')) {
+        if (!$conn->query("ALTER TABLE writer_saved_bills_stage ADD COLUMN updated_by INT UNSIGNED DEFAULT NULL AFTER saved_by")) {
+            throw new Exception('Unable to add writer_saved_bills_stage.updated_by: ' . $conn->error);
+        }
+    }
+
+    $is_checked = true;
+}
+
+/**
  * Ensures patient uid schema exists and is enforced.
  *
  * @param mysqli $conn The database connection object.
@@ -355,24 +946,16 @@ function ensure_patient_registration_schema(mysqli $conn) {
     }
 
     // Migrate old registration_id column to uid if it still exists
-    $old_col = $conn->query("SHOW COLUMNS FROM patients LIKE 'registration_id'");
-    if ($old_col && $old_col->num_rows > 0) {
+    if (schema_has_column($conn, 'patients', 'registration_id')) {
         $conn->query("ALTER TABLE patients CHANGE COLUMN registration_id uid VARCHAR(12) NULL");
         // Drop old unique key if present then recreate under new name
         $conn->query("ALTER TABLE patients DROP INDEX uniq_patient_registration_id");
     }
-    if ($old_col instanceof mysqli_result) {
-        $old_col->free();
-    }
 
-    $column_result = $conn->query("SHOW COLUMNS FROM patients LIKE 'uid'");
-    if ($column_result && $column_result->num_rows === 0) {
+    if (!schema_has_column($conn, 'patients', 'uid')) {
         if (!$conn->query("ALTER TABLE patients ADD COLUMN uid VARCHAR(12) NULL AFTER id")) {
             throw new Exception('Unable to add patients.uid column: ' . $conn->error);
         }
-    }
-    if ($column_result instanceof mysqli_result) {
-        $column_result->free();
     }
 
     if (!$conn->query("UPDATE patients SET uid = CONCAT('DC', YEAR(created_at), LPAD(id, 4, '0')) WHERE uid IS NULL OR uid = ''")) {
@@ -454,14 +1037,10 @@ function ensure_bill_payment_split_columns(mysqli $conn) {
     ];
 
     foreach ($columns as $name => $definition) {
-        $check = $conn->query("SHOW COLUMNS FROM bills LIKE '{$name}'");
-        if ($check && $check->num_rows === 0) {
+        if (!schema_has_column($conn, 'bills', $name)) {
             if (!$conn->query("ALTER TABLE bills ADD COLUMN {$name} {$definition}")) {
                 throw new Exception('Unable to add bills.' . $name . ': ' . $conn->error);
             }
-        }
-        if ($check instanceof mysqli_result) {
-            $check->free();
         }
     }
 
@@ -511,14 +1090,10 @@ function ensure_payment_history_split_columns(mysqli $conn) {
     ];
 
     foreach ($columns as $name => $definition) {
-        $check = $conn->query("SHOW COLUMNS FROM payment_history LIKE '{$name}'");
-        if ($check && $check->num_rows === 0) {
+        if (!schema_has_column($conn, 'payment_history', $name)) {
             if (!$conn->query("ALTER TABLE payment_history ADD COLUMN {$name} {$definition}")) {
                 throw new Exception('Unable to add payment_history.' . $name . ': ' . $conn->error);
             }
-        }
-        if ($check instanceof mysqli_result) {
-            $check->free();
         }
     }
 
@@ -930,28 +1505,18 @@ function ensure_package_management_schema(mysqli $conn) {
     ];
 
     foreach ($bill_item_columns as $name => $definition) {
-        $check = $conn->query("SHOW COLUMNS FROM bill_items LIKE '{$name}'");
-        if ($check && $check->num_rows === 0) {
+        if (!schema_has_column($conn, 'bill_items', $name)) {
             if (!$conn->query("ALTER TABLE bill_items ADD COLUMN {$name} {$definition}")) {
                 throw new Exception('Unable to add bill_items.' . $name . ': ' . $conn->error);
             }
         }
-        if ($check instanceof mysqli_result) {
-            $check->free();
-        }
     }
 
-    $test_id_check = $conn->query("SHOW COLUMNS FROM bill_items LIKE 'test_id'");
-    if ($test_id_check && $test_id_check->num_rows > 0) {
-        $test_id_column = $test_id_check->fetch_assoc();
-        if (isset($test_id_column['Null']) && strtoupper((string)$test_id_column['Null']) !== 'YES') {
-            if (!$conn->query("ALTER TABLE bill_items MODIFY COLUMN test_id INT NULL")) {
-                throw new Exception('Unable to update bill_items.test_id nullability: ' . $conn->error);
-            }
+    $test_id_meta = schema_get_column_metadata($conn, 'bill_items', 'test_id');
+    if (is_array($test_id_meta) && strtoupper((string)($test_id_meta['IS_NULLABLE'] ?? 'YES')) !== 'YES') {
+        if (!$conn->query("ALTER TABLE bill_items MODIFY COLUMN test_id INT NULL")) {
+            throw new Exception('Unable to update bill_items.test_id nullability: ' . $conn->error);
         }
-    }
-    if ($test_id_check instanceof mysqli_result) {
-        $test_id_check->free();
     }
 
     $idx_package = $conn->query("SHOW INDEX FROM bill_items WHERE Key_name = 'idx_bill_items_package'");
@@ -1121,6 +1686,1104 @@ function fetch_package_details(mysqli $conn, int $package_id, bool $active_only 
     $tests_stmt->close();
 
     return $package;
+}
+
+/**
+ * Validates table or alias identifier safety.
+ *
+ * @param string $name SQL identifier candidate.
+ * @return bool
+ */
+function table_scale_is_safe_identifier(string $name): bool {
+    return (bool)preg_match('/^[A-Za-z0-9_]+$/', $name);
+}
+
+/**
+ * Quotes SQL identifiers with backticks.
+ *
+ * @param string $identifier SQL identifier.
+ * @return string
+ */
+function table_scale_quote_identifier(string $identifier): string {
+    return '`' . str_replace('`', '``', $identifier) . '`';
+}
+
+/**
+ * Returns shard table name for a base table and shard index.
+ *
+ * @param string $base_table Base table name.
+ * @param int $shard_index Shard number (2+ for overflow tables).
+ * @return string
+ */
+function table_scale_shard_table_name(string $base_table, int $shard_index): string {
+    return $base_table . '__p' . $shard_index;
+}
+
+/**
+ * Returns union view name for shard-aware reads.
+ *
+ * @param string $base_table Base table name.
+ * @return string
+ */
+function table_scale_view_name(string $base_table): string {
+    return 'vhs_' . $base_table;
+}
+
+/**
+ * Builds deterministic SQL object names while staying within identifier limits.
+ *
+ * @param string $prefix Name prefix.
+ * @param string $source Source table name.
+ * @return string
+ */
+function table_mirror_compose_name(string $prefix, string $source): string {
+    $candidate = $prefix . $source;
+    if (strlen($candidate) <= 64) {
+        return $candidate;
+    }
+
+    $hash = substr(sha1($source), 0, 12);
+    $max_source_len = 64 - strlen($prefix) - 1 - strlen($hash);
+    if ($max_source_len < 1) {
+        $max_source_len = 1;
+    }
+
+    return $prefix . substr($source, 0, $max_source_len) . '_' . $hash;
+}
+
+/**
+ * Returns mirrored table name for a physical table.
+ *
+ * @param string $source_table Source physical table name.
+ * @return string
+ */
+function table_mirror_table_name(string $source_table): string {
+    return table_mirror_compose_name('mir_', $source_table);
+}
+
+/**
+ * Returns mirrored read-view name for a sharded base table.
+ *
+ * @param string $base_table Base table name.
+ * @return string
+ */
+function table_mirror_view_name(string $base_table): string {
+    return table_mirror_compose_name('vhm_', $base_table);
+}
+
+/**
+ * Returns trigger name used for table mirror synchronization.
+ *
+ * @param string $source_table Source physical table name.
+ * @param string $suffix Trigger suffix (ai|au|ad).
+ * @return string
+ */
+function table_mirror_trigger_name(string $source_table, string $suffix): string {
+    return table_mirror_compose_name('trg_m_' . $suffix . '_', $source_table);
+}
+
+/**
+ * Ensures metadata table for table mirroring exists.
+ *
+ * @param mysqli $conn Database connection.
+ */
+function table_mirror_ensure_registry_schema(mysqli $conn): void {
+    $sql = "CREATE TABLE IF NOT EXISTS table_mirror_registry (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        source_table VARCHAR(64) NOT NULL UNIQUE,
+        mirror_table VARCHAR(64) NOT NULL,
+        initial_sync_done TINYINT(1) NOT NULL DEFAULT 0,
+        is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_mirror_table (mirror_table)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci";
+
+    $conn->query($sql);
+}
+
+/**
+ * Lists source physical tables that should be mirrored.
+ *
+ * @param mysqli $conn Database connection.
+ * @return array<int, string>
+ */
+function table_mirror_list_source_tables(mysqli $conn): array {
+    $tables = [];
+    $sql = "SELECT TABLE_NAME
+            FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_TYPE = 'BASE TABLE'
+              AND TABLE_NAME <> 'table_mirror_registry'
+              AND TABLE_NAME NOT LIKE 'mir\\_%' ESCAPE '\\\\'
+            ORDER BY TABLE_NAME";
+
+    $res = $conn->query($sql);
+    if (!($res instanceof mysqli_result)) {
+        return $tables;
+    }
+
+    while ($row = $res->fetch_assoc()) {
+        $name = (string)($row['TABLE_NAME'] ?? '');
+        if (table_scale_is_safe_identifier($name)) {
+            $tables[] = $name;
+        }
+    }
+    $res->free();
+
+    return $tables;
+}
+
+/**
+ * Lists column names for a physical table.
+ *
+ * @param mysqli $conn Database connection.
+ * @param string $table_name Physical table name.
+ * @return array<int, string>
+ */
+function table_mirror_list_columns(mysqli $conn, string $table_name): array {
+    $columns = [];
+    if (!table_scale_is_safe_identifier($table_name)) {
+        return $columns;
+    }
+
+    $stmt = $conn->prepare("SELECT COLUMN_NAME
+                            FROM information_schema.COLUMNS
+                            WHERE TABLE_SCHEMA = DATABASE()
+                              AND TABLE_NAME = ?
+                            ORDER BY ORDINAL_POSITION");
+    if (!$stmt) {
+        return $columns;
+    }
+
+    $stmt->bind_param('s', $table_name);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    while ($res && ($row = $res->fetch_assoc())) {
+        $col = (string)($row['COLUMN_NAME'] ?? '');
+        if (table_scale_is_safe_identifier($col)) {
+            $columns[] = $col;
+        }
+    }
+    $stmt->close();
+
+    return $columns;
+}
+
+/**
+ * Lists primary-key columns for a physical table.
+ *
+ * @param mysqli $conn Database connection.
+ * @param string $table_name Physical table name.
+ * @return array<int, string>
+ */
+function table_mirror_list_primary_columns(mysqli $conn, string $table_name): array {
+    $columns = [];
+    if (!table_scale_is_safe_identifier($table_name)) {
+        return $columns;
+    }
+
+    $stmt = $conn->prepare("SELECT COLUMN_NAME
+                            FROM information_schema.KEY_COLUMN_USAGE
+                            WHERE TABLE_SCHEMA = DATABASE()
+                              AND TABLE_NAME = ?
+                              AND CONSTRAINT_NAME = 'PRIMARY'
+                            ORDER BY ORDINAL_POSITION");
+    if (!$stmt) {
+        return $columns;
+    }
+
+    $stmt->bind_param('s', $table_name);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    while ($res && ($row = $res->fetch_assoc())) {
+        $col = (string)($row['COLUMN_NAME'] ?? '');
+        if (table_scale_is_safe_identifier($col)) {
+            $columns[] = $col;
+        }
+    }
+    $stmt->close();
+
+    return $columns;
+}
+
+/**
+ * Checks if a trigger already exists in current schema.
+ *
+ * @param mysqli $conn Database connection.
+ * @param string $trigger_name Trigger identifier.
+ * @return bool
+ */
+function table_mirror_trigger_exists(mysqli $conn, string $trigger_name): bool {
+    if (!table_scale_is_safe_identifier($trigger_name)) {
+        return false;
+    }
+
+    $stmt = $conn->prepare("SELECT 1
+                            FROM information_schema.TRIGGERS
+                            WHERE TRIGGER_SCHEMA = DATABASE()
+                              AND TRIGGER_NAME = ?
+                            LIMIT 1");
+    if (!$stmt) {
+        return false;
+    }
+
+    $stmt->bind_param('s', $trigger_name);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    $exists = $res && (bool)$res->fetch_row();
+    $stmt->close();
+
+    return $exists;
+}
+
+/**
+ * Ensures a mirror trigger exists for the given source table event.
+ *
+ * @param mysqli $conn Database connection.
+ * @param string $source_table Source table name.
+ * @param string $mirror_table Mirror table name.
+ * @param string $event insert|update|delete.
+ * @param array<int, string> $columns Source table columns.
+ * @param array<int, string> $match_columns Key columns used for delete matching.
+ */
+function table_mirror_ensure_trigger(
+    mysqli $conn,
+    string $source_table,
+    string $mirror_table,
+    string $event,
+    array $columns,
+    array $match_columns
+): void {
+    $event = strtolower(trim($event));
+    if (!in_array($event, ['insert', 'update', 'delete'], true)) {
+        return;
+    }
+
+    $suffix_map = ['insert' => 'ai', 'update' => 'au', 'delete' => 'ad'];
+    $trigger_name = table_mirror_trigger_name($source_table, $suffix_map[$event]);
+    if (table_mirror_trigger_exists($conn, $trigger_name)) {
+        return;
+    }
+
+    $quoted_trigger = table_scale_quote_identifier($trigger_name);
+    $quoted_source = table_scale_quote_identifier($source_table);
+    $quoted_mirror = table_scale_quote_identifier($mirror_table);
+
+    $body_sql = '';
+    if ($event === 'insert' || $event === 'update') {
+        $safe_columns = array_values(array_filter($columns, 'table_scale_is_safe_identifier'));
+        if (empty($safe_columns)) {
+            return;
+        }
+
+        $column_list = implode(', ', array_map('table_scale_quote_identifier', $safe_columns));
+        $new_values = implode(', ', array_map(static function ($col) {
+            return 'NEW.' . table_scale_quote_identifier($col);
+        }, $safe_columns));
+        $update_list = implode(', ', array_map(static function ($col) {
+            $quoted = table_scale_quote_identifier($col);
+            return $quoted . ' = VALUES(' . $quoted . ')';
+        }, $safe_columns));
+
+        $body_sql = 'INSERT INTO ' . $quoted_mirror . ' (' . $column_list . ') VALUES (' . $new_values . ') ON DUPLICATE KEY UPDATE ' . $update_list;
+    } else {
+        $safe_match_columns = array_values(array_filter($match_columns, 'table_scale_is_safe_identifier'));
+        if (empty($safe_match_columns)) {
+            $safe_match_columns = array_values(array_filter($columns, 'table_scale_is_safe_identifier'));
+        }
+        if (empty($safe_match_columns)) {
+            return;
+        }
+
+        $where_sql = implode(' AND ', array_map(static function ($col) {
+            $quoted = table_scale_quote_identifier($col);
+            return $quoted . ' <=> OLD.' . $quoted;
+        }, $safe_match_columns));
+
+        $body_sql = 'DELETE FROM ' . $quoted_mirror . ' WHERE ' . $where_sql;
+    }
+
+    $sql = 'CREATE TRIGGER ' . $quoted_trigger .
+           ' AFTER ' . strtoupper($event) .
+           ' ON ' . $quoted_source .
+           ' FOR EACH ROW ' . $body_sql;
+
+    if (!$conn->query($sql)) {
+        error_log('Table mirror trigger create failed for ' . $source_table . ' (' . $event . '): ' . $conn->error);
+    }
+}
+
+/**
+ * Upserts table mirror registry row.
+ *
+ * @param mysqli $conn Database connection.
+ * @param string $source_table Source table name.
+ * @param string $mirror_table Mirror table name.
+ * @param int $initial_sync_done 0 or 1.
+ */
+function table_mirror_sync_registry_row(mysqli $conn, string $source_table, string $mirror_table, int $initial_sync_done): void {
+    table_mirror_ensure_registry_schema($conn);
+
+    $sync_flag = ($initial_sync_done === 1) ? 1 : 0;
+    $stmt = $conn->prepare("INSERT INTO table_mirror_registry (source_table, mirror_table, initial_sync_done, is_enabled)
+                            VALUES (?, ?, ?, 1)
+                            ON DUPLICATE KEY UPDATE mirror_table = VALUES(mirror_table), initial_sync_done = VALUES(initial_sync_done), is_enabled = 1, updated_at = CURRENT_TIMESTAMP");
+    if (!$stmt) {
+        return;
+    }
+
+    $stmt->bind_param('ssi', $source_table, $mirror_table, $sync_flag);
+    $stmt->execute();
+    $stmt->close();
+}
+
+/**
+ * Ensures mirrored table and sync triggers for one source table.
+ *
+ * @param mysqli $conn Database connection.
+ * @param string $source_table Source table name.
+ */
+function table_mirror_ensure_table(mysqli $conn, string $source_table): void {
+    if (!table_scale_is_safe_identifier($source_table)) {
+        return;
+    }
+
+    $mirror_table = table_mirror_table_name($source_table);
+    if (!table_scale_is_safe_identifier($mirror_table)) {
+        return;
+    }
+
+    $create_sql = 'CREATE TABLE IF NOT EXISTS ' . table_scale_quote_identifier($mirror_table) . ' LIKE ' . table_scale_quote_identifier($source_table);
+    if (!$conn->query($create_sql)) {
+        error_log('Table mirror create failed for ' . $source_table . ': ' . $conn->error);
+        return;
+    }
+
+    $columns = table_mirror_list_columns($conn, $source_table);
+    if (empty($columns)) {
+        return;
+    }
+
+    $primary_columns = table_mirror_list_primary_columns($conn, $source_table);
+    table_mirror_ensure_trigger($conn, $source_table, $mirror_table, 'insert', $columns, $primary_columns);
+    table_mirror_ensure_trigger($conn, $source_table, $mirror_table, 'update', $columns, $primary_columns);
+    table_mirror_ensure_trigger($conn, $source_table, $mirror_table, 'delete', $columns, $primary_columns);
+
+    $initial_sync_done = 0;
+    $stmt = $conn->prepare("SELECT initial_sync_done FROM table_mirror_registry WHERE source_table = ? LIMIT 1");
+    if ($stmt) {
+        $stmt->bind_param('s', $source_table);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $row = $res ? $res->fetch_assoc() : null;
+        $stmt->close();
+        $initial_sync_done = (int)($row['initial_sync_done'] ?? 0);
+    }
+
+    if ($initial_sync_done !== 1) {
+        $column_list = implode(', ', array_map('table_scale_quote_identifier', $columns));
+        $select_list = implode(', ', array_map('table_scale_quote_identifier', $columns));
+        $update_list = implode(', ', array_map(static function ($col) {
+            $quoted = table_scale_quote_identifier($col);
+            return $quoted . ' = VALUES(' . $quoted . ')';
+        }, $columns));
+
+        $seed_sql = 'INSERT INTO ' . table_scale_quote_identifier($mirror_table) .
+                    ' (' . $column_list . ') ' .
+                    'SELECT ' . $select_list . ' FROM ' . table_scale_quote_identifier($source_table) .
+                    ' ON DUPLICATE KEY UPDATE ' . $update_list;
+
+        if ($conn->query($seed_sql)) {
+            $initial_sync_done = 1;
+        } else {
+            error_log('Table mirror seed failed for ' . $source_table . ': ' . $conn->error);
+        }
+    }
+
+    table_mirror_sync_registry_row($conn, $source_table, $mirror_table, $initial_sync_done);
+}
+
+/**
+ * Refreshes mirrored UNION ALL view for sharded base tables.
+ *
+ * @param mysqli $conn Database connection.
+ * @param string $base_table Base table name.
+ * @param int $active_shards Active shard count.
+ */
+function table_mirror_refresh_union_view(mysqli $conn, string $base_table, int $active_shards): void {
+    $safe_table = trim($base_table);
+    if (!table_scale_is_safe_identifier($safe_table)) {
+        return;
+    }
+
+    $view_name = table_mirror_view_name($safe_table);
+    $quoted_view = table_scale_quote_identifier($view_name);
+    if ($active_shards <= 1) {
+        $conn->query('DROP VIEW IF EXISTS ' . $quoted_view);
+        return;
+    }
+
+    $parts = [];
+    for ($i = 1; $i <= $active_shards; $i++) {
+        $source_table = ($i === 1) ? $safe_table : table_scale_shard_table_name($safe_table, $i);
+        $mirror_table = table_mirror_table_name($source_table);
+        if (!table_mirror_probe_source($conn, $mirror_table)) {
+            continue;
+        }
+        $parts[] = 'SELECT * FROM ' . table_scale_quote_identifier($mirror_table);
+    }
+
+    if (count($parts) <= 1) {
+        $conn->query('DROP VIEW IF EXISTS ' . $quoted_view);
+        return;
+    }
+
+    $sql = 'CREATE OR REPLACE VIEW ' . $quoted_view . ' AS ' . implode(' UNION ALL ', $parts);
+    if (!$conn->query($sql)) {
+        error_log('Table mirror view refresh failed for ' . $safe_table . ': ' . $conn->error);
+    }
+}
+
+/**
+ * Probes whether a table/view can be read from the current connection.
+ *
+ * @param mysqli $conn Database connection.
+ * @param string $source Table or view identifier.
+ * @return bool
+ */
+function table_mirror_probe_source(mysqli $conn, string $source): bool {
+    static $cache = [];
+
+    $safe_source = trim($source);
+    if (!table_scale_is_safe_identifier($safe_source)) {
+        return false;
+    }
+
+    if (array_key_exists($safe_source, $cache)) {
+        return (bool)$cache[$safe_source];
+    }
+
+    $sql = 'SELECT 1 FROM ' . table_scale_quote_identifier($safe_source) . ' LIMIT 1';
+    $ok = false;
+    try {
+        $probe_res = $conn->query($sql);
+        $ok = ($probe_res !== false);
+        if ($probe_res instanceof mysqli_result) {
+            $probe_res->free();
+        }
+    } catch (Throwable $e) {
+        $ok = false;
+    }
+
+    $cache[$safe_source] = $ok;
+    return $ok;
+}
+
+/**
+ * Returns mirrored read source for a base table when available.
+ *
+ * @param mysqli $conn Database connection.
+ * @param string $base_table Base table name.
+ * @param int $active_shards Active shards count.
+ * @return string Empty string when mirror source is unavailable.
+ */
+function table_mirror_get_read_source(mysqli $conn, string $base_table, int $active_shards = 1): string {
+    $safe_table = trim($base_table);
+    if (!table_scale_is_safe_identifier($safe_table)) {
+        return '';
+    }
+
+    $source = ($active_shards > 1)
+        ? table_mirror_view_name($safe_table)
+        : table_mirror_table_name($safe_table);
+
+    return table_mirror_probe_source($conn, $source) ? $source : '';
+}
+
+/**
+ * Ensures table mirror sync infrastructure across all source tables.
+ *
+ * @param mysqli $conn Database connection.
+ */
+function ensure_table_mirror_sync(mysqli $conn): void {
+    static $is_checked = false;
+
+    if ($is_checked) {
+        return;
+    }
+    $is_checked = true;
+
+    $enabled_env = strtolower(trim((string)(getenv('TABLE_MIRROR_ENABLED') ?: 'true')));
+    if (in_array($enabled_env, ['0', 'false', 'off', 'no'], true)) {
+        return;
+    }
+
+    table_mirror_ensure_registry_schema($conn);
+
+    $tables = table_mirror_list_source_tables($conn);
+    foreach ($tables as $source_table) {
+        table_mirror_ensure_table($conn, $source_table);
+    }
+
+    $registry_res = $conn->query("SELECT base_table, active_shards FROM table_shard_registry WHERE is_enabled = 1 AND active_shards > 1");
+    if ($registry_res instanceof mysqli_result) {
+        while ($row = $registry_res->fetch_assoc()) {
+            $base_table = (string)($row['base_table'] ?? '');
+            $active_shards = max(1, (int)($row['active_shards'] ?? 1));
+            if (!table_scale_is_safe_identifier($base_table)) {
+                continue;
+            }
+            table_mirror_refresh_union_view($conn, $base_table, $active_shards);
+        }
+        $registry_res->free();
+    }
+}
+
+/**
+ * Repairs mirrored tables by re-seeding any table whose row count diverges
+ * from the source table.
+ *
+ * @param mysqli $conn Database connection.
+ * @param bool $force_all When true, re-seeds all mirrored tables.
+ * @return array{checked:int,repaired:int,skipped:int,errors:int,tables:array<int,array<string,mixed>>}
+ */
+function table_mirror_repair_diverged_tables(mysqli $conn, bool $force_all = false): array {
+    $summary = [
+        'checked' => 0,
+        'repaired' => 0,
+        'skipped' => 0,
+        'errors' => 0,
+        'tables' => [],
+    ];
+
+    $enabled_env = strtolower(trim((string)(getenv('TABLE_MIRROR_ENABLED') ?: 'true')));
+    if (in_array($enabled_env, ['0', 'false', 'off', 'no'], true)) {
+        return $summary;
+    }
+
+    table_mirror_ensure_registry_schema($conn);
+    $tables = table_mirror_list_source_tables($conn);
+    if (empty($tables)) {
+        return $summary;
+    }
+
+    $conn->query('SET @OLD_FOREIGN_KEY_CHECKS = @@FOREIGN_KEY_CHECKS');
+    $conn->query('SET FOREIGN_KEY_CHECKS = 0');
+
+    try {
+        foreach ($tables as $source_table) {
+            $summary['checked']++;
+            $mirror_table = table_mirror_table_name($source_table);
+
+            $row = [
+                'source_table' => $source_table,
+                'mirror_table' => $mirror_table,
+                'source_rows' => 0,
+                'mirror_rows_before' => 0,
+                'mirror_rows_after' => 0,
+                'status' => 'skipped',
+                'message' => '',
+            ];
+
+            if (!table_scale_is_safe_identifier($source_table) || !table_scale_is_safe_identifier($mirror_table)) {
+                $row['status'] = 'error';
+                $row['message'] = 'Unsafe table identifier.';
+                $summary['errors']++;
+                $summary['tables'][] = $row;
+                continue;
+            }
+
+            // Ensure mirror table and triggers exist before attempting repairs.
+            table_mirror_ensure_table($conn, $source_table);
+
+            if (!table_mirror_probe_source($conn, $source_table)) {
+                $row['status'] = 'error';
+                $row['message'] = 'Source table is not readable.';
+                $summary['errors']++;
+                $summary['tables'][] = $row;
+                continue;
+            }
+
+            if (!table_mirror_probe_source($conn, $mirror_table)) {
+                $row['status'] = 'error';
+                $row['message'] = 'Mirror table is not readable.';
+                $summary['errors']++;
+                $summary['tables'][] = $row;
+                continue;
+            }
+
+            $source_count = 0;
+            $mirror_count_before = 0;
+
+            $src_count_res = $conn->query('SELECT COUNT(*) AS c FROM ' . table_scale_quote_identifier($source_table));
+            if ($src_count_res instanceof mysqli_result) {
+                $src_count_row = $src_count_res->fetch_assoc();
+                $source_count = (int)($src_count_row['c'] ?? 0);
+                $src_count_res->free();
+            }
+
+            $mir_count_res = $conn->query('SELECT COUNT(*) AS c FROM ' . table_scale_quote_identifier($mirror_table));
+            if ($mir_count_res instanceof mysqli_result) {
+                $mir_count_row = $mir_count_res->fetch_assoc();
+                $mirror_count_before = (int)($mir_count_row['c'] ?? 0);
+                $mir_count_res->free();
+            }
+
+            $row['source_rows'] = $source_count;
+            $row['mirror_rows_before'] = $mirror_count_before;
+
+            if (!$force_all && $source_count === $mirror_count_before) {
+                $row['mirror_rows_after'] = $mirror_count_before;
+                $row['status'] = 'skipped';
+                $row['message'] = 'Row counts are already aligned.';
+                $summary['skipped']++;
+                $summary['tables'][] = $row;
+                continue;
+            }
+
+            $columns = table_mirror_list_columns($conn, $source_table);
+            if (empty($columns)) {
+                $row['status'] = 'error';
+                $row['message'] = 'Unable to list table columns.';
+                $summary['errors']++;
+                $summary['tables'][] = $row;
+                continue;
+            }
+
+            $quoted_columns = implode(', ', array_map('table_scale_quote_identifier', $columns));
+
+            if (!$conn->query('DELETE FROM ' . table_scale_quote_identifier($mirror_table))) {
+                $row['status'] = 'error';
+                $row['message'] = 'Failed clearing mirror table: ' . $conn->error;
+                $summary['errors']++;
+                $summary['tables'][] = $row;
+                continue;
+            }
+
+            $seed_sql = 'INSERT INTO ' . table_scale_quote_identifier($mirror_table) .
+                        ' (' . $quoted_columns . ') ' .
+                        'SELECT ' . $quoted_columns . ' FROM ' . table_scale_quote_identifier($source_table);
+
+            if (!$conn->query($seed_sql)) {
+                $row['status'] = 'error';
+                $row['message'] = 'Failed re-seeding mirror table: ' . $conn->error;
+                $summary['errors']++;
+                $summary['tables'][] = $row;
+                continue;
+            }
+
+            $mirror_count_after = 0;
+            $mir_after_res = $conn->query('SELECT COUNT(*) AS c FROM ' . table_scale_quote_identifier($mirror_table));
+            if ($mir_after_res instanceof mysqli_result) {
+                $mir_after_row = $mir_after_res->fetch_assoc();
+                $mirror_count_after = (int)($mir_after_row['c'] ?? 0);
+                $mir_after_res->free();
+            }
+
+            $row['mirror_rows_after'] = $mirror_count_after;
+
+            if ($mirror_count_after === $source_count) {
+                $row['status'] = 'repaired';
+                $row['message'] = 'Mirror re-seeded successfully.';
+                $summary['repaired']++;
+                table_mirror_sync_registry_row($conn, $source_table, $mirror_table, 1);
+            } else {
+                $row['status'] = 'error';
+                $row['message'] = 'Row counts still differ after re-seed.';
+                $summary['errors']++;
+            }
+
+            $summary['tables'][] = $row;
+        }
+    } finally {
+        $conn->query('SET FOREIGN_KEY_CHECKS = IFNULL(@OLD_FOREIGN_KEY_CHECKS, 1)');
+    }
+
+    return $summary;
+}
+
+/**
+ * Ensures metadata table for horizontal table scaling exists.
+ *
+ * @param mysqli $conn Database connection.
+ */
+function table_scale_ensure_registry_schema(mysqli $conn): void {
+    $sql = "CREATE TABLE IF NOT EXISTS table_shard_registry (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        base_table VARCHAR(64) NOT NULL UNIQUE,
+        threshold_rows INT NOT NULL DEFAULT 100000,
+        active_shards INT NOT NULL DEFAULT 1,
+        last_exact_rows BIGINT NOT NULL DEFAULT 0,
+        is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci";
+
+    $conn->query($sql);
+}
+
+/**
+ * Reads active shard count for a base table from registry.
+ *
+ * @param mysqli $conn Database connection.
+ * @param string $base_table Base table name.
+ * @return int
+ */
+function table_scale_get_active_shards(mysqli $conn, string $base_table): int {
+    static $cache = [];
+
+    $safe_table = trim($base_table);
+    if (!table_scale_is_safe_identifier($safe_table)) {
+        return 1;
+    }
+
+    if (array_key_exists($safe_table, $cache)) {
+        return max(1, (int)$cache[$safe_table]);
+    }
+
+    table_scale_ensure_registry_schema($conn);
+
+    $stmt = $conn->prepare("SELECT active_shards FROM table_shard_registry WHERE base_table = ? AND is_enabled = 1 LIMIT 1");
+    if (!$stmt) {
+        $cache[$safe_table] = 1;
+        return 1;
+    }
+
+    $stmt->bind_param('s', $safe_table);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = $result ? $result->fetch_assoc() : null;
+    $stmt->close();
+
+    $shards = $row ? (int)($row['active_shards'] ?? 1) : 1;
+    $cache[$safe_table] = max(1, $shards);
+    return max(1, $shards);
+}
+
+/**
+ * Lists physical tables for a shard-managed base table.
+ *
+ * @param mysqli $conn Database connection.
+ * @param string $base_table Base table name.
+ * @return array<int, string>
+ */
+function table_scale_list_physical_tables(mysqli $conn, string $base_table): array {
+    $safe_table = trim($base_table);
+    if (!table_scale_is_safe_identifier($safe_table)) {
+        return [];
+    }
+
+    $shards = table_scale_get_active_shards($conn, $safe_table);
+    $tables = [$safe_table];
+
+    for ($i = 2; $i <= $shards; $i++) {
+        $tables[] = table_scale_shard_table_name($safe_table, $i);
+    }
+
+    return $tables;
+}
+
+/**
+ * Creates or refreshes UNION ALL read view for a sharded base table.
+ *
+ * @param mysqli $conn Database connection.
+ * @param string $base_table Base table name.
+ * @param int $active_shards Active shard count.
+ */
+function table_scale_refresh_union_view(mysqli $conn, string $base_table, int $active_shards): void {
+    $safe_table = trim($base_table);
+    if (!table_scale_is_safe_identifier($safe_table)) {
+        return;
+    }
+
+    $view_name = table_scale_view_name($safe_table);
+    $quoted_view = table_scale_quote_identifier($view_name);
+
+    if ($active_shards <= 1) {
+        $conn->query("DROP VIEW IF EXISTS {$quoted_view}");
+        return;
+    }
+
+    $parts = [];
+    $parts[] = 'SELECT * FROM ' . table_scale_quote_identifier($safe_table);
+    for ($i = 2; $i <= $active_shards; $i++) {
+        $parts[] = 'SELECT * FROM ' . table_scale_quote_identifier(table_scale_shard_table_name($safe_table, $i));
+    }
+
+    $sql = 'CREATE OR REPLACE VIEW ' . $quoted_view . ' AS ' . implode(' UNION ALL ', $parts);
+    if (!$conn->query($sql)) {
+        error_log('Table scale view refresh failed for ' . $safe_table . ': ' . $conn->error);
+    }
+}
+
+/**
+ * Ensures sharding metadata and overflow table creation for all eligible tables.
+ *
+ * Notes:
+ * - Tables are split by overflow table creation at 100k-row boundaries.
+ * - Existing rows are not moved automatically.
+ * - Searches can read across all shards through generated `vhs_<table>` views.
+ *
+ * @param mysqli $conn Database connection.
+ * @param int $threshold Maximum rows per shard.
+ */
+function ensure_horizontal_table_scaling(mysqli $conn, int $threshold = 100000): void {
+    static $is_checked = false;
+
+    if ($is_checked) {
+        return;
+    }
+    $is_checked = true;
+
+    $threshold = max(1000, (int)$threshold);
+    table_scale_ensure_registry_schema($conn);
+
+    $registry = [];
+    $registry_res = $conn->query("SELECT base_table, active_shards FROM table_shard_registry WHERE is_enabled = 1");
+    if ($registry_res instanceof mysqli_result) {
+        while ($row = $registry_res->fetch_assoc()) {
+            $name = (string)($row['base_table'] ?? '');
+            if (table_scale_is_safe_identifier($name)) {
+                $registry[$name] = max(1, (int)($row['active_shards'] ?? 1));
+            }
+        }
+        $registry_res->free();
+    }
+
+        $tables_sql = "SELECT TABLE_NAME, TABLE_ROWS, AUTO_INCREMENT
+                   FROM information_schema.TABLES
+                   WHERE TABLE_SCHEMA = DATABASE()
+                     AND TABLE_TYPE = 'BASE TABLE'
+                     AND TABLE_NAME <> 'table_shard_registry'
+                     AND TABLE_NAME NOT REGEXP '__p[0-9]+$'
+                   ORDER BY TABLE_NAME";
+    $tables_res = $conn->query($tables_sql);
+    if (!($tables_res instanceof mysqli_result)) {
+        return;
+    }
+
+    while ($row = $tables_res->fetch_assoc()) {
+        $base_table = (string)($row['TABLE_NAME'] ?? '');
+        if (!table_scale_is_safe_identifier($base_table)) {
+            continue;
+        }
+
+        $known_shards = max(1, (int)($registry[$base_table] ?? 1));
+        $estimated_rows = max(0, (int)($row['TABLE_ROWS'] ?? 0));
+        $auto_increment_hint = max(0, (int)($row['AUTO_INCREMENT'] ?? 0));
+
+        // Fast skip for clearly small tables not currently sharded.
+        // AUTO_INCREMENT is used as a second signal because InnoDB TABLE_ROWS can be coarse.
+        if ($known_shards <= 1 && $estimated_rows < $threshold && $auto_increment_hint <= ($threshold + 1)) {
+            continue;
+        }
+
+        $exact_rows = 0;
+        $count_sql = 'SELECT COUNT(*) AS total_rows FROM ' . table_scale_quote_identifier($base_table);
+        $count_res = $conn->query($count_sql);
+        if ($count_res instanceof mysqli_result) {
+            $count_row = $count_res->fetch_assoc();
+            $exact_rows = (int)($count_row['total_rows'] ?? 0);
+            $count_res->free();
+        }
+
+        $required_shards = max(1, (int)ceil(max(1, $exact_rows) / $threshold));
+        $active_shards = max($known_shards, $required_shards);
+
+        for ($i = 2; $i <= $active_shards; $i++) {
+            $shard_table = table_scale_shard_table_name($base_table, $i);
+            if (!table_scale_is_safe_identifier($shard_table)) {
+                continue;
+            }
+
+            $create_sql = 'CREATE TABLE IF NOT EXISTS ' . table_scale_quote_identifier($shard_table) .
+                          ' LIKE ' . table_scale_quote_identifier($base_table);
+            if (!$conn->query($create_sql)) {
+                error_log('Table scale shard create failed for ' . $shard_table . ': ' . $conn->error);
+                continue;
+            }
+
+            $next_auto = (($i - 1) * $threshold) + 1;
+            $conn->query('ALTER TABLE ' . table_scale_quote_identifier($shard_table) . ' AUTO_INCREMENT = ' . (int)$next_auto);
+        }
+
+        table_scale_refresh_union_view($conn, $base_table, $active_shards);
+
+        $stmt = $conn->prepare("INSERT INTO table_shard_registry (base_table, threshold_rows, active_shards, last_exact_rows, is_enabled)
+                                VALUES (?, ?, ?, ?, 1)
+                                ON DUPLICATE KEY UPDATE threshold_rows = VALUES(threshold_rows), active_shards = VALUES(active_shards), last_exact_rows = VALUES(last_exact_rows), is_enabled = 1");
+        if ($stmt) {
+            $stmt->bind_param('siii', $base_table, $threshold, $active_shards, $exact_rows);
+            $stmt->execute();
+            $stmt->close();
+        }
+    }
+
+    $tables_res->free();
+}
+
+/**
+ * Returns shard-aware read source for SQL FROM/JOIN usage.
+ *
+ * @param mysqli $conn Database connection.
+ * @param string $base_table Base table name.
+ * @param string $alias Optional alias.
+ * @return string SQL fragment like "`vhs_bills` b".
+ */
+function table_scale_get_read_source(mysqli $conn, string $base_table, string $alias = ''): string {
+    $safe_table = trim($base_table);
+    if (!table_scale_is_safe_identifier($safe_table)) {
+        return table_scale_quote_identifier($base_table);
+    }
+
+    $shards = table_scale_get_active_shards($conn, $safe_table);
+    $source = ($shards > 1) ? table_scale_view_name($safe_table) : $safe_table;
+
+    if (!table_mirror_probe_source($conn, $source)) {
+        $mirror_source = table_mirror_get_read_source($conn, $safe_table, $shards);
+        if ($mirror_source !== '') {
+            error_log('Primary read source unavailable for ' . $safe_table . '; using mirror source ' . $mirror_source);
+            $source = $mirror_source;
+        }
+    }
+
+    $fragment = table_scale_quote_identifier($source);
+    $safe_alias = trim($alias);
+    if ($safe_alias !== '' && table_scale_is_safe_identifier($safe_alias)) {
+        $fragment .= ' ' . $safe_alias;
+    }
+
+    return $fragment;
+}
+
+/**
+ * Returns shard-aware write table (latest shard when sharding is active).
+ *
+ * @param mysqli $conn Database connection.
+ * @param string $base_table Base table name.
+ * @return string Physical table name for writes.
+ */
+function table_scale_get_write_table(mysqli $conn, string $base_table): string {
+    $safe_table = trim($base_table);
+    if (!table_scale_is_safe_identifier($safe_table)) {
+        return $base_table;
+    }
+
+    $shards = table_scale_get_active_shards($conn, $safe_table);
+    if ($shards <= 1) {
+        return $safe_table;
+    }
+
+    return table_scale_shard_table_name($safe_table, $shards);
+}
+
+/**
+ * Finds which physical table currently stores a given row by id.
+ *
+ * @param mysqli $conn Database connection.
+ * @param string $base_table Base table name.
+ * @param int $id Row id.
+ * @param string $id_column PK/id column name.
+ * @return string|null Physical table name if found.
+ */
+function table_scale_find_physical_table_by_id(mysqli $conn, string $base_table, int $id, string $id_column = 'id'): ?string {
+    if ($id <= 0) {
+        return null;
+    }
+
+    $safe_table = trim($base_table);
+    $safe_id_col = trim($id_column);
+    if (!table_scale_is_safe_identifier($safe_table) || !table_scale_is_safe_identifier($safe_id_col)) {
+        return null;
+    }
+
+    $tables = array_reverse(table_scale_list_physical_tables($conn, $safe_table));
+    foreach ($tables as $table_name) {
+        if (!table_scale_is_safe_identifier($table_name)) {
+            continue;
+        }
+
+        $sql = 'SELECT 1 FROM ' . table_scale_quote_identifier($table_name) . ' WHERE ' . table_scale_quote_identifier($safe_id_col) . ' = ? LIMIT 1';
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            continue;
+        }
+
+        $stmt->bind_param('i', $id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $exists = $result && (bool)$result->fetch_row();
+        $stmt->close();
+
+        if ($exists) {
+            return $table_name;
+        }
+    }
+
+    return $safe_table;
+}
+
+/**
+ * Resolves write table for an existing row id, with safe fallback.
+ *
+ * @param mysqli $conn Database connection.
+ * @param string $base_table Base table name.
+ * @param int $id Row id.
+ * @param string $id_column ID column name.
+ * @return string Physical write table.
+ */
+function table_scale_get_write_table_for_row(mysqli $conn, string $base_table, int $id, string $id_column = 'id'): string {
+    $safe_table = trim($base_table);
+    if (!table_scale_is_safe_identifier($safe_table)) {
+        return $base_table;
+    }
+
+    if ($id > 0) {
+        $resolved = table_scale_find_physical_table_by_id($conn, $safe_table, $id, $id_column);
+        if (is_string($resolved) && $resolved !== '' && table_scale_is_safe_identifier($resolved)) {
+            return $resolved;
+        }
+    }
+
+    return table_scale_get_write_table($conn, $safe_table);
+}
+
+/**
+ * Applies same ALTER TABLE clause on base table and all overflow shards.
+ *
+ * @param mysqli $conn Database connection.
+ * @param string $base_table Base table name.
+ * @param string $alter_clause ALTER clause without "ALTER TABLE".
+ */
+function table_scale_apply_alter_to_all_physical_tables(mysqli $conn, string $base_table, string $alter_clause): void {
+    $safe_table = trim($base_table);
+    if (!table_scale_is_safe_identifier($safe_table)) {
+        return;
+    }
+
+    $clause = trim($alter_clause);
+    if ($clause === '' || strpos($clause, ';') !== false) {
+        return;
+    }
+
+    $tables = table_scale_list_physical_tables($conn, $safe_table);
+    if (empty($tables)) {
+        $tables = [$safe_table];
+    }
+
+    foreach ($tables as $table_name) {
+        if (!table_scale_is_safe_identifier($table_name)) {
+            continue;
+        }
+
+        $sql = 'ALTER TABLE ' . table_scale_quote_identifier($table_name) . ' ' . $clause;
+        if (!$conn->query($sql)) {
+            error_log('Table scale ALTER sync failed for ' . $table_name . ': ' . $conn->error);
+        }
+    }
+
+    // Rebuild read view so column shape remains consistent.
+    $shards = table_scale_get_active_shards($conn, $safe_table);
+    table_scale_refresh_union_view($conn, $safe_table, $shards);
 }
 
 /**

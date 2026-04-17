@@ -4,6 +4,21 @@
     display: none !important;
 }
 
+/* Superadmin pages render their own shell, so clear the outer shared-shell offsets. */
+body.role-superadmin.app-layout {
+    padding-top: 0;
+}
+
+body.role-superadmin.app-layout .app-main {
+    margin-left: 0 !important;
+    padding: 0 !important;
+    min-height: 100vh;
+}
+
+body.role-superadmin.app-layout .main-footer {
+    margin-left: 0 !important;
+}
+
 .sa-shell {
     --sa-bg: #f3f7fb;
     --sa-surface: #ffffff;

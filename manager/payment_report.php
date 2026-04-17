@@ -7,16 +7,21 @@ require_once '../includes/functions.php';
 
 ensure_payment_history_split_columns($conn);
 
+$payment_history_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'payment_history', 'ph') : '`payment_history` ph';
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
+
 $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : date('Y-m-d');
 $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : date('Y-m-d');
 
 $stmt = $conn->prepare(
     "SELECT 
         ph.*, p.name as patient_name, b.net_amount, u.username
-    FROM payment_history ph
-    JOIN bills b ON ph.bill_id = b.id
-    JOIN patients p ON b.patient_id = p.id
-    JOIN users u ON ph.user_id = u.id
+    FROM {$payment_history_source}
+    JOIN {$bills_source} ON ph.bill_id = b.id
+    JOIN {$patients_source} ON b.patient_id = p.id
+    JOIN {$users_source} ON ph.user_id = u.id
     WHERE DATE(ph.paid_at) BETWEEN ? AND ?
     ORDER BY ph.paid_at DESC"
 );

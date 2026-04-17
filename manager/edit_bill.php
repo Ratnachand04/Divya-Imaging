@@ -4,6 +4,8 @@ $required_role = "manager";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
 
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+
 $bill_id = isset($_GET['bill_id']) ? (int)$_GET['bill_id'] : 0;
 $request_id = isset($_GET['request_id']) ? (int)$_GET['request_id'] : 0;
 
@@ -39,7 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // Fetch bill data
-$stmt = $conn->prepare("SELECT * FROM bills WHERE id = ?");
+$stmt = $conn->prepare("SELECT b.* FROM {$bills_source} WHERE b.id = ?");
 $stmt->bind_param("i", $bill_id);
 $stmt->execute();
 $bill = $stmt->get_result()->fetch_assoc();

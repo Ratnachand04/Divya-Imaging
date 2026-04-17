@@ -7,6 +7,9 @@ require_once '../includes/functions.php';
 
 ensure_bill_payment_split_columns($conn);
 
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+
 if (isset($_POST['update_status']) && isset($_POST['bill_id'])) {
     $bill_id_to_update = (int)$_POST['bill_id'];
     $new_status = $_POST['new_status'];
@@ -22,8 +25,8 @@ $search_term = isset($_GET['search']) ? trim($_GET['search']) : '';
 $limit = 20;
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 
-$query_select = "SELECT b.id, p.uid as patient_uid, p.name as patient_name, b.net_amount, b.created_at, b.payment_status, b.payment_mode, b.cash_amount, b.card_amount, b.upi_amount, b.other_amount FROM bills b JOIN patients p ON b.patient_id = p.id";
-$count_select = "SELECT COUNT(b.id) FROM bills b JOIN patients p ON b.patient_id = p.id";
+$query_select = "SELECT b.id, p.uid as patient_uid, p.name as patient_name, b.net_amount, b.created_at, b.payment_status, b.payment_mode, b.cash_amount, b.card_amount, b.upi_amount, b.other_amount FROM {$bills_source} JOIN {$patients_source} ON b.patient_id = p.id";
+$count_select = "SELECT COUNT(b.id) FROM {$bills_source} JOIN {$patients_source} ON b.patient_id = p.id";
 $params = [];
 $types = '';
 $base_where = " WHERE b.bill_status != 'Void' ";

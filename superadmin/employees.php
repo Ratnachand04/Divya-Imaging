@@ -4,6 +4,9 @@ $page_title = "Employee Management";
 $required_role = "superadmin";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
+
+$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
 
 $sa_active_page = 'employees.php';
 
@@ -97,7 +100,8 @@ if (!function_exists('generate_employee_username')) {
         $candidate = $base;
         $index = 1;
         while (true) {
-            $stmt = $conn->prepare("SELECT id FROM users WHERE username = ? LIMIT 1");
+            $users_source_lookup = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u_lookup') : '`users` u_lookup';
+            $stmt = $conn->prepare("SELECT u_lookup.id FROM {$users_source_lookup} WHERE u_lookup.username = ? LIMIT 1");
             if (!$stmt) {
                 return $candidate . '.' . bin2hex(random_bytes(2));
             }

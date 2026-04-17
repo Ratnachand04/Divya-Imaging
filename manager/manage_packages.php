@@ -8,6 +8,11 @@ require_once '../includes/functions.php';
 
 ensure_package_management_schema($conn);
 
+$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
+$tests_source_validation = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't_val') : '`tests` t_val';
+$test_packages_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'test_packages', 'tp') : '`test_packages` tp';
+$package_tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'package_tests', 'pt') : '`package_tests` pt';
+
 $feedback = '';
 $feedback_class = '';
 
@@ -76,7 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $placeholders = implode(',', array_fill(0, count($test_ids), '?'));
             $types = str_repeat('i', count($test_ids));
 
-            $tests_stmt = $conn->prepare("SELECT id, price FROM tests WHERE id IN ($placeholders)");
+            $tests_stmt = $conn->prepare("SELECT t_val.id, t_val.price FROM {$tests_source_validation} WHERE t_val.id IN ($placeholders)");
             if (!$tests_stmt) {
                 throw new Exception('Failed to validate tests: ' . $conn->error);
             }
@@ -112,7 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $discount_percent = $total_base_price > 0 ? round(($discount_amount / $total_base_price) * 100, 2) : 0.00;
 
             if ($package_id > 0) {
-                $dup_stmt = $conn->prepare('SELECT id FROM test_packages WHERE package_code = ? AND id != ? LIMIT 1');
+                $dup_stmt = $conn->prepare("SELECT tp.id FROM {$test_packages_source} WHERE tp.package_code = ? AND tp.id != ? LIMIT 1");
                 if (!$dup_stmt) {
                     throw new Exception('Failed to validate package code: ' . $conn->error);
                 }
@@ -144,7 +149,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $del_stmt->execute();
                 $del_stmt->close();
             } else {
-                $dup_stmt = $conn->prepare('SELECT id FROM test_packages WHERE package_code = ? LIMIT 1');
+                $dup_stmt = $conn->prepare("SELECT tp.id FROM {$test_packages_source} WHERE tp.package_code = ? LIMIT 1");
                 if (!$dup_stmt) {
                     throw new Exception('Failed to validate package code: ' . $conn->error);
                 }
@@ -207,7 +212,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new Exception('Invalid package selected.');
             }
 
-            $status_stmt = $conn->prepare('SELECT status FROM test_packages WHERE id = ? LIMIT 1');
+            $status_stmt = $conn->prepare("SELECT tp.status FROM {$test_packages_source} WHERE tp.id = ? LIMIT 1");
             if (!$status_stmt) {
                 throw new Exception('Failed to read package status.');
             }
@@ -278,7 +283,7 @@ if (isset($_SESSION['package_feedback']) && is_array($_SESSION['package_feedback
 }
 
 $tests = [];
-$tests_query = $conn->query('SELECT id, main_test_name, sub_test_name, price FROM tests ORDER BY main_test_name, sub_test_name');
+$tests_query = $conn->query("SELECT t.id, t.main_test_name, t.sub_test_name, t.price FROM {$tests_source} ORDER BY t.main_test_name, t.sub_test_name");
 if ($tests_query) {
     while ($row = $tests_query->fetch_assoc()) {
         $sub = trim((string)$row['sub_test_name']);
@@ -313,8 +318,8 @@ $packages = [];
 $package_sql = "SELECT tp.id, tp.package_code, tp.package_name, tp.total_base_price, tp.package_price,
                        tp.discount_amount, tp.discount_percent, tp.status, tp.created_at,
                        COUNT(pt.id) AS test_count
-                FROM test_packages tp
-                LEFT JOIN package_tests pt ON pt.package_id = tp.id
+                FROM {$test_packages_source}
+                LEFT JOIN {$package_tests_source} ON pt.package_id = tp.id
                 GROUP BY tp.id
                 ORDER BY tp.package_name";
 if ($package_result = $conn->query($package_sql)) {

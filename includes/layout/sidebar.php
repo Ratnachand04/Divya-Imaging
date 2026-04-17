@@ -31,6 +31,7 @@
         <?php elseif ($role === 'writer'): ?>
             <li><a href="dashboard.php" data-tooltip="Dashboard" class="<?php echo ($current_page == 'dashboard.php') ? 'active' : ''; ?>"><i class="fas fa-tachometer-alt"></i><span class="nav-label">Dashboard</span></a></li>
             <li><a href="write_reports.php" data-tooltip="Write Report" class="<?php echo ($current_page == 'write_reports.php') ? 'active' : ''; ?>"><i class="fas fa-pen-nib"></i><span class="nav-label">Write Report</span></a></li>
+            <li><a href="saved_bills.php" data-tooltip="Saved Bills" class="<?php echo ($current_page == 'saved_bills.php') ? 'active' : ''; ?>"><i class="fas fa-folder-open"></i><span class="nav-label">Saved Bills</span></a></li>
             <li><a href="view_reports.php" data-tooltip="Completed" class="<?php echo ($current_page == 'view_reports.php') ? 'active' : ''; ?>"><i class="fas fa-file-medical-alt"></i><span class="nav-label">Completed</span></a></li>
             <li><a href="templates.php" data-tooltip="Templates" class="<?php echo ($current_page == 'templates.php') ? 'active' : ''; ?>"><i class="fas fa-layer-group"></i><span class="nav-label">Templates</span></a></li>
         <?php elseif ($role === 'receptionist'): ?>

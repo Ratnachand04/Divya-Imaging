@@ -10,6 +10,17 @@ require_once '../includes/functions.php';
 
 ensure_package_management_schema($conn);
 
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
+$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
+$doctor_test_payables_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'doctor_test_payables', 'dtp') : '`doctor_test_payables` dtp';
+$doctor_payout_history_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'doctor_payout_history', 'dph') : '`doctor_payout_history` dph';
+$bill_package_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_package_items', 'bpi') : '`bill_package_items` bpi';
+$expenses_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'expenses', 'e') : '`expenses` e';
+$bill_item_screenings_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_item_screenings', 'bis') : '`bill_item_screenings` bis';
+$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+
 header('Content-Type: application/json');
 
 if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
@@ -37,7 +48,7 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
     ];
 
     // Total earnings (paid bills)
-    $earnings_sql = "SELECT COALESCE(SUM(net_amount), 0) AS total_earnings FROM bills WHERE payment_status = 'Paid' AND bill_status != 'Void' AND created_at BETWEEN ? AND ?";
+    $earnings_sql = "SELECT COALESCE(SUM(b.net_amount), 0) AS total_earnings FROM {$bills_source} WHERE b.payment_status = 'Paid' AND b.bill_status != 'Void' AND b.created_at BETWEEN ? AND ?";
     if ($stmt = $conn->prepare($earnings_sql)) {
         $stmt->bind_param('ss', $start_date, $end_date_for_query);
         $stmt->execute();
@@ -48,7 +59,7 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
     }
 
     // Total discounts (all discounts applied on non-void bills)
-    $discounts_sql = "SELECT COALESCE(SUM(discount), 0) AS total_discounts FROM bills WHERE bill_status != 'Void' AND created_at BETWEEN ? AND ?";
+    $discounts_sql = "SELECT COALESCE(SUM(b.discount), 0) AS total_discounts FROM {$bills_source} WHERE b.bill_status != 'Void' AND b.created_at BETWEEN ? AND ?";
     if ($stmt = $conn->prepare($discounts_sql)) {
         $stmt->bind_param('ss', $start_date, $end_date_for_query);
         $stmt->execute();
@@ -60,7 +71,7 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
 
     // Total payouts recorded for the period, aggregated by doctor for accurate pending calculation
     $paidPayoutsByDoctor = [];
-    $payouts_sql = "SELECT doctor_id, COALESCE(SUM(payout_amount), 0) AS total_payout FROM doctor_payout_history WHERE paid_at BETWEEN ? AND ? GROUP BY doctor_id";
+    $payouts_sql = "SELECT dph.doctor_id, COALESCE(SUM(dph.payout_amount), 0) AS total_payout FROM {$doctor_payout_history_source} WHERE dph.paid_at BETWEEN ? AND ? GROUP BY dph.doctor_id";
     if ($stmt = $conn->prepare($payouts_sql)) {
         $stmt->bind_param('ss', $start_date, $end_date_for_query);
         $stmt->execute();
@@ -80,11 +91,11 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
     $pending_sql = "
         SELECT rd.id AS doctor_id,
                SUM(COALESCE(dtp.payable_amount, t.default_payable_amount, 0)) AS total_payable
-        FROM bills b
-        JOIN bill_items bi ON b.id = bi.bill_id
-        JOIN tests t ON bi.test_id = t.id
-        JOIN referral_doctors rd ON b.referral_doctor_id = rd.id
-        LEFT JOIN doctor_test_payables dtp ON rd.id = dtp.doctor_id AND bi.test_id = dtp.test_id
+        FROM {$bills_source}
+        JOIN {$bill_items_source} ON b.id = bi.bill_id
+        JOIN {$tests_source} ON bi.test_id = t.id
+        JOIN {$referral_doctors_source} ON b.referral_doctor_id = rd.id
+        LEFT JOIN {$doctor_test_payables_source} ON rd.id = dtp.doctor_id AND bi.test_id = dtp.test_id
         WHERE b.payment_status = 'Paid'
           AND b.bill_status != 'Void'
           AND b.referral_type = 'Doctor'
@@ -112,8 +123,8 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
         SELECT
             COUNT(*) AS package_sales_count,
             COALESCE(SUM(COALESCE(bi.package_discount, 0)), 0) AS package_discount_impact
-        FROM bill_items bi
-        JOIN bills b ON b.id = bi.bill_id
+        FROM {$bill_items_source}
+        JOIN {$bills_source} ON b.id = bi.bill_id
         WHERE COALESCE(bi.item_type, 'test') = 'package'
           AND bi.item_status = 0
           AND b.bill_status != 'Void'
@@ -133,8 +144,8 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
         SELECT COALESCE(SUM(pkg_totals.package_total), 0) AS package_revenue
         FROM (
             SELECT bpi.bill_item_id, SUM(bpi.package_test_price) AS package_total
-            FROM bill_package_items bpi
-            JOIN bills b ON b.id = bpi.bill_id
+            FROM {$bill_package_items_source}
+            JOIN {$bills_source} ON b.id = bpi.bill_id
             WHERE b.bill_status != 'Void'
               AND b.created_at BETWEEN ? AND ?
             GROUP BY bpi.bill_item_id
@@ -176,7 +187,7 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
         'yesterday' => ['collections' => 0.0, 'expenses' => 0.0, 'payouts' => 0.0, 'net' => 0.0],
     ];
 
-    $collectionsSql = "SELECT SUM(amount_paid) AS collected FROM bills WHERE payment_status = 'Paid' AND bill_status != 'Void' AND created_at BETWEEN ? AND ?";
+    $collectionsSql = "SELECT SUM(b.amount_paid) AS collected FROM {$bills_source} WHERE b.payment_status = 'Paid' AND b.bill_status != 'Void' AND b.created_at BETWEEN ? AND ?";
     if ($stmt = $conn->prepare($collectionsSql)) {
         $stmt->bind_param('ss', $today_start, $today_end);
         if ($stmt->execute()) {
@@ -196,7 +207,7 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
         $stmt->close();
     }
 
-    $expensesSql = "SELECT SUM(amount) AS spent FROM expenses WHERE status = 'Paid' AND created_at BETWEEN ? AND ?";
+    $expensesSql = "SELECT SUM(e.amount) AS spent FROM {$expenses_source} WHERE e.status = 'Paid' AND e.created_at BETWEEN ? AND ?";
     if ($stmt = $conn->prepare($expensesSql)) {
         $stmt->bind_param('ss', $today_start, $today_end);
         if ($stmt->execute()) {
@@ -216,7 +227,7 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
         $stmt->close();
     }
 
-    $payoutSql = "SELECT SUM(payout_amount) AS paid FROM doctor_payout_history WHERE paid_at BETWEEN ? AND ?";
+    $payoutSql = "SELECT SUM(dph.payout_amount) AS paid FROM {$doctor_payout_history_source} WHERE dph.paid_at BETWEEN ? AND ?";
     if ($stmt = $conn->prepare($payoutSql)) {
         $stmt->bind_param('ss', $today_start, $today_end);
         if ($stmt->execute()) {
@@ -266,10 +277,10 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
                 SELECT
                     COALESCE(balance_amount, GREATEST(net_amount - amount_paid, 0)) AS balance_amount,
                     GREATEST(DATEDIFF(?, DATE(created_at)), 0) AS diff
-                FROM bills
-                WHERE bill_status != 'Void'
-                  AND payment_status IN ('Due', 'Partial Paid')
-                  AND DATE(created_at) <= ?
+                                FROM {$bills_source}
+                                WHERE b.bill_status != 'Void'
+                                    AND b.payment_status IN ('Due', 'Partial Paid')
+                                    AND DATE(b.created_at) <= ?
             ) AS aging_source
         ) AS bucketed
         GROUP BY bucket
@@ -310,9 +321,9 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
         SELECT DATE_FORMAT(created_at, '%Y-%m-01') AS period_key,
                SUM(net_amount) AS billed,
                SUM(amount_paid) AS collected
-        FROM bills
-        WHERE bill_status != 'Void'
-          AND created_at BETWEEN ? AND ?
+                FROM {$bills_source}
+                WHERE b.bill_status != 'Void'
+                    AND b.created_at BETWEEN ? AND ?
         GROUP BY period_key
         ORDER BY period_key
     ";
@@ -352,20 +363,20 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
                SUM(revenue) AS revenue,
                SUM(expense) AS expenses
         FROM (
-            SELECT DATE_FORMAT(created_at, '%Y-%m-01') AS period_key,
-                   net_amount AS revenue,
+                 SELECT DATE_FORMAT(b.created_at, '%Y-%m-01') AS period_key,
+                     b.net_amount AS revenue,
                    0 AS expense
-            FROM bills
-            WHERE bill_status != 'Void'
-              AND payment_status = 'Paid'
-              AND created_at BETWEEN ? AND ?
+                 FROM {$bills_source}
+                 WHERE b.bill_status != 'Void'
+                AND b.payment_status = 'Paid'
+                AND b.created_at BETWEEN ? AND ?
             UNION ALL
-            SELECT DATE_FORMAT(created_at, '%Y-%m-01') AS period_key,
+                 SELECT DATE_FORMAT(e.created_at, '%Y-%m-01') AS period_key,
                    0 AS revenue,
-                   amount AS expense
-            FROM expenses
-            WHERE status = 'Paid'
-              AND created_at BETWEEN ? AND ?
+                     e.amount AS expense
+                 FROM {$expenses_source}
+                 WHERE e.status = 'Paid'
+                AND e.created_at BETWEEN ? AND ?
         ) AS rev_exp
         GROUP BY period_key
         ORDER BY period_key
@@ -393,7 +404,7 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
 
     // --- Expense Breakdown & Anomaly Detection ---
     $currentExpensesByType = [];
-    $expBreakdownSql = "SELECT expense_type, SUM(amount) AS total FROM expenses WHERE status = 'Paid' AND created_at BETWEEN ? AND ? GROUP BY expense_type";
+    $expBreakdownSql = "SELECT e.expense_type, SUM(e.amount) AS total FROM {$expenses_source} WHERE e.status = 'Paid' AND e.created_at BETWEEN ? AND ? GROUP BY e.expense_type";
     if ($stmt = $conn->prepare($expBreakdownSql)) {
         $stmt->bind_param('ss', $start_date, $end_date_for_query);
         if ($stmt->execute()) {
@@ -456,11 +467,11 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
             SUM(
                 CASE WHEN DATEDIFF(?, DATE(b.created_at)) > 14 THEN COALESCE(dtp.payable_amount, t.default_payable_amount, 0) ELSE 0 END
             ) AS overdue_component
-        FROM bills b
-        JOIN bill_items bi ON b.id = bi.bill_id
-        JOIN tests t ON bi.test_id = t.id
-        JOIN referral_doctors rd ON b.referral_doctor_id = rd.id
-        LEFT JOIN doctor_test_payables dtp ON rd.id = dtp.doctor_id AND bi.test_id = dtp.test_id
+        FROM {$bills_source}
+        JOIN {$bill_items_source} ON b.id = bi.bill_id
+        JOIN {$tests_source} ON bi.test_id = t.id
+        JOIN {$referral_doctors_source} ON b.referral_doctor_id = rd.id
+        LEFT JOIN {$doctor_test_payables_source} ON rd.id = dtp.doctor_id AND bi.test_id = dtp.test_id
         WHERE b.payment_status = 'Paid'
           AND b.bill_status != 'Void'
           AND b.referral_type = 'Doctor'
@@ -517,11 +528,11 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
     $payoutChartSql = "
         SELECT rd.doctor_name,
                SUM(COALESCE(dtp.payable_amount, t.default_payable_amount, 0)) AS total_payable
-        FROM bills b
-        JOIN bill_items bi ON b.id = bi.bill_id
-        JOIN referral_doctors rd ON b.referral_doctor_id = rd.id
-        JOIN tests t ON bi.test_id = t.id
-        LEFT JOIN doctor_test_payables dtp ON rd.id = dtp.doctor_id AND bi.test_id = dtp.test_id
+                FROM {$bills_source}
+                JOIN {$bill_items_source} ON b.id = bi.bill_id
+                JOIN {$referral_doctors_source} ON b.referral_doctor_id = rd.id
+                JOIN {$tests_source} ON bi.test_id = t.id
+                LEFT JOIN {$doctor_test_payables_source} ON rd.id = dtp.doctor_id AND bi.test_id = dtp.test_id
         WHERE b.referral_type = 'Doctor'
           AND b.payment_status = 'Paid'
           AND b.bill_status != 'Void'
@@ -546,7 +557,7 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
     }
 
     // --- Revenue by Payment Mode ---
-    $paymentModeSql = "SELECT payment_mode, SUM(net_amount) AS total FROM bills WHERE payment_status = 'Paid' AND bill_status != 'Void' AND created_at BETWEEN ? AND ? GROUP BY payment_mode";
+    $paymentModeSql = "SELECT b.payment_mode, SUM(b.net_amount) AS total FROM {$bills_source} WHERE b.payment_status = 'Paid' AND b.bill_status != 'Void' AND b.created_at BETWEEN ? AND ? GROUP BY b.payment_mode";
     $response['payment_modes'] = ['labels' => [], 'values' => []];
     if ($stmt = $conn->prepare($paymentModeSql)) {
         $stmt->bind_param('ss', $start_date, $end_date_for_query);
@@ -572,11 +583,11 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
                      THEN COALESCE(dtp.payable_amount, t.default_payable_amount, 0)
                      ELSE 0 END
             ) AS doctor_payable
-        FROM bills b
-        JOIN bill_items bi ON b.id = bi.bill_id
-        JOIN tests t ON bi.test_id = t.id
-        LEFT JOIN bill_item_screenings bis ON bis.bill_item_id = bi.id
-        LEFT JOIN doctor_test_payables dtp ON dtp.doctor_id = b.referral_doctor_id AND dtp.test_id = bi.test_id
+        FROM {$bills_source}
+        JOIN {$bill_items_source} ON b.id = bi.bill_id
+        JOIN {$tests_source} ON bi.test_id = t.id
+        LEFT JOIN {$bill_item_screenings_source} ON bis.bill_item_id = bi.id
+        LEFT JOIN {$doctor_test_payables_source} ON dtp.doctor_id = b.referral_doctor_id AND dtp.test_id = bi.test_id
         WHERE b.bill_status != 'Void'
           AND bi.item_status = 0
           AND b.created_at BETWEEN ? AND ?
@@ -616,7 +627,7 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
     $pendingExpenseRows = [];
     $pendingExpenseSql = "
         SELECT e.id, e.expense_type, e.amount, e.status, e.created_at
-        FROM expenses e
+        FROM {$expenses_source}
         WHERE e.status IS NULL OR e.status NOT IN ('Paid')
         ORDER BY e.created_at ASC
         LIMIT 6
@@ -644,8 +655,8 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
                b.amount_paid,
                COALESCE(b.balance_amount, GREATEST(b.net_amount - b.amount_paid, 0)) AS balance_due,
                DATEDIFF(?, DATE(b.created_at)) AS days_outstanding
-        FROM bills b
-        JOIN patients p ON b.patient_id = p.id
+                FROM {$bills_source}
+                JOIN {$patients_source} ON b.patient_id = p.id
         WHERE b.bill_status != 'Void'
           AND b.payment_status IN ('Due','Partial Paid')
         ORDER BY balance_due DESC, b.created_at ASC
@@ -725,11 +736,11 @@ if (isset($_GET['action']) && $_GET['action'] == 'getAccountantDashboardData') {
                 b.gross_amount,
                 b.discount AS discount_amount,
                 b.net_amount
-            FROM bills b
-            JOIN bill_items bi ON b.id = bi.bill_id
-            JOIN tests t ON bi.test_id = t.id
-            JOIN referral_doctors rd ON b.referral_doctor_id = rd.id
-            LEFT JOIN doctor_test_payables dtp ON rd.id = dtp.doctor_id AND bi.test_id = dtp.test_id
+            FROM {$bills_source}
+            JOIN {$bill_items_source} ON b.id = bi.bill_id
+            JOIN {$tests_source} ON bi.test_id = t.id
+            JOIN {$referral_doctors_source} ON b.referral_doctor_id = rd.id
+            LEFT JOIN {$doctor_test_payables_source} ON rd.id = dtp.doctor_id AND bi.test_id = dtp.test_id
             WHERE b.payment_status = 'Paid'
               AND b.bill_status != 'Void'
               AND b.referral_type = 'Doctor'

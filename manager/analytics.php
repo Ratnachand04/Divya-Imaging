@@ -7,6 +7,20 @@ require_once '../includes/functions.php';
 
 ensure_bill_payment_split_columns($conn);
 
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
+$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
+$bill_item_screenings_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_item_screenings', 'bis') : '`bill_item_screenings` bis';
+$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
+$doctor_test_payables_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'doctor_test_payables', 'dtp') : '`doctor_test_payables` dtp';
+
+$referral_doctors_source_lookup = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd_lookup') : '`referral_doctors` rd_lookup';
+$users_source_lookup = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u_lookup') : '`users` u_lookup';
+$tests_source_lookup = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't_lookup') : '`tests` t_lookup';
+$users_source_receptionists = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'ur') : '`users` ur';
+
 // --- 1. GET AND PREPARE FILTERS & PAGINATION ---
 $today_date = date('Y-m-d'); //
 $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : $today_date; //
@@ -29,14 +43,14 @@ $selectedReceptionistName = null; //
 
 // --- 2. BUILD DYNAMIC WHERE CLAUSE FOR MAIN DATA QUERY ---
 $base_query_from = "
-    FROM bills b
-    JOIN patients p ON b.patient_id = p.id
-    JOIN users u ON b.receptionist_id = u.id --
-    JOIN bill_items bi ON b.id = bi.bill_id AND bi.item_status = 0 -- Filter active items here
-    JOIN tests t ON bi.test_id = t.id
-    LEFT JOIN bill_item_screenings bis ON bis.bill_item_id = bi.id
-    LEFT JOIN referral_doctors rd ON b.referral_doctor_id = rd.id
-    LEFT JOIN doctor_test_payables dtp ON rd.id = dtp.doctor_id AND bi.test_id = dtp.test_id
+    FROM {$bills_source}
+    JOIN {$patients_source} ON b.patient_id = p.id
+    JOIN {$users_source} ON b.receptionist_id = u.id --
+    JOIN {$bill_items_source} ON b.id = bi.bill_id AND bi.item_status = 0 -- Filter active items here
+    JOIN {$tests_source} ON bi.test_id = t.id
+    LEFT JOIN {$bill_item_screenings_source} ON bis.bill_item_id = bi.id
+    LEFT JOIN {$referral_doctors_source} ON b.referral_doctor_id = rd.id
+    LEFT JOIN {$doctor_test_payables_source} ON rd.id = dtp.doctor_id AND bi.test_id = dtp.test_id
 "; //
 $where_clauses = ["b.created_at BETWEEN ? AND ?", "b.bill_status != 'Void'"]; //
 $end_date_for_query = $end_date . ' 23:59:59'; //
@@ -48,10 +62,10 @@ if ($start_date !== $today_date || $end_date !== $today_date) { //
     if ($start_date === $end_date) { $active_filters[] = "Date: " . htmlspecialchars($start_date); } else { $active_filters[] = "Date: " . htmlspecialchars($start_date) . " to " . htmlspecialchars($end_date); } //
 } else { $active_filters[] = "Date: Today"; } //
 if ($referral_type !== 'all') { $where_clauses[] = "b.referral_type = ?"; $params[] = $referral_type; $types .= 's'; $active_filters[] = "Referral Type: " . htmlspecialchars($referral_type); if ($referral_type === 'Self') { $showReferredByColumn = false; } } //
-if ($doctor_id !== 'all') { $where_clauses[] = "b.referral_doctor_id = ?"; $params[] = $doctor_id; $types .= 'i'; $doc_stmt = $conn->prepare("SELECT doctor_name FROM referral_doctors WHERE id = ?"); $doc_stmt->bind_param("i", $doctor_id); $doc_stmt->execute(); $doc_name_result = $doc_stmt->get_result(); $doc_name = $doc_name_result->num_rows > 0 ? $doc_name_result->fetch_assoc()['doctor_name'] : 'N/A'; $active_filters[] = "Doctor: " . htmlspecialchars($doc_name); $doc_stmt->close(); $showReferredByColumn = false; } //
-if ($receptionist_id !== 'all') { $where_clauses[] = "b.receptionist_id = ?"; $params[] = $receptionist_id; $types .= 'i'; $rec_stmt = $conn->prepare("SELECT username FROM users WHERE id = ?"); $rec_stmt->bind_param("i", $receptionist_id); $rec_stmt->execute(); $rec_name_result = $rec_stmt->get_result(); $selectedReceptionistName = $rec_name_result->num_rows > 0 ? $rec_name_result->fetch_assoc()['username'] : 'N/A'; $active_filters[] = "Receptionist: " . htmlspecialchars($selectedReceptionistName); $rec_stmt->close(); $showReceptionistColumn = false; } //
+if ($doctor_id !== 'all') { $where_clauses[] = "b.referral_doctor_id = ?"; $params[] = $doctor_id; $types .= 'i'; $doc_stmt = $conn->prepare("SELECT rd_lookup.doctor_name FROM {$referral_doctors_source_lookup} WHERE rd_lookup.id = ?"); $doc_stmt->bind_param("i", $doctor_id); $doc_stmt->execute(); $doc_name_result = $doc_stmt->get_result(); $doc_name = $doc_name_result->num_rows > 0 ? $doc_name_result->fetch_assoc()['doctor_name'] : 'N/A'; $active_filters[] = "Doctor: " . htmlspecialchars($doc_name); $doc_stmt->close(); $showReferredByColumn = false; } //
+if ($receptionist_id !== 'all') { $where_clauses[] = "b.receptionist_id = ?"; $params[] = $receptionist_id; $types .= 'i'; $rec_stmt = $conn->prepare("SELECT u_lookup.username FROM {$users_source_lookup} WHERE u_lookup.id = ?"); $rec_stmt->bind_param("i", $receptionist_id); $rec_stmt->execute(); $rec_name_result = $rec_stmt->get_result(); $selectedReceptionistName = $rec_name_result->num_rows > 0 ? $rec_name_result->fetch_assoc()['username'] : 'N/A'; $active_filters[] = "Receptionist: " . htmlspecialchars($selectedReceptionistName); $rec_stmt->close(); $showReceptionistColumn = false; } //
 if ($main_test !== 'all') { $where_clauses[] = "t.main_test_name = ?"; $params[] = $main_test; $types .= 's'; $active_filters[] = "Test Category: " . htmlspecialchars($main_test); $showMainTestColumn = false; } //
-if ($sub_test_id !== 'all') { $where_clauses[] = "t.id = ?"; $params[] = $sub_test_id; $types .= 'i'; $sub_stmt = $conn->prepare("SELECT sub_test_name FROM tests WHERE id = ?"); $sub_stmt->bind_param("i", $sub_test_id); $sub_stmt->execute(); $sub_name_result = $sub_stmt->get_result(); $sub_name = $sub_name_result->num_rows > 0 ? $sub_name_result->fetch_assoc()['sub_test_name'] : 'N/A'; $active_filters[] = "Test: " . htmlspecialchars($sub_name); $sub_stmt->close(); $showSubTestColumn = false; } //
+if ($sub_test_id !== 'all') { $where_clauses[] = "t.id = ?"; $params[] = $sub_test_id; $types .= 'i'; $sub_stmt = $conn->prepare("SELECT t_lookup.sub_test_name FROM {$tests_source_lookup} WHERE t_lookup.id = ?"); $sub_stmt->bind_param("i", $sub_test_id); $sub_stmt->execute(); $sub_name_result = $sub_stmt->get_result(); $sub_name = $sub_name_result->num_rows > 0 ? $sub_name_result->fetch_assoc()['sub_test_name'] : 'N/A'; $active_filters[] = "Test: " . htmlspecialchars($sub_name); $sub_stmt->close(); $showSubTestColumn = false; } //
 $where_sql = " WHERE " . implode(' AND ', $where_clauses); //
 
 // --- 3. GET TOTAL RECORD COUNT (Total Tests) FOR PAGINATION & CARD ---
@@ -141,9 +155,9 @@ if ($doctor_id !== 'all') {
 
 
 // --- Fetch data for dropdowns (Existing Code) ---
-$doctors = $conn->query("SELECT id, doctor_name FROM referral_doctors WHERE is_active = 1 ORDER BY doctor_name"); //
-$main_tests_result = $conn->query("SELECT DISTINCT main_test_name FROM tests ORDER BY main_test_name"); //
-$all_tests_result = $conn->query("SELECT id, main_test_name, sub_test_name FROM tests ORDER BY main_test_name, sub_test_name"); //
+$doctors = $conn->query("SELECT rd.id, rd.doctor_name FROM {$referral_doctors_source} WHERE rd.is_active = 1 ORDER BY rd.doctor_name"); //
+$main_tests_result = $conn->query("SELECT DISTINCT t.main_test_name FROM {$tests_source} ORDER BY t.main_test_name"); //
+$all_tests_result = $conn->query("SELECT t.id, t.main_test_name, t.sub_test_name FROM {$tests_source} ORDER BY t.main_test_name, t.sub_test_name"); //
 $all_tests_by_category = []; //
 while($row = $all_tests_result->fetch_assoc()) { $all_tests_by_category[$row['main_test_name']][] = ['id' => $row['id'], 'name' => $row['sub_test_name']]; } //
 
@@ -227,7 +241,7 @@ require_once '../includes/header.php'; //
             <select name="receptionist_id" id="analytics_receptionist">
                 <option value="all">All Receptionists</option>
                 <?php
-                $recep_stmt = $conn->query("SELECT id, username FROM users WHERE role = 'receptionist' ORDER BY username");
+                $recep_stmt = $conn->query("SELECT ur.id, ur.username FROM {$users_source_receptionists} WHERE ur.role = 'receptionist' ORDER BY ur.username");
                 if ($recep_stmt) {
                     while ($rec = $recep_stmt->fetch_assoc()) {
                         $selected = ($receptionist_id == (int)$rec['id']) ? 'selected' : '';

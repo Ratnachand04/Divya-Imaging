@@ -4,6 +4,13 @@ $required_role = "manager";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
 
+$bill_edit_requests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_edit_requests', 'r') : '`bill_edit_requests` r';
+$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
+
 if (!isset($_GET['request_id']) || !is_numeric($_GET['request_id'])) {
     $_SESSION['feedback'] = "<div class='error-banner'>Invalid request ID.</div>";
     header("Location: requests.php");
@@ -18,10 +25,10 @@ $stmt_req = $conn->prepare("SELECT
                                 u.username AS receptionist_name,
                                 b.gross_amount, b.discount, b.net_amount, b.created_at as bill_created_at,
                                 p.name as patient_name, p.age, p.sex
-                           FROM bill_edit_requests r
-                           JOIN users u ON r.receptionist_id = u.id
-                           JOIN bills b ON r.bill_id = b.id
-                           JOIN patients p ON b.patient_id = p.id
+                      FROM {$bill_edit_requests_source}
+                      JOIN {$users_source} ON r.receptionist_id = u.id
+                      JOIN {$bills_source} ON r.bill_id = b.id
+                      JOIN {$patients_source} ON b.patient_id = p.id
                            WHERE r.id = ?"); //
 $stmt_req->bind_param("i", $request_id); //
 $stmt_req->execute(); //
@@ -38,8 +45,8 @@ if (!$request_details) {
 $bill_id = $request_details['bill_id']; //
 $items_stmt = $conn->prepare(
     "SELECT t.main_test_name, t.sub_test_name, t.price
-     FROM bill_items bi
-     JOIN tests t ON bi.test_id = t.id
+    FROM {$bill_items_source}
+    JOIN {$tests_source} ON bi.test_id = t.id
      WHERE bi.bill_id = ?"
 ); //
 $items_stmt->bind_param("i", $bill_id); //

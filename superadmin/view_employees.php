@@ -3,11 +3,14 @@ $page_title = "View Employees";
 $required_role = "superadmin";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
 require_once '../includes/header.php';
 
 $sa_active_page = 'employees.php';
 
-$users_result = $conn->query("SELECT id, COALESCE(NULLIF(full_name, ''), username) AS full_name, COALESCE(NULLIF(employee_role, ''), role) AS display_role, COALESCE(account_details, '') AS account_details, document_path FROM users WHERE role NOT IN ('superadmin', 'platform_admin', 'developer') AND COALESCE(NULLIF(full_name, ''), '') != '' ORDER BY full_name ASC, username ASC");
+$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
+
+$users_result = $conn->query("SELECT u.id, COALESCE(NULLIF(u.full_name, ''), u.username) AS full_name, COALESCE(NULLIF(u.employee_role, ''), u.role) AS display_role, COALESCE(u.account_details, '') AS account_details, u.document_path FROM {$users_source} WHERE u.role NOT IN ('superadmin', 'platform_admin', 'developer') AND COALESCE(NULLIF(u.full_name, ''), '') != '' ORDER BY full_name ASC, u.username ASC");
 ?>
 
 <link rel="stylesheet" href="<?php echo $base_url; ?>/assets/css/superadmin_shell.css?v=<?php echo time(); ?>">

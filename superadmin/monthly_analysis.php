@@ -3,7 +3,15 @@ $page_title = "Monthly Analysis";
 $required_role = "superadmin";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
 require_once '../includes/header.php';
+
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
+$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
+$doctor_test_payables_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'doctor_test_payables', 'dtp') : '`doctor_test_payables` dtp';
+$expenses_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'expenses', 'e') : '`expenses` e';
 
 $selected_year = isset($_GET['year']) ? (int)$_GET['year'] : (int)date('Y');
 $selected_month = isset($_GET['month']) ? (int)$_GET['month'] : (int)date('m');
@@ -43,7 +51,7 @@ $stats = [
 $days_in_period = (int)$period_end->diff($period_start)->format('%a') + 1;
 
 // Revenue, collections, outstanding, bill count
-$stmt = $conn->prepare("SELECT SUM(net_amount) AS total_revenue, SUM(gross_amount) AS total_gross, SUM(amount_paid) AS total_collected, SUM(balance_amount) AS total_outstanding, COUNT(*) AS total_bills FROM bills WHERE created_at BETWEEN ? AND ? AND bill_status != 'Void'");
+$stmt = $conn->prepare("SELECT SUM(b.net_amount) AS total_revenue, SUM(b.gross_amount) AS total_gross, SUM(b.amount_paid) AS total_collected, SUM(b.balance_amount) AS total_outstanding, COUNT(*) AS total_bills FROM {$bills_source} WHERE b.created_at BETWEEN ? AND ? AND b.bill_status != 'Void'");
 $stmt->bind_param('ss', $start_date, $end_date_time);
 $stmt->execute();
 $revenue_row = $stmt->get_result()->fetch_assoc();
@@ -56,21 +64,21 @@ $stats['outstanding'] = (float)($revenue_row['total_outstanding'] ?? 0);
 $stats['bills'] = (int)($revenue_row['total_bills'] ?? 0);
 
 // Total tests
-$stmt = $conn->prepare("SELECT COUNT(bi.id) AS total_tests FROM bill_items bi JOIN bills b ON bi.bill_id = b.id WHERE b.created_at BETWEEN ? AND ? AND b.bill_status != 'Void' AND bi.item_status = 0");
+$stmt = $conn->prepare("SELECT COUNT(bi.id) AS total_tests FROM {$bill_items_source} JOIN {$bills_source} ON bi.bill_id = b.id WHERE b.created_at BETWEEN ? AND ? AND b.bill_status != 'Void' AND bi.item_status = 0");
 $stmt->bind_param('ss', $start_date, $end_date_time);
 $stmt->execute();
 $stats['tests'] = (int)($stmt->get_result()->fetch_assoc()['total_tests'] ?? 0);
 $stmt->close();
 
 // Total patients
-$stmt = $conn->prepare("SELECT COUNT(DISTINCT patient_id) AS total_patients FROM bills WHERE created_at BETWEEN ? AND ? AND bill_status != 'Void'");
+$stmt = $conn->prepare("SELECT COUNT(DISTINCT b.patient_id) AS total_patients FROM {$bills_source} WHERE b.created_at BETWEEN ? AND ? AND b.bill_status != 'Void'");
 $stmt->bind_param('ss', $start_date, $end_date_time);
 $stmt->execute();
 $stats['patients'] = (int)($stmt->get_result()->fetch_assoc()['total_patients'] ?? 0);
 $stmt->close();
 
 // Previous month revenue for comparison
-$stmt = $conn->prepare("SELECT SUM(net_amount) AS total_revenue FROM bills WHERE created_at BETWEEN ? AND ? AND bill_status != 'Void'");
+$stmt = $conn->prepare("SELECT SUM(b.net_amount) AS total_revenue FROM {$bills_source} WHERE b.created_at BETWEEN ? AND ? AND b.bill_status != 'Void'");
 $prev_start_str = $previous_start->format('Y-m-d');
 $stmt->bind_param('ss', $prev_start_str, $previous_end_time);
 $stmt->execute();
@@ -79,7 +87,7 @@ $stmt->close();
 
 // Daily revenue and collections
 $daily_revenue_map = [];
-$stmt = $conn->prepare("SELECT DATE(created_at) AS day, SUM(net_amount) AS revenue, SUM(amount_paid) AS collected, SUM(balance_amount) AS outstanding FROM bills WHERE created_at BETWEEN ? AND ? AND bill_status != 'Void' GROUP BY day ORDER BY day");
+$stmt = $conn->prepare("SELECT DATE(b.created_at) AS day, SUM(b.net_amount) AS revenue, SUM(b.amount_paid) AS collected, SUM(b.balance_amount) AS outstanding FROM {$bills_source} WHERE b.created_at BETWEEN ? AND ? AND b.bill_status != 'Void' GROUP BY day ORDER BY day");
 $stmt->bind_param('ss', $start_date, $end_date_time);
 $stmt->execute();
 $daily_revenue_result = $stmt->get_result();
@@ -94,7 +102,7 @@ $stmt->close();
 
 // Daily test counts
 $daily_tests_map = [];
-$stmt = $conn->prepare("SELECT DATE(b.created_at) AS day, COUNT(bi.id) AS tests FROM bills b JOIN bill_items bi ON b.id = bi.bill_id AND bi.item_status = 0 WHERE b.created_at BETWEEN ? AND ? AND b.bill_status != 'Void' GROUP BY day ORDER BY day");
+$stmt = $conn->prepare("SELECT DATE(b.created_at) AS day, COUNT(bi.id) AS tests FROM {$bills_source} JOIN {$bill_items_source} ON b.id = bi.bill_id AND bi.item_status = 0 WHERE b.created_at BETWEEN ? AND ? AND b.bill_status != 'Void' GROUP BY day ORDER BY day");
 $stmt->bind_param('ss', $start_date, $end_date_time);
 $stmt->execute();
 $daily_tests_result = $stmt->get_result();
@@ -105,7 +113,7 @@ $stmt->close();
 
 // Daily patient counts
 $daily_patients_map = [];
-$stmt = $conn->prepare("SELECT DATE(created_at) AS day, COUNT(DISTINCT patient_id) AS patients FROM bills WHERE created_at BETWEEN ? AND ? AND bill_status != 'Void' GROUP BY day ORDER BY day");
+$stmt = $conn->prepare("SELECT DATE(b.created_at) AS day, COUNT(DISTINCT b.patient_id) AS patients FROM {$bills_source} WHERE b.created_at BETWEEN ? AND ? AND b.bill_status != 'Void' GROUP BY day ORDER BY day");
 $stmt->bind_param('ss', $start_date, $end_date_time);
 $stmt->execute();
 $daily_patients_result = $stmt->get_result();
@@ -164,7 +172,7 @@ $daily_activity = array_values(array_filter($daily_series, static function ($row
 
 // Payment mode distribution
 $payment_modes = [];
-$stmt = $conn->prepare("SELECT COALESCE(NULLIF(payment_mode, ''), 'Unknown') AS mode, COUNT(*) AS bill_count, SUM(net_amount) AS revenue FROM bills WHERE created_at BETWEEN ? AND ? AND bill_status != 'Void' GROUP BY mode ORDER BY revenue DESC");
+$stmt = $conn->prepare("SELECT COALESCE(NULLIF(b.payment_mode, ''), 'Unknown') AS mode, COUNT(*) AS bill_count, SUM(b.net_amount) AS revenue FROM {$bills_source} WHERE b.created_at BETWEEN ? AND ? AND b.bill_status != 'Void' GROUP BY mode ORDER BY revenue DESC");
 $stmt->bind_param('ss', $start_date, $end_date_time);
 $stmt->execute();
 $payment_result = $stmt->get_result();
@@ -179,7 +187,7 @@ $stmt->close();
 
 // Top tests
 $top_tests = [];
-$stmt = $conn->prepare("SELECT COALESCE(CONCAT_WS(' - ', t.main_test_name, NULLIF(t.sub_test_name, '')), 'Uncategorized Test') AS test_label, COUNT(bi.id) AS test_count FROM bill_items bi JOIN bills b ON b.id = bi.bill_id AND b.bill_status != 'Void' LEFT JOIN tests t ON bi.test_id = t.id WHERE b.created_at BETWEEN ? AND ? AND bi.item_status = 0 GROUP BY test_label ORDER BY test_count DESC LIMIT 5");
+$stmt = $conn->prepare("SELECT COALESCE(CONCAT_WS(' - ', t.main_test_name, NULLIF(t.sub_test_name, '')), 'Uncategorized Test') AS test_label, COUNT(bi.id) AS test_count FROM {$bill_items_source} JOIN {$bills_source} ON b.id = bi.bill_id AND b.bill_status != 'Void' LEFT JOIN {$tests_source} ON bi.test_id = t.id WHERE b.created_at BETWEEN ? AND ? AND bi.item_status = 0 GROUP BY test_label ORDER BY test_count DESC LIMIT 5");
 $stmt->bind_param('ss', $start_date, $end_date_time);
 $stmt->execute();
 $tests_result = $stmt->get_result();
@@ -193,7 +201,7 @@ $stmt->close();
 
 // Top referring doctors
 $top_doctors = [];
-$stmt = $conn->prepare("SELECT rd.doctor_name, COUNT(DISTINCT b.id) AS bill_count, SUM(b.net_amount) AS revenue FROM bills b JOIN referral_doctors rd ON rd.id = b.referral_doctor_id WHERE b.created_at BETWEEN ? AND ? AND b.bill_status != 'Void' AND b.referral_type = 'Doctor' GROUP BY rd.id, rd.doctor_name ORDER BY revenue DESC LIMIT 5");
+$stmt = $conn->prepare("SELECT rd.doctor_name, COUNT(DISTINCT b.id) AS bill_count, SUM(b.net_amount) AS revenue FROM {$bills_source} JOIN {$referral_doctors_source} ON rd.id = b.referral_doctor_id WHERE b.created_at BETWEEN ? AND ? AND b.bill_status != 'Void' AND b.referral_type = 'Doctor' GROUP BY rd.id, rd.doctor_name ORDER BY revenue DESC LIMIT 5");
 $stmt->bind_param('ss', $start_date, $end_date_time);
 $stmt->execute();
 $doctors_result = $stmt->get_result();
@@ -213,7 +221,7 @@ $discount_stmt = $conn->prepare("SELECT
         SUM(CASE WHEN b.discount_by = 'Doctor' THEN b.discount ELSE 0 END) AS doctor_discounts,
         SUM(CASE WHEN b.discount_by != 'Doctor' THEN b.discount ELSE 0 END) AS center_discounts,
         COUNT(DISTINCT CASE WHEN b.discount_by = 'Doctor' AND b.discount > 0 THEN b.referral_doctor_id END) AS doctors_providing_discount
-    FROM bills b
+    FROM {$bills_source}
     WHERE b.created_at BETWEEN ? AND ?
       AND b.bill_status != 'Void'");
 if ($discount_stmt) {
@@ -233,8 +241,8 @@ $professional_charges_total = 0.0;
 $doctor_fin_stmt = $conn->prepare("SELECT rd.id AS doctor_id, rd.doctor_name,
         SUM(b.net_amount) AS revenue,
         SUM(CASE WHEN b.discount_by = 'Doctor' THEN b.discount ELSE 0 END) AS doctor_discounts
-    FROM bills b
-    JOIN referral_doctors rd ON rd.id = b.referral_doctor_id
+        FROM {$bills_source}
+        JOIN {$referral_doctors_source} ON rd.id = b.referral_doctor_id
     WHERE b.created_at BETWEEN ? AND ?
       AND b.bill_status != 'Void'
       AND b.referral_type = 'Doctor'
@@ -265,11 +273,11 @@ $professional_stmt = $conn->prepare("SELECT rd.id AS doctor_id, rd.doctor_name,
                 ELSE 0
             END
         ) AS professional_charge
-    FROM bills b
-    JOIN bill_items bi ON b.id = bi.bill_id AND bi.item_status = 0
-    JOIN tests t ON bi.test_id = t.id
-    LEFT JOIN doctor_test_payables dtp ON b.referral_doctor_id = dtp.doctor_id AND bi.test_id = dtp.test_id
-    LEFT JOIN referral_doctors rd ON b.referral_doctor_id = rd.id
+    FROM {$bills_source}
+    JOIN {$bill_items_source} ON b.id = bi.bill_id AND bi.item_status = 0
+    JOIN {$tests_source} ON bi.test_id = t.id
+    LEFT JOIN {$doctor_test_payables_source} ON b.referral_doctor_id = dtp.doctor_id AND bi.test_id = dtp.test_id
+    LEFT JOIN {$referral_doctors_source} ON b.referral_doctor_id = rd.id
     WHERE b.created_at BETWEEN ? AND ?
       AND b.bill_status != 'Void'
       AND b.referral_type = 'Doctor'
@@ -306,11 +314,11 @@ if (!empty($doctor_financial_map)) {
 
 $expense_breakdown_rows = [];
 $total_monthly_expenses = 0.0;
-$expense_stmt = $conn->prepare("SELECT COALESCE(NULLIF(expense_type, ''), 'Uncategorized') AS expense_type,
-        SUM(amount) AS total_amount
-    FROM expenses
-    WHERE created_at BETWEEN ? AND ?
-    GROUP BY expense_type
+$expense_stmt = $conn->prepare("SELECT COALESCE(NULLIF(e.expense_type, ''), 'Uncategorized') AS expense_type,
+        SUM(e.amount) AS total_amount
+    FROM {$expenses_source}
+    WHERE e.created_at BETWEEN ? AND ?
+    GROUP BY e.expense_type
     ORDER BY total_amount DESC");
 if ($expense_stmt) {
     $expense_stmt->bind_param('ss', $start_date, $end_date_time);

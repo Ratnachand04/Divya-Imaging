@@ -6,7 +6,16 @@ require_once '../includes/db_connect.php';
 require_once '../includes/functions.php';
 
 // Ensure reporting doctor exists on bill_items for older database snapshots.
-$conn->query("ALTER TABLE bill_items ADD COLUMN IF NOT EXISTS reporting_doctor VARCHAR(150) DEFAULT NULL");
+if (function_exists('table_scale_apply_alter_to_all_physical_tables')) {
+    table_scale_apply_alter_to_all_physical_tables($conn, 'bill_items', "ADD COLUMN IF NOT EXISTS reporting_doctor VARCHAR(150) DEFAULT NULL");
+} else {
+    $conn->query("ALTER TABLE bill_items ADD COLUMN IF NOT EXISTS reporting_doctor VARCHAR(150) DEFAULT NULL");
+}
+
+$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
 
 // -----------------------------------------------------------------------
 // Shared radiologist list (used for dropdown and display)
@@ -41,10 +50,10 @@ $base_sql = "SELECT
     t.sub_test_name AS test_name,
     bi.updated_at  AS uploaded_at,
     COALESCE(bi.reporting_doctor, 'Not Assigned') AS reporting_doctor
-FROM bill_items bi
-JOIN bills b ON b.id = bi.bill_id
-JOIN patients p ON p.id = b.patient_id
-JOIN tests t ON t.id = bi.test_id
+FROM {$bill_items_source}
+JOIN {$bills_source} ON b.id = bi.bill_id
+JOIN {$patients_source} ON p.id = b.patient_id
+JOIN {$tests_source} ON t.id = bi.test_id
 WHERE b.bill_status != 'Void'
   AND bi.item_status = 0
   AND COALESCE(bi.report_status, 'Pending') = 'Completed'

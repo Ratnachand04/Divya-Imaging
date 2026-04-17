@@ -7,6 +7,7 @@ $sa_menu_items = [
     ['label' => 'Radiology', 'href' => 'test_count.php', 'icon' => 'fa-radiation'],
     ['label' => 'Financials', 'href' => 'expenditure.php', 'icon' => 'fa-wallet'],
     ['label' => 'Patients', 'href' => 'patients.php', 'icon' => 'fa-procedures'],
+    ['label' => 'Reports', 'href' => 'print_reports.php', 'icon' => 'fa-file-medical-alt'],
     ['label' => 'Employee', 'href' => 'employees.php', 'icon' => 'fa-users']
 ];
 ?>

@@ -3,7 +3,14 @@ $page_title = "Doctors";
 $required_role = "superadmin";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
 require_once '../includes/header.php';
+
+$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
+$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
+$doctor_test_payables_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'doctor_test_payables', 'dtp') : '`doctor_test_payables` dtp';
 
 $sa_active_page = 'view_doctors.php';
 
@@ -42,18 +49,18 @@ $summarySql = "
         COUNT(bi.id) AS test_count,
         COALESCE(SUM(CASE WHEN b.bill_status != 'Void' THEN b.net_amount ELSE 0 END), 0) AS revenue,
         COALESCE(SUM(CASE WHEN b.bill_status != 'Void' THEN COALESCE(dtp.payable_amount, t.default_payable_amount, 0) ELSE 0 END), 0) AS professional_charges
-    FROM referral_doctors rd
-    LEFT JOIN bills b
+    FROM {$referral_doctors_source}
+    LEFT JOIN {$bills_source}
         ON b.referral_doctor_id = rd.id
        AND b.referral_type = 'Doctor'
        AND b.bill_status != 'Void'
        AND b.created_at BETWEEN '{$doctorStartSql}' AND '{$doctorEndSql}'
-    LEFT JOIN bill_items bi
+    LEFT JOIN {$bill_items_source}
         ON bi.bill_id = b.id
        AND bi.item_status = 0
-    LEFT JOIN tests t
+    LEFT JOIN {$tests_source}
         ON t.id = bi.test_id
-    LEFT JOIN doctor_test_payables dtp
+    LEFT JOIN {$doctor_test_payables_source}
         ON dtp.doctor_id = rd.id
        AND dtp.test_id = bi.test_id
     GROUP BY rd.id, rd.doctor_name, rd.hospital_name

@@ -10,6 +10,12 @@ try {
     ensure_patient_registration_schema($conn);
     ensure_bill_payment_split_columns($conn);
 
+    $patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
+    $bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
+    $referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
+    $bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
+    $tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
+
     $patient_uid = strtoupper(trim($_GET['patient_uid'] ?? ''));
     $patient_id  = isset($_GET['patient_id']) ? (int)$_GET['patient_id'] : 0;
 
@@ -21,10 +27,10 @@ try {
         if (!preg_match('/^DC\d{8}$/', $patient_uid)) {
             throw new Exception('Patient ID must be in DCYYYYNNNN format.');
         }
-        $stmt_p = $conn->prepare("SELECT id, uid, name, age, sex, mobile_number, city FROM patients WHERE uid = ? LIMIT 1");
+        $stmt_p = $conn->prepare("SELECT p.id, p.uid, p.name, p.age, p.sex, p.mobile_number, p.city FROM {$patients_source} WHERE p.uid = ? LIMIT 1");
         $stmt_p->bind_param('s', $patient_uid);
     } else {
-        $stmt_p = $conn->prepare("SELECT id, uid, name, age, sex, mobile_number, city FROM patients WHERE id = ? LIMIT 1");
+        $stmt_p = $conn->prepare("SELECT p.id, p.uid, p.name, p.age, p.sex, p.mobile_number, p.city FROM {$patients_source} WHERE p.id = ? LIMIT 1");
         $stmt_p->bind_param('i', $patient_id);
     }
 
@@ -57,8 +63,8 @@ try {
                 b.payment_status,
                 b.referral_type,
                 COALESCE(rd.doctor_name, '') AS referral_doctor
-         FROM bills b
-         LEFT JOIN referral_doctors rd ON rd.id = b.referral_doctor_id
+         FROM {$bills_source}
+         LEFT JOIN {$referral_doctors_source} ON rd.id = b.referral_doctor_id
          WHERE b.patient_id = ? AND b.bill_status != 'Void'
          ORDER BY b.created_at DESC"
     );
@@ -84,8 +90,8 @@ try {
                     t.sub_test_name,
                     t.price,
                     bi.report_status
-             FROM bill_items bi
-             JOIN tests t ON t.id = bi.test_id
+               FROM {$bill_items_source}
+               JOIN {$tests_source} ON t.id = bi.test_id
              WHERE bi.bill_id IN ($placeholders) AND bi.item_status = 0
              ORDER BY t.main_test_name, t.sub_test_name"
         );

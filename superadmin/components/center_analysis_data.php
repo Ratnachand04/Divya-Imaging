@@ -3,9 +3,20 @@
 if (!function_exists('sa_table_exists')) {
     function sa_table_exists(mysqli $conn, string $tableName): bool
     {
-        $safe = $conn->real_escape_string($tableName);
-        $result = $conn->query("SHOW TABLES LIKE '{$safe}'");
-        return $result && $result->num_rows > 0;
+        if (!function_exists('schema_has_table')) {
+            return false;
+        }
+        return schema_has_table($conn, $tableName);
+    }
+}
+
+if (!function_exists('sa_read_source')) {
+    function sa_read_source(mysqli $conn, string $tableName, string $alias): string
+    {
+        if (function_exists('table_scale_get_read_source')) {
+            return table_scale_get_read_source($conn, $tableName, $alias);
+        }
+        return '`' . $tableName . '` ' . $alias;
     }
 }
 
@@ -37,42 +48,52 @@ if (!function_exists('sa_build_period_payload')) {
             $indexByKey[$k] = $i;
         }
 
-        $periodExprBills = "DATE(created_at)";
-        $periodExprExpenses = "DATE(created_at)";
+        $periodExprBills = "DATE(b.created_at)";
+        $periodExprExpenses = "DATE(e.created_at)";
         $periodExprTests = "DATE(b.created_at)";
-        $periodExprUsers = "DATE(created_at)";
-        $periodExprNotif = "DATE(created_at)";
+        $periodExprUsers = "DATE(u.created_at)";
+        $periodExprNotif = "DATE(nq.created_at)";
 
         if ($mode === 'daily') {
-            $periodExprBills = "HOUR(created_at)";
-            $periodExprExpenses = "HOUR(created_at)";
+            $periodExprBills = "HOUR(b.created_at)";
+            $periodExprExpenses = "HOUR(e.created_at)";
             $periodExprTests = "HOUR(b.created_at)";
-            $periodExprUsers = "HOUR(created_at)";
-            $periodExprNotif = "HOUR(created_at)";
+            $periodExprUsers = "HOUR(u.created_at)";
+            $periodExprNotif = "HOUR(nq.created_at)";
         } elseif ($mode === 'monthly') {
-            $periodExprBills = "DATE_FORMAT(created_at, '%Y-%m')";
-            $periodExprExpenses = "DATE_FORMAT(created_at, '%Y-%m')";
+            $periodExprBills = "DATE_FORMAT(b.created_at, '%Y-%m')";
+            $periodExprExpenses = "DATE_FORMAT(e.created_at, '%Y-%m')";
             $periodExprTests = "DATE(b.created_at)";
-            $periodExprUsers = "DATE(created_at)";
-            $periodExprNotif = "DATE(created_at)";
+            $periodExprUsers = "DATE(u.created_at)";
+            $periodExprNotif = "DATE(nq.created_at)";
         } elseif ($mode === 'yearly') {
-            $periodExprBills = "DATE_FORMAT(created_at, '%Y-%m')";
-            $periodExprExpenses = "DATE_FORMAT(created_at, '%Y-%m')";
+            $periodExprBills = "DATE_FORMAT(b.created_at, '%Y-%m')";
+            $periodExprExpenses = "DATE_FORMAT(e.created_at, '%Y-%m')";
             $periodExprTests = "DATE_FORMAT(b.created_at, '%Y-%m')";
-            $periodExprUsers = "DATE_FORMAT(created_at, '%Y-%m')";
-            $periodExprNotif = "DATE_FORMAT(created_at, '%Y-%m')";
+            $periodExprUsers = "DATE_FORMAT(u.created_at, '%Y-%m')";
+            $periodExprNotif = "DATE_FORMAT(nq.created_at, '%Y-%m')";
         }
+
+        $bills_source = sa_read_source($conn, 'bills', 'b');
+        $expenses_source = sa_read_source($conn, 'expenses', 'e');
+        $bill_items_source = sa_read_source($conn, 'bill_items', 'bi');
+        $users_source = sa_read_source($conn, 'users', 'u');
+        $notification_queue_source = sa_read_source($conn, 'notification_queue', 'nq');
+        $users_source_role = sa_read_source($conn, 'users', 'u_role');
+        $tests_source = sa_read_source($conn, 'tests', 't');
+        $expenses_source_type = sa_read_source($conn, 'expenses', 'e_type');
+        $users_source_expense = sa_read_source($conn, 'users', 'u_exp');
 
         $sqlBills = "
             SELECT
                 {$periodExprBills} AS period_key,
-                COALESCE(SUM(net_amount), 0) AS revenue,
-                COALESCE(SUM(discount), 0) AS discount_total,
+                                COALESCE(SUM(b.net_amount), 0) AS revenue,
+                                COALESCE(SUM(b.discount), 0) AS discount_total,
                 COUNT(*) AS bill_count,
-                COUNT(DISTINCT patient_id) AS patient_count
-            FROM bills
-            WHERE bill_status != 'Void'
-              AND DATE(created_at) BETWEEN ? AND ?
+                                COUNT(DISTINCT b.patient_id) AS patient_count
+                        FROM {$bills_source}
+                        WHERE b.bill_status != 'Void'
+                            AND DATE(b.created_at) BETWEEN ? AND ?
             GROUP BY period_key
             ORDER BY period_key ASC
         ";
@@ -99,9 +120,9 @@ if (!function_exists('sa_build_period_payload')) {
             $sqlExpenses = "
                 SELECT
                     {$periodExprExpenses} AS period_key,
-                    COALESCE(SUM(amount), 0) AS total_expense
-                FROM expenses
-                WHERE DATE(created_at) BETWEEN ? AND ?
+                    COALESCE(SUM(e.amount), 0) AS total_expense
+                FROM {$expenses_source}
+                WHERE DATE(e.created_at) BETWEEN ? AND ?
                 GROUP BY period_key
                 ORDER BY period_key ASC
             ";
@@ -125,8 +146,8 @@ if (!function_exists('sa_build_period_payload')) {
             SELECT
                 {$periodExprTests} AS period_key,
                 COUNT(bi.id) AS test_count
-            FROM bill_items bi
-            JOIN bills b ON b.id = bi.bill_id
+            FROM {$bill_items_source}
+            JOIN {$bills_source} ON b.id = bi.bill_id
             WHERE bi.item_status = 0
               AND b.bill_status != 'Void'
               AND DATE(b.created_at) BETWEEN ? AND ?
@@ -152,9 +173,9 @@ if (!function_exists('sa_build_period_payload')) {
             SELECT
                 {$periodExprUsers} AS period_key,
                 COUNT(*) AS employee_count
-            FROM users
-            WHERE role NOT IN ('superadmin', 'platform_admin', 'developer')
-              AND DATE(created_at) BETWEEN ? AND ?
+                        FROM {$users_source}
+                        WHERE u.role NOT IN ('superadmin', 'platform_admin', 'developer')
+                            AND DATE(u.created_at) BETWEEN ? AND ?
             GROUP BY period_key
             ORDER BY period_key ASC
         ";
@@ -178,8 +199,8 @@ if (!function_exists('sa_build_period_payload')) {
                 SELECT
                     {$periodExprNotif} AS period_key,
                     COUNT(*) AS notification_count
-                FROM notification_queue
-                WHERE DATE(created_at) BETWEEN ? AND ?
+                FROM {$notification_queue_source}
+                WHERE DATE(nq.created_at) BETWEEN ? AND ?
                 GROUP BY period_key
                 ORDER BY period_key ASC
             ";
@@ -203,9 +224,9 @@ if (!function_exists('sa_build_period_payload')) {
         $roleValues = [];
         $sqlRoles = "
             SELECT role, COUNT(*) AS role_count
-            FROM users
-            WHERE role NOT IN ('superadmin', 'platform_admin', 'developer')
-              AND DATE(created_at) BETWEEN ? AND ?
+                        FROM {$users_source_role}
+                        WHERE u_role.role NOT IN ('superadmin', 'platform_admin', 'developer')
+                            AND DATE(u_role.created_at) BETWEEN ? AND ?
             GROUP BY role
             ORDER BY role_count DESC, role ASC
         ";
@@ -237,9 +258,9 @@ if (!function_exists('sa_build_period_payload')) {
                 COUNT(bi.id) AS test_count,
                 COALESCE(SUM(COALESCE(t.price, 0)), 0) AS gross_revenue,
                 COALESCE(SUM(COALESCE(bi.discount_amount, 0)), 0) AS discount_total
-            FROM bill_items bi
-            JOIN bills b ON b.id = bi.bill_id
-            LEFT JOIN tests t ON t.id = bi.test_id
+            FROM {$bill_items_source}
+            JOIN {$bills_source} ON b.id = bi.bill_id
+            LEFT JOIN {$tests_source} ON t.id = bi.test_id
             WHERE bi.item_status = 0
               AND b.bill_status != 'Void'
               AND DATE(b.created_at) BETWEEN ? AND ?
@@ -268,13 +289,13 @@ if (!function_exists('sa_build_period_payload')) {
         if (sa_table_exists($conn, 'expenses')) {
             $sqlExpenseTypes = "
                 SELECT
-                    expense_type,
-                    COALESCE(SUM(amount), 0) AS total_amount,
+                    e_type.expense_type,
+                    COALESCE(SUM(e_type.amount), 0) AS total_amount,
                     COUNT(*) AS item_count
-                FROM expenses
-                WHERE DATE(created_at) BETWEEN ? AND ?
-                GROUP BY expense_type
-                ORDER BY total_amount DESC, expense_type ASC
+                FROM {$expenses_source_type}
+                WHERE DATE(e_type.created_at) BETWEEN ? AND ?
+                GROUP BY e_type.expense_type
+                ORDER BY total_amount DESC, e_type.expense_type ASC
             ";
             $stmt = $conn->prepare($sqlExpenseTypes);
             if ($stmt) {
@@ -302,9 +323,9 @@ if (!function_exists('sa_build_period_payload')) {
                     e.status,
                     e.proof_path,
                     e.created_at,
-                    COALESCE(NULLIF(u.username, ''), '-') AS accountant_name
-                FROM expenses e
-                LEFT JOIN users u ON u.id = e.accountant_id
+                    COALESCE(NULLIF(u_exp.username, ''), '-') AS accountant_name
+                FROM {$expenses_source}
+                LEFT JOIN {$users_source_expense} ON u_exp.id = e.accountant_id
                 WHERE DATE(e.created_at) BETWEEN ? AND ?
                 ORDER BY e.expense_type ASC, e.created_at DESC
             ";
@@ -321,12 +342,19 @@ if (!function_exists('sa_build_period_payload')) {
                     if (!isset($expenseDetailsByType[$expenseType])) {
                         $expenseDetailsByType[$expenseType] = [];
                     }
+
+                    $proof_path_raw = (string)($row['proof_path'] ?? '');
+                    $proof_download_url = '';
+                    if ($proof_path_raw !== '') {
+                        $proof_download_url = '../accountant/download_proof.php?file=' . urlencode(ltrim(str_replace('../', '', $proof_path_raw), '/'));
+                    }
+
                     $expenseDetailsByType[$expenseType][] = [
                         'date' => (string)$row['created_at'],
                         'amount' => (float)$row['amount'],
                         'status' => (string)$row['status'],
                         'accountant' => (string)$row['accountant_name'],
-                        'proof_path' => (string)($row['proof_path'] ?? '')
+                        'proof_path' => $proof_download_url
                     ];
                 }
                 $stmt->close();

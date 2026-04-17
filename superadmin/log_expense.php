@@ -4,6 +4,7 @@ $page_title = "Log Expense";
 $required_role = "superadmin";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
 
 $error_message = '';
 $success_message = '';
@@ -17,19 +18,32 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $proof_path = null;
 
     if (isset($_FILES['proof']) && $_FILES['proof']['error'] == 0) {
-        $target_dir = "../uploads/expenses/";
-        if (!is_dir($target_dir)) { mkdir($target_dir, 0777, true); }
-        $file_extension = pathinfo($_FILES["proof"]["name"], PATHINFO_EXTENSION);
-        $target_file = $target_dir . uniqid('expense_') . '.' . $file_extension;
-        $allowed_types = ['jpg', 'jpeg', 'png', 'pdf'];
-        if (in_array(strtolower($file_extension), $allowed_types) && $_FILES["proof"]["size"] < 5000000) {
-            if (move_uploaded_file($_FILES["proof"]["tmp_name"], $target_file)) {
-                $proof_path = $target_file;
+        try {
+            $proof_path_meta = data_storage_expense_proof_directory($expense_type);
+            $target_dir = rtrim($proof_path_meta['absolute_path'], DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
+            $storage_dir = rtrim($proof_path_meta['storage_path'], '/');
+        } catch (Throwable $e) {
+            $error_message = 'Unable to prepare expense proof directory.';
+            $target_dir = '';
+            $storage_dir = '';
+        }
+
+        if ($target_dir !== '' && $storage_dir !== '') {
+            $file_extension = pathinfo($_FILES["proof"]["name"], PATHINFO_EXTENSION);
+            $target_file = $target_dir . uniqid('expense_') . '.' . $file_extension;
+            $allowed_types = ['jpg', 'jpeg', 'png', 'pdf'];
+            if (in_array(strtolower($file_extension), $allowed_types) && $_FILES["proof"]["size"] < 5000000) {
+                if (move_uploaded_file($_FILES["proof"]["tmp_name"], $target_file)) {
+                    $proof_path = $storage_dir . '/' . basename($target_file);
+                    if (function_exists('data_storage_copy_absolute_file_to_mirror')) {
+                        data_storage_copy_absolute_file_to_mirror($target_file);
+                    }
+                } else {
+                    $error_message = "Sorry, there was an error uploading your file.";
+                }
             } else {
-                $error_message = "Sorry, there was an error uploading your file.";
+                $error_message = "Invalid file type or size (Max 5MB, JPG, PNG, PDF).";
             }
-        } else {
-            $error_message = "Invalid file type or size (Max 5MB, JPG, PNG, PDF).";
         }
     }
 
