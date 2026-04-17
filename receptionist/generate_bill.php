@@ -1,20 +1,35 @@
 <?php
-// --- PDF Library Autoloader ---
-require_once '../vendor/autoload.php';
-use Dompdf\Dompdf;
-use Dompdf\Options;
 
 $page_title = "Generate Bill";
 
-$required_role = "receptionist";
+$required_role = ['receptionist', 'manager'];
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
 require_once '../includes/functions.php';
 
-ensureBillItemScreeningsTable($conn);
-ensureBillItemDiscountColumn($conn);
-ensure_bill_payment_split_columns($conn);
-ensure_package_management_schema($conn);
+$current_role = (string)($_SESSION['role'] ?? '');
+$is_manager_user = ($current_role === 'manager');
+$is_edit_mode = false;
+$edit_bill_id = 0;
+$linked_request_id = 0;
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $edit_bill_id = isset($_POST['edit_bill_id']) ? (int)$_POST['edit_bill_id'] : 0;
+    $linked_request_id = isset($_POST['request_id']) ? (int)$_POST['request_id'] : 0;
+} else {
+    $edit_bill_id = isset($_GET['edit_id']) ? (int)$_GET['edit_id'] : 0;
+    $linked_request_id = isset($_GET['request_id']) ? (int)$_GET['request_id'] : 0;
+}
+
+$is_edit_mode = $edit_bill_id > 0;
+
+if (empty($_SESSION['generate_bill_schema_ready'])) {
+    ensureBillItemScreeningsTable($conn);
+    ensureBillItemDiscountColumn($conn);
+    ensure_bill_payment_split_columns($conn);
+    ensure_package_management_schema($conn);
+    $_SESSION['generate_bill_schema_ready'] = 1;
+}
 
 // #############################################################################
 // ### PDF SAVE PATH (relative to this file's directory) ###
@@ -47,6 +62,15 @@ function ensureBillItemDiscountColumn(mysqli $conn) {
     if ($columnCheck instanceof mysqli_result) {
         $columnCheck->free();
     }
+}
+
+/**
+ * Issues a one-time form token for generate bill submissions.
+ */
+function issueGenerateBillSubmitToken(): string {
+    $token = hash('sha256', uniqid((string)mt_rand(), true));
+    $_SESSION['generate_bill_active_token'] = $token;
+    return $token;
 }
 
 /**
@@ -207,8 +231,14 @@ function generateAndSaveBillPdf($bill_id, $conn, $patient_name, $base_save_path)
     HTML;
 
     // 3. --- Generate the PDF ---
-    $options = new Options(); $options->set('isHtml5ParserEnabled', true);
-    $dompdf = new Dompdf($options); $dompdf->loadHtml($html);
+    if (!class_exists('\\Dompdf\\Dompdf')) {
+        require_once '../vendor/autoload.php';
+    }
+
+    $options = new \Dompdf\Options();
+    $options->set('isHtml5ParserEnabled', true);
+    $dompdf = new \Dompdf\Dompdf($options);
+    $dompdf->loadHtml($html);
     $dompdf->setPaper('A4', 'portrait'); $dompdf->render();
 
     // 4. --- Create directory structure and save the file ---
@@ -226,10 +256,35 @@ function generateAndSaveBillPdf($bill_id, $conn, $patient_name, $base_save_path)
 $error_message = '';
 $success_message = '';
 
+if (!isset($_SESSION['generate_bill_used_tokens']) || !is_array($_SESSION['generate_bill_used_tokens'])) {
+    $_SESSION['generate_bill_used_tokens'] = [];
+}
+if (empty($_SESSION['generate_bill_active_token']) || !is_string($_SESSION['generate_bill_active_token'])) {
+    issueGenerateBillSubmitToken();
+}
+$bill_submit_token = (string)$_SESSION['generate_bill_active_token'];
+
 // --- FORM SUBMISSION LOGIC ---
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    $submitted_form_token = trim((string)($_POST['bill_submit_token'] ?? ''));
+    $token_marked_used_in_request = false;
     $conn->begin_transaction();
     try {
+        $active_form_token = (string)($_SESSION['generate_bill_active_token'] ?? '');
+        if ($submitted_form_token === '' || $active_form_token === '' || !hash_equals($active_form_token, $submitted_form_token)) {
+            throw new Exception('Form session expired or invalid. Please refresh the page and submit again.');
+        }
+        if (isset($_SESSION['generate_bill_used_tokens'][$submitted_form_token])) {
+            throw new Exception('Duplicate submission detected. Bill has already been submitted from this form.');
+        }
+        $_SESSION['generate_bill_used_tokens'][$submitted_form_token] = time();
+        $token_marked_used_in_request = true;
+        if (count($_SESSION['generate_bill_used_tokens']) > 60) {
+            asort($_SESSION['generate_bill_used_tokens']);
+            $_SESSION['generate_bill_used_tokens'] = array_slice($_SESSION['generate_bill_used_tokens'], -40, null, true);
+        }
+        unset($_SESSION['generate_bill_active_token']);
+
         ensure_patient_registration_schema($conn);
 
         $is_new_patient = isset($_POST['is_new_patient']) && $_POST['is_new_patient'] === '1';
@@ -241,8 +296,75 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $patient_city = trim($_POST['patient_city'] ?? '');
         $patient_mobile = trim($_POST['patient_mobile'] ?? '');
         $patient_id = 0;
+        $receptionist_id = (int)($_SESSION['user_id'] ?? 0);
+        $editing_bill_row = null;
 
-        if ($is_new_patient) {
+        if ($is_edit_mode) {
+            if ($edit_bill_id <= 0) {
+                throw new Exception('Invalid bill ID for edit mode.');
+            }
+
+            if (!$is_manager_user) {
+                throw new Exception('Only manager can edit an existing bill from this workflow.');
+            }
+
+            $bill_lock_stmt = $conn->prepare("SELECT id, patient_id, receptionist_id FROM bills WHERE id = ? FOR UPDATE");
+            if (!$bill_lock_stmt) {
+                throw new Exception('Failed to load bill for editing: ' . $conn->error);
+            }
+            $bill_lock_stmt->bind_param('i', $edit_bill_id);
+            $bill_lock_stmt->execute();
+            $editing_bill_row = $bill_lock_stmt->get_result()->fetch_assoc();
+            $bill_lock_stmt->close();
+
+            if (!$editing_bill_row) {
+                throw new Exception('Bill not found for editing.');
+            }
+
+            if ($linked_request_id > 0) {
+                ensure_bill_edit_request_workflow_schema($conn);
+                $request_stmt = $conn->prepare('SELECT id, bill_id, status, manager_comment FROM bill_edit_requests WHERE id = ? FOR UPDATE');
+                if (!$request_stmt) {
+                    throw new Exception('Unable to load linked request.');
+                }
+                $request_stmt->bind_param('i', $linked_request_id);
+                $request_stmt->execute();
+                $linked_request = $request_stmt->get_result()->fetch_assoc();
+                $request_stmt->close();
+
+                if (!$linked_request || (int)$linked_request['bill_id'] !== $edit_bill_id) {
+                    throw new Exception('Linked request does not match selected bill.');
+                }
+
+                $linked_status = normalize_bill_edit_request_status($linked_request['status'] ?? 'pending');
+                if ($linked_status !== 'approved') {
+                    throw new Exception('Linked request must be Approved before editing this bill.');
+                }
+            }
+
+            $patient_stmt = $conn->prepare('SELECT id, uid, name, age, sex, address, city, mobile_number FROM patients WHERE id = ? LIMIT 1');
+            if (!$patient_stmt) {
+                throw new Exception('Failed to load patient information for bill editing.');
+            }
+            $patient_id = (int)$editing_bill_row['patient_id'];
+            $patient_stmt->bind_param('i', $patient_id);
+            $patient_stmt->execute();
+            $existing_patient = $patient_stmt->get_result()->fetch_assoc();
+            $patient_stmt->close();
+
+            if (!$existing_patient) {
+                throw new Exception('Associated patient could not be loaded for this bill.');
+            }
+
+            $submitted_uid = (string)($existing_patient['uid'] ?? '');
+            $patient_name = (string)$existing_patient['name'];
+            $patient_age = (int)$existing_patient['age'];
+            $patient_sex = (string)$existing_patient['sex'];
+            $patient_address = (string)($existing_patient['address'] ?? '');
+            $patient_city = (string)($existing_patient['city'] ?? '');
+            $patient_mobile = (string)($existing_patient['mobile_number'] ?? '');
+            $receptionist_id = (int)$editing_bill_row['receptionist_id'];
+        } elseif ($is_new_patient) {
             if ($submitted_uid === '' || !preg_match('/^DC\d{8}$/', $submitted_uid)) {
                 throw new Exception("Please generate a valid patient ID after entering patient details.");
             }
@@ -304,8 +426,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         if ($patient_id <= 0) {
             throw new Exception("Patient insertion failed: unable to generate unique UID.");
         }
-
-        $receptionist_id = $_SESSION['user_id'];
         $referral_type = trim($_POST['referral_type'] ?? 'Self');
         $allowed_referral_types = ['Self', 'Doctor', 'Other'];
         if (!in_array($referral_type, $allowed_referral_types, true)) {
@@ -361,8 +481,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     continue;
                 }
                 $package_seen[$package_id] = true;
+                $extra_discount = isset($entry['extra_discount']) ? max(0, round((float)$entry['extra_discount'], 0)) : 0.00;
                 $structured_packages[] = [
-                    'id' => $package_id
+                    'id' => $package_id,
+                    'extra_discount' => $extra_discount,
                 ];
                 continue;
             }
@@ -423,9 +545,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $stmt_packages->close();
 
             $stmt_package_tests = $conn->prepare(
-                "SELECT pt.package_id, pt.test_id, pt.base_test_price, pt.package_test_price, t.main_test_name, t.sub_test_name
+                 "SELECT pt.package_id,
+                        pt.test_id,
+                        pt.custom_test_name,
+                        pt.is_custom,
+                        pt.test_category,
+                        pt.base_test_price,
+                        pt.package_test_price,
+                        t.main_test_name,
+                        t.sub_test_name
                  FROM package_tests pt
-                 JOIN tests t ON t.id = pt.test_id
+                  LEFT JOIN tests t ON t.id = pt.test_id
                  WHERE pt.package_id IN ($pkg_placeholders)
                  ORDER BY pt.package_id ASC, pt.display_order ASC, pt.id ASC"
             );
@@ -484,21 +614,37 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $sum_package_test_price = 0.0;
             $normalized_tests = [];
             foreach ($package_tests as $pkg_test_row) {
-                $base_price = round((float)$pkg_test_row['base_test_price'], 2);
-                $package_test_price = round((float)$pkg_test_row['package_test_price'], 2);
+                $base_price = round((float)$pkg_test_row['base_test_price'], 0);
+                $package_test_price = round((float)$pkg_test_row['package_test_price'], 0);
                 if ($package_test_price < 0) {
                     $package_test_price = 0.0;
                 }
 
-                $main_test_name = trim((string)($pkg_test_row['main_test_name'] ?? ''));
-                $sub_test_name = trim((string)($pkg_test_row['sub_test_name'] ?? ''));
-                $test_name = $sub_test_name !== '' ? ($main_test_name . ' - ' . $sub_test_name) : $main_test_name;
+                $is_custom_test = ((int)($pkg_test_row['is_custom'] ?? 0) === 1) || ((int)($pkg_test_row['test_id'] ?? 0) <= 0);
+                $custom_test_name = trim((string)($pkg_test_row['custom_test_name'] ?? ''));
+                $custom_category = trim((string)($pkg_test_row['test_category'] ?? ''));
+
+                if ($is_custom_test) {
+                    $test_name = $custom_test_name;
+                    if ($test_name === '') {
+                        $test_name = 'Custom Test';
+                    }
+                    if ($custom_category !== '') {
+                        $test_name = $custom_category . ' - ' . $test_name;
+                    }
+                } else {
+                    $main_test_name = trim((string)($pkg_test_row['main_test_name'] ?? ''));
+                    $sub_test_name = trim((string)($pkg_test_row['sub_test_name'] ?? ''));
+                    $test_name = $sub_test_name !== '' ? ($main_test_name . ' - ' . $sub_test_name) : $main_test_name;
+                }
+
                 if ($test_name === '') {
                     $test_name = 'Unnamed Test';
                 }
 
                 $normalized_tests[] = [
-                    'test_id' => (int)$pkg_test_row['test_id'],
+                    'test_id' => $is_custom_test ? null : (int)$pkg_test_row['test_id'],
+                    'is_custom' => $is_custom_test,
                     'test_name' => $test_name,
                     'base_test_price' => $base_price,
                     'package_test_price' => $package_test_price
@@ -508,18 +654,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 $sum_package_test_price += $package_test_price;
             }
 
-            $base_total = round($base_total, 2);
-            $sum_package_test_price = round($sum_package_test_price, 2);
+            $base_total = round($base_total, 0);
+            $sum_package_test_price = round($sum_package_test_price, 0);
 
-            $package_price = round((float)($package_row['package_price'] ?? 0), 2);
+            $package_price = round((float)($package_row['package_price'] ?? 0), 0);
             if ($package_price < 0) {
                 $package_price = 0.0;
             }
 
-            $price_delta = round($package_price - $sum_package_test_price, 2);
+            $price_delta = round($package_price - $sum_package_test_price, 0);
             if (!empty($normalized_tests) && abs($price_delta) > 0.01) {
                 $last_index = count($normalized_tests) - 1;
-                $adjusted = round($normalized_tests[$last_index]['package_test_price'] + $price_delta, 2);
+                $adjusted = round($normalized_tests[$last_index]['package_test_price'] + $price_delta, 0);
                 if ($adjusted < 0) {
                     $adjusted = 0.0;
                 }
@@ -529,16 +675,26 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $billable_gross = $base_total;
             $package_discount = 0.0;
             if ($package_price <= $base_total) {
-                $package_discount = round($base_total - $package_price, 2);
+                $package_discount = round($base_total - $package_price, 0);
             } else {
                 $billable_gross = $package_price;
             }
 
+            $extra_discount = isset($package_entry['extra_discount']) ? round((float)$package_entry['extra_discount'], 0) : 0.0;
+            if ($extra_discount < 0) {
+                $extra_discount = 0.0;
+            }
+            $max_extra_discount = round(max($billable_gross - $package_discount, 0), 0);
+            if ($extra_discount > $max_extra_discount) {
+                $extra_discount = $max_extra_discount;
+            }
+            $package_total_discount = round($package_discount + $extra_discount, 0);
+
             $gross_amount += $billable_gross;
-            $total_discount += $package_discount;
+            $total_discount += $package_total_discount;
 
             foreach ($normalized_tests as &$normalized_test) {
-                $component_discount = round(max($normalized_test['base_test_price'] - $normalized_test['package_test_price'], 0), 2);
+                $component_discount = round(max($normalized_test['base_test_price'] - $normalized_test['package_test_price'], 0), 0);
                 $normalized_test['component_discount'] = $component_discount;
             }
             unset($normalized_test);
@@ -548,6 +704,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $package_entry['base_total'] = $base_total;
             $package_entry['package_price'] = $package_price;
             $package_entry['package_discount'] = $package_discount;
+            $package_entry['extra_discount'] = $extra_discount;
+            $package_entry['package_total_discount'] = $package_total_discount;
             $package_entry['tests'] = $normalized_tests;
         }
         unset($package_entry);
@@ -573,50 +731,133 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $payment_mode = 'Cash';
         }
 
-        $payment_status = trim($_POST['payment_status'] ?? 'Paid');
-        if (!in_array($payment_status, ['Paid', 'Due', 'Partial Paid'], true)) {
-            $payment_status = 'Paid';
-        }
+        $payment_status = normalize_payment_status_label($_POST['payment_status'] ?? 'Paid', 'Paid');
 
-        $amount_paid = 0.00;
-        $balance_amount = $net_amount;
+        $net_amount_paise = currency_to_paise($net_amount);
+        $prefer_whole_payment = ($net_amount_paise % 100) === 0;
+        $amount_paid_paise = 0;
+        $balance_paise = $net_amount_paise;
 
         if ($payment_status === 'Partial Paid') {
-            $amount_paid = isset($_POST['amount_paid']) ? max(0, (float)$_POST['amount_paid']) : 0.00;
-            if ($amount_paid <= 0) {
+            $amount_paid_paise = max(0, currency_to_paise($_POST['amount_paid'] ?? 0));
+            $amount_paid_paise = snap_near_whole_paise($amount_paid_paise, $prefer_whole_payment);
+            if ($amount_paid_paise <= 0) {
                 $payment_status = 'Due';
-                $amount_paid = 0.00;
-                $balance_amount = $net_amount;
-            } elseif ($amount_paid >= $net_amount) {
+                $amount_paid_paise = 0;
+                $balance_paise = $net_amount_paise;
+            } elseif ($amount_paid_paise >= $net_amount_paise) {
                 $payment_status = 'Paid';
-                $amount_paid = $net_amount;
-                $balance_amount = 0.00;
+                $amount_paid_paise = $net_amount_paise;
+                $balance_paise = 0;
             } else {
-                $balance_amount = round($net_amount - $amount_paid, 2);
+                $balance_paise = max($net_amount_paise - $amount_paid_paise, 0);
             }
         } elseif ($payment_status === 'Paid') {
-            $amount_paid = $net_amount;
-            $balance_amount = 0.00;
+            $amount_paid_paise = $net_amount_paise;
+            $balance_paise = 0;
         } else {
             $payment_status = 'Due';
-            $amount_paid = 0.00;
-            $balance_amount = $net_amount;
+            $amount_paid_paise = 0;
+            $balance_paise = $net_amount_paise;
         }
 
-        $split_amounts = build_payment_split_from_input($_POST, $payment_mode, $amount_paid);
+        $balance_paise = snap_near_whole_paise($balance_paise, $prefer_whole_payment);
+        $amount_paid = paise_to_currency($amount_paid_paise);
+        $balance_amount = paise_to_currency($balance_paise);
+
+        $split_source = $_POST;
+        if ($prefer_whole_payment) {
+            foreach (['split_cash_amount', 'split_card_amount', 'split_upi_amount', 'split_other_amount'] as $split_field) {
+                if (!isset($split_source[$split_field])) {
+                    continue;
+                }
+                $raw_split_val = trim((string)$split_source[$split_field]);
+                if ($raw_split_val === '' || !is_numeric($raw_split_val)) {
+                    continue;
+                }
+                $normalized_split_paise = snap_near_whole_paise(currency_to_paise($raw_split_val), true);
+                $split_source[$split_field] = number_format(paise_to_currency($normalized_split_paise), 2, '.', '');
+            }
+        }
+
+        $split_amounts = build_payment_split_from_input($split_source, $payment_mode, $amount_paid);
         $cash_amount = $split_amounts['cash_amount'];
         $card_amount = $split_amounts['card_amount'];
         $upi_amount = $split_amounts['upi_amount'];
         $other_amount = $split_amounts['other_amount'];
 
-        $stmt_bill = $conn->prepare("INSERT INTO bills (patient_id, receptionist_id, referral_type, referral_doctor_id, referral_source_other, gross_amount, discount, discount_by, net_amount, amount_paid, balance_amount, payment_mode, cash_amount, card_amount, upi_amount, other_amount, payment_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        if (!$stmt_bill) {
-            throw new Exception("Failed to prepare bill insert statement: " . $conn->error);
+        if ($is_edit_mode) {
+            $stmt_bill = $conn->prepare("UPDATE bills
+                SET patient_id = ?,
+                    receptionist_id = ?,
+                    referral_type = ?,
+                    referral_doctor_id = ?,
+                    referral_source_other = ?,
+                    gross_amount = ?,
+                    discount = ?,
+                    discount_by = ?,
+                    net_amount = ?,
+                    amount_paid = ?,
+                    balance_amount = ?,
+                    payment_mode = ?,
+                    cash_amount = ?,
+                    card_amount = ?,
+                    upi_amount = ?,
+                    other_amount = ?,
+                    payment_status = ?
+                WHERE id = ?");
+            if (!$stmt_bill) {
+                throw new Exception('Failed to prepare bill update statement: ' . $conn->error);
+            }
+            $stmt_bill->bind_param(
+                "iisisddsdddsddddsi",
+                $patient_id,
+                $receptionist_id,
+                $referral_type,
+                $referral_doctor_id,
+                $referral_source_other,
+                $gross_amount,
+                $total_discount,
+                $discount_by,
+                $net_amount,
+                $amount_paid,
+                $balance_amount,
+                $payment_mode,
+                $cash_amount,
+                $card_amount,
+                $upi_amount,
+                $other_amount,
+                $payment_status,
+                $edit_bill_id
+            );
+            $stmt_bill->execute();
+            $stmt_bill->close();
+            $bill_id = $edit_bill_id;
+
+            $delete_package_stmt = $conn->prepare('DELETE FROM bill_package_items WHERE bill_id = ?');
+            if ($delete_package_stmt) {
+                $delete_package_stmt->bind_param('i', $bill_id);
+                $delete_package_stmt->execute();
+                $delete_package_stmt->close();
+            }
+
+            $delete_items_stmt = $conn->prepare('DELETE FROM bill_items WHERE bill_id = ?');
+            if (!$delete_items_stmt) {
+                throw new Exception('Failed to reset bill items before edit save.');
+            }
+            $delete_items_stmt->bind_param('i', $bill_id);
+            $delete_items_stmt->execute();
+            $delete_items_stmt->close();
+        } else {
+            $stmt_bill = $conn->prepare("INSERT INTO bills (patient_id, receptionist_id, referral_type, referral_doctor_id, referral_source_other, gross_amount, discount, discount_by, net_amount, amount_paid, balance_amount, payment_mode, cash_amount, card_amount, upi_amount, other_amount, payment_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            if (!$stmt_bill) {
+                throw new Exception("Failed to prepare bill insert statement: " . $conn->error);
+            }
+            $stmt_bill->bind_param("iisisddsdddsdddds", $patient_id, $receptionist_id, $referral_type, $referral_doctor_id, $referral_source_other, $gross_amount, $total_discount, $discount_by, $net_amount, $amount_paid, $balance_amount, $payment_mode, $cash_amount, $card_amount, $upi_amount, $other_amount, $payment_status);
+            $stmt_bill->execute();
+            $bill_id = $stmt_bill->insert_id;
+            $stmt_bill->close();
         }
-        $stmt_bill->bind_param("iisisddsdddsdddds", $patient_id, $receptionist_id, $referral_type, $referral_doctor_id, $referral_source_other, $gross_amount, $total_discount, $discount_by, $net_amount, $amount_paid, $balance_amount, $payment_mode, $cash_amount, $card_amount, $upi_amount, $other_amount, $payment_status);
-        $stmt_bill->execute();
-        $bill_id = $stmt_bill->insert_id;
-        $stmt_bill->close();
 
         $stmt_item_test = $conn->prepare("INSERT INTO bill_items (bill_id, test_id, is_package, item_type, discount_amount) VALUES (?, ?, 0, 'test', ?)");
         if (!$stmt_item_test) {
@@ -629,6 +870,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             throw new Exception("Failed to prepare package component bill item statement: " . $conn->error);
         }
         $stmt_item_package_component->bind_param("iiisd", $bill_id_param, $test_id_param, $package_id_param, $package_name_param, $discount_amount_param);
+
+        $stmt_item_package_component_custom = $conn->prepare("INSERT INTO bill_items (bill_id, test_id, package_id, is_package, item_type, package_name, package_discount, discount_amount) VALUES (?, NULL, ?, 0, 'test', ?, 0.00, ?)");
+        if (!$stmt_item_package_component_custom) {
+            throw new Exception("Failed to prepare custom package component bill item statement: " . $conn->error);
+        }
+        $stmt_item_package_component_custom->bind_param("iisd", $bill_id_param, $package_id_param, $package_name_param, $discount_amount_param);
 
         $stmt_item_package = $conn->prepare("INSERT INTO bill_items (bill_id, test_id, package_id, is_package, item_type, package_name, package_discount, discount_amount) VALUES (?, NULL, ?, 1, 'package', ?, ?, ?)");
         if (!$stmt_item_package) {
@@ -648,6 +895,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
         $stmt_bill_package_items->bind_param("iiiisdd", $bill_id_param, $bill_item_id_param, $package_id_param, $test_id_param, $package_test_name_param, $base_test_price_param, $package_test_price_param);
 
+        $stmt_bill_package_items_custom = $conn->prepare("INSERT INTO bill_package_items (bill_id, bill_item_id, package_id, test_id, test_name, base_test_price, package_test_price) VALUES (?, ?, ?, NULL, ?, ?, ?)");
+        if (!$stmt_bill_package_items_custom) {
+            throw new Exception("Failed to prepare custom bill package breakdown statement: " . $conn->error);
+        }
+        $stmt_bill_package_items_custom->bind_param("iiisdd", $bill_id_param, $bill_item_id_param, $package_id_param, $package_test_name_param, $base_test_price_param, $package_test_price_param);
+
         foreach ($structured_tests as $test_entry) {
             $bill_id_param = $bill_id;
             $test_id_param = (int)$test_entry['id'];
@@ -665,8 +918,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $bill_id_param = $bill_id;
             $package_id_param = (int)$package_entry['id'];
             $package_name_param = (string)$package_entry['package_name'];
-            $package_discount_param = (float)$package_entry['package_discount'];
-            $discount_amount_param = (float)$package_entry['package_discount'];
+            $package_discount_param = (float)$package_entry['package_total_discount'];
+            $discount_amount_param = (float)$package_entry['package_total_discount'];
 
             $stmt_item_package->execute();
             $package_bill_item_id = (int)$stmt_item_package->insert_id;
@@ -676,25 +929,77 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
             foreach (($package_entry['tests'] ?? []) as $pkg_test) {
                 $bill_id_param = $bill_id;
-                $test_id_param = (int)$pkg_test['test_id'];
                 $package_id_param = (int)$package_entry['id'];
                 $package_name_param = (string)$package_entry['package_name'];
                 $discount_amount_param = (float)($pkg_test['component_discount'] ?? 0);
-                $stmt_item_package_component->execute();
+                $is_custom_component = !empty($pkg_test['is_custom']) || empty($pkg_test['test_id']);
+                if ($is_custom_component) {
+                    $stmt_item_package_component_custom->execute();
+                } else {
+                    $test_id_param = (int)$pkg_test['test_id'];
+                    $stmt_item_package_component->execute();
+                }
 
                 $bill_item_id_param = $package_bill_item_id;
                 $package_test_name_param = (string)$pkg_test['test_name'];
                 $base_test_price_param = (float)$pkg_test['base_test_price'];
                 $package_test_price_param = (float)$pkg_test['package_test_price'];
-                $stmt_bill_package_items->execute();
+                if ($is_custom_component) {
+                    $stmt_bill_package_items_custom->execute();
+                } else {
+                    $test_id_param = (int)$pkg_test['test_id'];
+                    $stmt_bill_package_items->execute();
+                }
             }
         }
 
         $stmt_item_test->close();
         $stmt_item_package_component->close();
+        $stmt_item_package_component_custom->close();
         $stmt_item_package->close();
         $stmt_screening->close();
         $stmt_bill_package_items->close();
+        $stmt_bill_package_items_custom->close();
+
+        if ($is_edit_mode && $is_manager_user && $linked_request_id > 0) {
+            $request_before_stmt = $conn->prepare('SELECT status, manager_comment FROM bill_edit_requests WHERE id = ? FOR UPDATE');
+            if ($request_before_stmt) {
+                $request_before_stmt->bind_param('i', $linked_request_id);
+                $request_before_stmt->execute();
+                $request_before = $request_before_stmt->get_result()->fetch_assoc();
+                $request_before_stmt->close();
+
+                if ($request_before) {
+                    $old_request_status = normalize_bill_edit_request_status($request_before['status'] ?? 'approved');
+                    $existing_comment = trim((string)($request_before['manager_comment'] ?? ''));
+
+                    $complete_stmt = $conn->prepare("UPDATE bill_edit_requests
+                        SET status = 'completed',
+                            manager_comment = ?,
+                            manager_unread = 0,
+                            receptionist_unread = 1,
+                            last_manager_action_at = NOW(),
+                            updated_at = NOW()
+                        WHERE id = ?");
+                    if ($complete_stmt) {
+                        $complete_stmt->bind_param('si', $existing_comment, $linked_request_id);
+                        $complete_stmt->execute();
+                        $complete_stmt->close();
+                    }
+
+                    log_bill_edit_request_event(
+                        $conn,
+                        $linked_request_id,
+                        'manager',
+                        $_SESSION['user_id'] ?? null,
+                        'completed_by_manager',
+                        $old_request_status,
+                        'completed',
+                        ''
+                    );
+                }
+            }
+        }
 
         $conn->commit();
 
@@ -704,13 +1009,25 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             error_log("PDF generation failed for bill #{$bill_id}: " . $pdf_e->getMessage());
         }
 
-        require_once '../includes/functions.php';
-        log_system_action($conn, 'BILL_CREATED', $bill_id, "Generated bill for patient '{$patient_name}' with Net Amount: {$net_amount}.");
-        header("Location: preview_bill.php?bill_id=" . $bill_id);
+        if ($is_edit_mode) {
+            log_system_action($conn, 'BILL_UPDATED', $bill_id, "Updated bill for patient '{$patient_name}' with Net Amount: {$net_amount}.");
+            if ($is_manager_user) {
+                header('Location: ../manager/preview_bill.php?bill_id=' . $bill_id);
+            } else {
+                header('Location: preview_bill.php?bill_id=' . $bill_id);
+            }
+        } else {
+            log_system_action($conn, 'BILL_CREATED', $bill_id, "Generated bill for patient '{$patient_name}' with Net Amount: {$net_amount}.");
+            header("Location: preview_bill.php?bill_id=" . $bill_id);
+        }
         exit();
 
     } catch (Exception $e) {
         $conn->rollback();
+        if ($token_marked_used_in_request && !empty($submitted_form_token)) {
+            unset($_SESSION['generate_bill_used_tokens'][$submitted_form_token]);
+        }
+        $bill_submit_token = issueGenerateBillSubmitToken();
         $error_message = "Failed to create bill. Error: " . $e->getMessage();
     }
 }
@@ -747,9 +1064,17 @@ if (!empty($packages_map)) {
     $pkg_placeholders = implode(',', array_fill(0, count($package_ids), '?'));
     $pkg_types = str_repeat('i', count($package_ids));
     $package_tests_stmt = $conn->prepare(
-        "SELECT pt.package_id, pt.test_id, pt.base_test_price, pt.package_test_price, t.main_test_name, t.sub_test_name
+        "SELECT pt.package_id,
+            pt.test_id,
+            pt.custom_test_name,
+            pt.is_custom,
+            pt.test_category,
+            pt.base_test_price,
+            pt.package_test_price,
+            t.main_test_name,
+            t.sub_test_name
          FROM package_tests pt
-         JOIN tests t ON t.id = pt.test_id
+         LEFT JOIN tests t ON t.id = pt.test_id
          WHERE pt.package_id IN ($pkg_placeholders)
          ORDER BY pt.package_id ASC, pt.display_order ASC, pt.id ASC"
     );
@@ -762,14 +1087,25 @@ if (!empty($packages_map)) {
             if (!isset($packages_map[$pid])) {
                 continue;
             }
-            $main_test_name = trim((string)($pkg_test['main_test_name'] ?? ''));
-            $sub_test_name = trim((string)($pkg_test['sub_test_name'] ?? ''));
-            $test_label = $sub_test_name !== '' ? ($main_test_name . ' - ' . $sub_test_name) : $main_test_name;
+            $is_custom_test = ((int)($pkg_test['is_custom'] ?? 0) === 1) || ((int)($pkg_test['test_id'] ?? 0) <= 0);
+            if ($is_custom_test) {
+                $custom_test_name = trim((string)($pkg_test['custom_test_name'] ?? ''));
+                $custom_category = trim((string)($pkg_test['test_category'] ?? ''));
+                $test_label = $custom_test_name !== '' ? $custom_test_name : 'Custom Test';
+                if ($custom_category !== '') {
+                    $test_label = $custom_category . ' - ' . $test_label;
+                }
+            } else {
+                $main_test_name = trim((string)($pkg_test['main_test_name'] ?? ''));
+                $sub_test_name = trim((string)($pkg_test['sub_test_name'] ?? ''));
+                $test_label = $sub_test_name !== '' ? ($main_test_name . ' - ' . $sub_test_name) : $main_test_name;
+            }
             if ($test_label === '') {
                 $test_label = 'Unnamed Test';
             }
             $packages_map[$pid]['tests'][] = [
-                'test_id' => (int)$pkg_test['test_id'],
+                'test_id' => $is_custom_test ? 0 : (int)$pkg_test['test_id'],
+                'is_custom' => $is_custom_test,
                 'test_name' => $test_label,
                 'base_test_price' => round((float)$pkg_test['base_test_price'], 2),
                 'package_test_price' => round((float)$pkg_test['package_test_price'], 2)
@@ -779,16 +1115,164 @@ if (!empty($packages_map)) {
     }
 }
 
+$editor_prefill_payload = null;
+$editor_patient_prefill = null;
+
+if ($is_edit_mode) {
+    if (!$is_manager_user) {
+        $error_message = 'Only manager can open full edit mode for existing bills.';
+        $is_edit_mode = false;
+        $edit_bill_id = 0;
+        $linked_request_id = 0;
+    } else {
+        $edit_bill_stmt = $conn->prepare("SELECT b.id, b.patient_id, b.receptionist_id, b.referral_type, b.referral_doctor_id, b.referral_source_other,
+                b.discount_by, b.payment_mode, b.payment_status, b.amount_paid,
+                b.cash_amount, b.card_amount, b.upi_amount, b.other_amount,
+                p.uid AS patient_uid, p.name AS patient_name, p.age AS patient_age, p.sex AS patient_sex,
+                p.address AS patient_address, p.city AS patient_city, p.mobile_number AS patient_mobile
+            FROM bills b
+            JOIN patients p ON p.id = b.patient_id
+            WHERE b.id = ?
+            LIMIT 1");
+
+        if ($edit_bill_stmt) {
+            $edit_bill_stmt->bind_param('i', $edit_bill_id);
+            $edit_bill_stmt->execute();
+            $edit_bill_row = $edit_bill_stmt->get_result()->fetch_assoc();
+            $edit_bill_stmt->close();
+
+            if (!$edit_bill_row) {
+                $error_message = 'Bill not found for edit mode.';
+                $is_edit_mode = false;
+                $edit_bill_id = 0;
+                $linked_request_id = 0;
+            } else {
+                $editor_prefill_payload = [
+                    'tests' => [],
+                    'packages' => [],
+                    'discount_by' => (string)($edit_bill_row['discount_by'] ?? ''),
+                    'payment_mode' => (string)($edit_bill_row['payment_mode'] ?? 'Cash'),
+                    'payment_status' => normalize_payment_status_label($edit_bill_row['payment_status'] ?? 'Paid', 'Paid'),
+                    'amount_paid' => normalize_currency_amount($edit_bill_row['amount_paid'] ?? 0),
+                    'split_cash_amount' => normalize_currency_amount($edit_bill_row['cash_amount'] ?? 0),
+                    'split_card_amount' => normalize_currency_amount($edit_bill_row['card_amount'] ?? 0),
+                    'split_upi_amount' => normalize_currency_amount($edit_bill_row['upi_amount'] ?? 0),
+                ];
+
+                $editor_patient_prefill = [
+                    'uid' => (string)($edit_bill_row['patient_uid'] ?? ''),
+                    'name' => (string)($edit_bill_row['patient_name'] ?? ''),
+                    'age' => (int)($edit_bill_row['patient_age'] ?? 0),
+                    'sex' => (string)($edit_bill_row['patient_sex'] ?? 'Male'),
+                    'address' => (string)($edit_bill_row['patient_address'] ?? ''),
+                    'city' => (string)($edit_bill_row['patient_city'] ?? ''),
+                    'mobile' => (string)($edit_bill_row['patient_mobile'] ?? ''),
+                    'referral_type' => (string)($edit_bill_row['referral_type'] ?? 'Self'),
+                    'referral_doctor_id' => isset($edit_bill_row['referral_doctor_id']) ? (int)$edit_bill_row['referral_doctor_id'] : null,
+                    'referral_source_other' => (string)($edit_bill_row['referral_source_other'] ?? ''),
+                ];
+
+                $selected_package_prefill = [];
+                $item_stmt = $conn->prepare("SELECT bi.id AS bill_item_id, bi.test_id, bi.package_id,
+                        COALESCE(bi.item_type, 'test') AS item_type,
+                    COALESCE(bi.package_discount, 0) AS package_discount,
+                        COALESCE(bi.discount_amount, 0) AS discount_amount,
+                        COALESCE(t.main_test_name, '') AS main_test_name,
+                        COALESCE(t.sub_test_name, '') AS sub_test_name,
+                        COALESCE(t.price, 0) AS test_price,
+                        COALESCE(bis.screening_amount, 0) AS screening_amount
+                    FROM bill_items bi
+                    LEFT JOIN tests t ON t.id = bi.test_id
+                    LEFT JOIN bill_item_screenings bis ON bis.bill_item_id = bi.id
+                    WHERE bi.bill_id = ?
+                    ORDER BY bi.id ASC");
+
+                if ($item_stmt) {
+                    $item_stmt->bind_param('i', $edit_bill_id);
+                    $item_stmt->execute();
+                    $item_result = $item_stmt->get_result();
+                    while ($item = $item_result->fetch_assoc()) {
+                        $item_type = (string)($item['item_type'] ?? 'test');
+                        $package_id = (int)($item['package_id'] ?? 0);
+                        $test_id = (int)($item['test_id'] ?? 0);
+
+                        if ($item_type === 'package' && $package_id > 0) {
+                            $saved_package_discount = normalize_currency_amount($item['discount_amount'] ?? $item['package_discount'] ?? 0);
+                            $calculated_base_discount = 0.0;
+                            if (isset($packages_map[$package_id])) {
+                                $prefill_base_total = normalize_currency_amount($packages_map[$package_id]['total_base_price'] ?? 0);
+                                $prefill_package_price = normalize_currency_amount($packages_map[$package_id]['package_price'] ?? 0);
+                                if ($prefill_package_price <= $prefill_base_total) {
+                                    $calculated_base_discount = round($prefill_base_total - $prefill_package_price, 0);
+                                }
+                            }
+                            $derived_extra_discount = round(max($saved_package_discount - $calculated_base_discount, 0), 0);
+                            $selected_package_prefill[$package_id] = $derived_extra_discount;
+                            continue;
+                        }
+
+                        if ($package_id > 0) {
+                            continue;
+                        }
+
+                        if ($test_id <= 0) {
+                            continue;
+                        }
+
+                        $label = trim((string)($item['main_test_name'] ?? ''));
+                        $sub_label = trim((string)($item['sub_test_name'] ?? ''));
+                        if ($sub_label !== '') {
+                            $label = ($label !== '' ? $label . ' - ' : '') . $sub_label;
+                        }
+                        if ($label === '') {
+                            $label = 'Test #' . $test_id;
+                        }
+
+                        $editor_prefill_payload['tests'][] = [
+                            'id' => $test_id,
+                            'name' => $label,
+                            'price' => normalize_currency_amount($item['test_price'] ?? 0),
+                            'screening' => normalize_currency_amount($item['screening_amount'] ?? 0),
+                            'discount' => normalize_currency_amount($item['discount_amount'] ?? 0),
+                        ];
+                    }
+                    $item_stmt->close();
+                }
+
+                if (!empty($selected_package_prefill)) {
+                    foreach ($selected_package_prefill as $pkg_id => $pkg_extra_discount) {
+                        if (isset($packages_map[$pkg_id])) {
+                            $editor_prefill_payload['packages'][] = [
+                                'id' => (int)$pkg_id,
+                                'extra_discount' => normalize_currency_amount($pkg_extra_discount),
+                            ];
+                        }
+                    }
+                }
+            }
+        } else {
+            $error_message = 'Unable to prepare bill edit lookup.';
+            $is_edit_mode = false;
+            $edit_bill_id = 0;
+            $linked_request_id = 0;
+        }
+    }
+}
+
 require_once '../includes/header.php';
 ?>
 
 <div class="form-container">
-    <h1>Generate New Patient Bill</h1>
+    <h1><?php echo $is_edit_mode ? ('Edit Bill #' . (int)$edit_bill_id) : 'Generate New Patient Bill'; ?></h1>
     <?php if ($error_message): ?><div class="error-banner"><?php echo htmlspecialchars($error_message); ?></div><?php endif; ?>
 
-    <form action="generate_bill.php" method="POST" id="bill-form">
+    <form action="generate_bill.php<?php echo $is_edit_mode ? ('?edit_id=' . (int)$edit_bill_id . ($linked_request_id > 0 ? '&request_id=' . (int)$linked_request_id : '')) : ''; ?>" method="POST" id="bill-form">
         <input type="hidden" id="is_new_patient" name="is_new_patient" value="0">
         <input type="hidden" id="patient_uid" name="patient_uid" value="">
+        <?php if ($is_edit_mode): ?>
+            <input type="hidden" name="edit_bill_id" value="<?php echo (int)$edit_bill_id; ?>">
+            <input type="hidden" name="request_id" value="<?php echo (int)$linked_request_id; ?>">
+        <?php endif; ?>
         <fieldset class="patient-fieldset">
             <legend>Patient Information</legend>
 
@@ -1022,10 +1506,14 @@ require_once '../includes/header.php';
         </fieldset>
         
         <input type="hidden" name="selected_tests_json" id="selected_tests_json" required>
-        <button type="submit" class="btn-submit">Generate Bill</button>
+        <input type="hidden" name="bill_submit_token" id="bill_submit_token" value="<?php echo htmlspecialchars($bill_submit_token, ENT_QUOTES, 'UTF-8'); ?>">
+        <button type="submit" class="btn-submit"><?php echo $is_edit_mode ? 'Update Bill' : 'Generate Bill'; ?></button>
     </form>
 </div>
 <script>
+    window.BILL_EDITOR_PREFILL = <?php echo json_encode($editor_prefill_payload, JSON_UNESCAPED_UNICODE); ?>;
+    window.BILL_EDITOR_PATIENT_PREFILL = <?php echo json_encode($editor_patient_prefill, JSON_UNESCAPED_UNICODE); ?>;
+    window.BILL_EDITOR_IS_EDIT_MODE = <?php echo $is_edit_mode ? 'true' : 'false'; ?>;
     const testsData = <?php echo json_encode($tests_by_category); ?>;
     const packagesData = <?php echo json_encode($packages_map); ?>;
 
@@ -1327,7 +1815,59 @@ require_once '../includes/header.php';
             }
         });
 
+        function applyEditModePatientPrefill() {
+            if (!window.BILL_EDITOR_IS_EDIT_MODE) {
+                return;
+            }
+
+            var prefill = window.BILL_EDITOR_PATIENT_PREFILL;
+            if (!prefill || typeof prefill !== 'object') {
+                return;
+            }
+
+            existingPatientRadio.checked = true;
+            newPatientRadio.checked = false;
+            togglePatientMode();
+
+            var uid = String(prefill.uid || '').toUpperCase();
+            uidSuffixInput.value = uid.replace(/^DC/, '');
+            syncUidHiddenInput();
+
+            document.getElementById('patient_name').value = valueOrEmpty(prefill.name);
+            document.getElementById('patient_age').value = valueOrEmpty(prefill.age);
+            document.getElementById('patient_sex').value = prefill.sex || 'Male';
+            document.getElementById('patient_address').value = valueOrEmpty(prefill.address);
+            document.getElementById('patient_city').value = valueOrEmpty(prefill.city);
+            document.getElementById('patient_mobile').value = valueOrEmpty(prefill.mobile);
+
+            var referralType = document.getElementById('referral_type');
+            var referralDoctor = document.getElementById('referral_doctor_id');
+            var referralOther = document.getElementById('referral_source_other_select');
+            if (referralType && prefill.referral_type) {
+                referralType.value = String(prefill.referral_type);
+                referralType.dispatchEvent(new Event('change'));
+            }
+            if (referralDoctor && prefill.referral_doctor_id) {
+                referralDoctor.value = String(prefill.referral_doctor_id);
+                referralDoctor.dispatchEvent(new Event('change'));
+            }
+            if (referralOther && prefill.referral_source_other) {
+                referralOther.value = String(prefill.referral_source_other);
+            }
+
+            setPatientFieldsReadonly(true);
+            setPatientFieldsRequired(false);
+            statusDiv.style.display = 'none';
+
+            newPatientRadio.disabled = true;
+            if (newPatientRadio.closest('label')) {
+                newPatientRadio.closest('label').classList.add('is-disabled');
+            }
+            btnGenerate.disabled = true;
+        }
+
         togglePatientMode();
+        applyEditModePatientPrefill();
     })();
 </script>
 
