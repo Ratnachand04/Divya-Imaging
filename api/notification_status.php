@@ -3,9 +3,12 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
+require_once '../includes/functions.php';
 
 $role = $_SESSION['role'] ?? '';
 $action = isset($_GET['action']) ? trim($_GET['action']) : '';
+
+ensure_bill_edit_request_workflow_schema($conn);
 
 function respondForbidden(): void {
     http_response_code(403);
@@ -65,7 +68,7 @@ switch ($action) {
             'pending_reports' => 0
         ];
 
-        if ($stmt = $conn->prepare("SELECT COUNT(*) AS total FROM bill_edit_requests WHERE status = 'pending'")) {
+        if ($stmt = $conn->prepare("SELECT COUNT(*) AS total FROM bill_edit_requests WHERE manager_unread = 1")) {
             $stmt->execute();
             $stmt->bind_result($total);
             if ($stmt->fetch()) {
@@ -86,10 +89,12 @@ switch ($action) {
             $stmt->close();
         }
 
-        if ($stmt = $conn->prepare("SELECT COUNT(*) AS total
-                                    FROM bill_items bi
-                                    JOIN bills b ON bi.bill_id = b.id
-                                    WHERE bi.report_status = 'Pending' AND b.bill_status != 'Void'")) {
+                if ($stmt = $conn->prepare("SELECT COUNT(*) AS total
+                                                                        FROM bill_items bi
+                                                                        JOIN bills b ON bi.bill_id = b.id
+                                                                        JOIN tests t ON t.id = bi.test_id
+                                                                        WHERE COALESCE(bi.report_status, 'Pending') = 'Completed'
+                                                                            AND b.bill_status != 'Void'")) {
             $stmt->execute();
             $stmt->bind_result($total);
             if ($stmt->fetch()) {
@@ -105,13 +110,23 @@ switch ($action) {
         if ($role !== 'manager') {
             respondForbidden();
         }
-        $lastRequestId = isset($_GET['last_request_id']) ? (int)$_GET['last_request_id'] : 0;
+        $lastEventId = isset($_GET['last_event_id']) ? (int)$_GET['last_event_id'] : 0;
 
-        $stmt = $conn->prepare("SELECT ber.id, ber.bill_id, ber.reason_for_change, ber.created_at, u.username
-                                 FROM bill_edit_requests ber
+        $stmt = $conn->prepare("SELECT
+                                    e.id AS event_id,
+                                    ber.id AS request_id,
+                                    ber.bill_id,
+                                    ber.status,
+                                    ber.reason_for_change,
+                                    ber.receptionist_response,
+                                    e.created_at,
+                                    u.username
+                                 FROM bill_edit_request_events e
+                                 JOIN bill_edit_requests ber ON ber.id = e.request_id
                                  JOIN users u ON ber.receptionist_id = u.id
-                                 WHERE ber.status = 'pending'
-                                 ORDER BY ber.id DESC
+                                 WHERE ber.manager_unread = 1
+                                   AND e.actor_role = 'receptionist'
+                                 ORDER BY e.id DESC
                                  LIMIT 1");
         if (!$stmt) {
             respondBadRequest('Failed to prepare request lookup.');
@@ -127,9 +142,11 @@ switch ($action) {
         }
 
         $latestPayload = [
-            'id' => (int)$latest['id'],
+            'id' => (int)$latest['request_id'],
+            'event_id' => (int)$latest['event_id'],
             'bill_id' => (int)$latest['bill_id'],
-            'reason' => $latest['reason_for_change'],
+            'status' => get_bill_edit_request_status_label($latest['status'] ?? 'pending'),
+            'reason' => !empty($latest['receptionist_response']) ? $latest['receptionist_response'] : $latest['reason_for_change'],
             'created_at' => $latest['created_at'],
             'receptionist' => $latest['username']
         ];
@@ -137,7 +154,88 @@ switch ($action) {
         echo json_encode([
             'success' => true,
             'latest' => $latestPayload,
-            'hasNew' => $latestPayload['id'] > $lastRequestId
+            'hasNew' => $latestPayload['event_id'] > $lastEventId
+        ]);
+        exit;
+
+    case 'receptionist_nav_counts':
+        if ($role !== 'receptionist') {
+            respondForbidden();
+        }
+
+        $counts = [
+            'request_updates' => 0,
+        ];
+
+        $receptionistId = (int)($_SESSION['user_id'] ?? 0);
+        if ($stmt = $conn->prepare("SELECT COUNT(*) AS total
+                                    FROM bill_edit_requests
+                                    WHERE receptionist_id = ?
+                                      AND receptionist_unread = 1")) {
+            $stmt->bind_param('i', $receptionistId);
+            $stmt->execute();
+            $stmt->bind_result($total);
+            if ($stmt->fetch()) {
+                $counts['request_updates'] = (int)$total;
+            }
+            $stmt->close();
+        }
+
+        echo json_encode(['success' => true, 'counts' => $counts]);
+        exit;
+
+    case 'latest_receptionist_update':
+        if ($role !== 'receptionist') {
+            respondForbidden();
+        }
+
+        $lastEventId = isset($_GET['last_event_id']) ? (int)$_GET['last_event_id'] : 0;
+        $receptionistId = (int)($_SESSION['user_id'] ?? 0);
+
+        $stmt = $conn->prepare("SELECT
+                                    e.id AS event_id,
+                                    ber.id AS request_id,
+                                    ber.bill_id,
+                                    ber.status,
+                                    ber.manager_comment,
+                                    e.created_at,
+                                    u.username AS manager_name
+                                 FROM bill_edit_request_events e
+                                 JOIN bill_edit_requests ber ON ber.id = e.request_id
+                                 LEFT JOIN users u ON e.actor_user_id = u.id
+                                 WHERE ber.receptionist_id = ?
+                                   AND ber.receptionist_unread = 1
+                                   AND e.actor_role = 'manager'
+                                 ORDER BY e.id DESC
+                                 LIMIT 1");
+        if (!$stmt) {
+            respondBadRequest('Failed to prepare receptionist update lookup.');
+        }
+        $stmt->bind_param('i', $receptionistId);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $latest = $result->fetch_assoc();
+        $stmt->close();
+
+        if (!$latest) {
+            echo json_encode(['success' => true, 'latest' => null, 'hasNew' => false]);
+            exit;
+        }
+
+        $latestPayload = [
+            'id' => (int)$latest['request_id'],
+            'event_id' => (int)$latest['event_id'],
+            'bill_id' => (int)$latest['bill_id'],
+            'status' => get_bill_edit_request_status_label($latest['status'] ?? 'pending'),
+            'manager_comment' => (string)($latest['manager_comment'] ?? ''),
+            'created_at' => (string)($latest['created_at'] ?? ''),
+            'manager_name' => (string)($latest['manager_name'] ?? 'Manager')
+        ];
+
+        echo json_encode([
+            'success' => true,
+            'latest' => $latestPayload,
+            'hasNew' => $latestPayload['event_id'] > $lastEventId
         ]);
         exit;
 

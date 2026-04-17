@@ -546,9 +546,9 @@ require_once '../includes/header.php';
     .daily-summary-card {
         margin-bottom: 1rem;
         background: #ffffff;
-        border: 1px solid #dbe6f4;
-        border-radius: 14px;
-        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+        border: 1px solid #cbd5e1;
+        border-radius: 12px;
+        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
         overflow: hidden;
     }
 
@@ -562,13 +562,13 @@ require_once '../includes/header.php';
         justify-content: space-between;
         align-items: center;
         gap: 0.75rem;
-        padding: 0.85rem 1rem;
+        padding: 0.9rem 1rem;
         cursor: pointer;
-        background: linear-gradient(90deg, #f4fbff 0%, #eef6ff 100%);
-        border-bottom: 1px solid #d7e5f6;
-        font-size: 1rem;
+        background: linear-gradient(90deg, #f8fafc 0%, #eef2f7 100%);
+        border-bottom: 1px solid #cbd5e1;
+        font-size: 1.02rem;
         font-weight: 800;
-        color: #13406e;
+        color: #0f172a;
     }
 
     .daily-summary-details > summary::-webkit-details-marker {
@@ -580,11 +580,11 @@ require_once '../includes/header.php';
         align-items: center;
         gap: 0.4rem;
         border-radius: 999px;
-        background: #1f5f95;
+        background: #0f172a;
         color: #ffffff;
-        padding: 0.28rem 0.6rem;
+        padding: 0.3rem 0.65rem;
         font-size: 0.74rem;
-        font-weight: 700;
+        font-weight: 800;
         white-space: nowrap;
     }
 
@@ -592,11 +592,11 @@ require_once '../includes/header.php';
         display: flex;
         justify-content: space-between;
         align-items: center;
-        gap: 0.75rem;
+        gap: 0.8rem;
         flex-wrap: wrap;
-        padding: 0.75rem 1rem;
-        border-bottom: 1px solid #e5edf8;
-        background: #f9fbff;
+        padding: 0.85rem 1rem;
+        border-bottom: 1px solid #e2e8f0;
+        background: #f8fafc;
     }
 
     .daily-summary-filter-form {
@@ -609,33 +609,37 @@ require_once '../includes/header.php';
     .daily-summary-filter-form label {
         font-size: 0.75rem;
         font-weight: 700;
-        color: #24527f;
+        color: #334155;
         display: block;
-        margin-bottom: 0.2rem;
+        margin-bottom: 0.24rem;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
     }
 
     .daily-summary-filter-form input[type="date"] {
-        border: 1px solid #cfe0f3;
+        border: 1px solid #cbd5e1;
         border-radius: 8px;
-        padding: 0.48rem 0.6rem;
+        padding: 0.5rem 0.65rem;
         min-width: 170px;
         background: #ffffff;
-        color: #1e3a5f;
+        color: #0f172a;
+        font-weight: 600;
     }
 
     .daily-summary-filter-btn {
-        border: 1px solid #c0d6ee;
+        border: 1px solid #1e3a5f;
         border-radius: 8px;
-        background: #2f6fa4;
+        background: #1e3a5f;
         color: #ffffff;
-        padding: 0.5rem 0.85rem;
+        padding: 0.52rem 0.9rem;
         font-size: 0.8rem;
-        font-weight: 700;
+        font-weight: 800;
         cursor: pointer;
+        box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
     }
 
     .daily-summary-filter-btn:hover {
-        background: #265d89;
+        background: #16304e;
     }
 
     .daily-summary-download-btn {
@@ -645,24 +649,26 @@ require_once '../includes/header.php';
         gap: 0.42rem;
         text-decoration: none;
         border-radius: 8px;
-        padding: 0.52rem 0.9rem;
-        background: #198754;
+        padding: 0.54rem 0.92rem;
+        background: #166534;
         color: #ffffff;
         font-size: 0.82rem;
         font-weight: 800;
-        border: 1px solid #157347;
+        border: 1px solid #14532d;
         white-space: nowrap;
+        box-shadow: 0 2px 6px rgba(22, 101, 52, 0.22);
     }
 
     .daily-summary-download-btn:hover {
-        background: #157347;
+        background: #14532d;
         color: #ffffff;
     }
 
     .daily-summary-table-wrap {
         width: 100%;
         overflow-x: auto;
-        padding: 0.2rem 0.6rem 0.75rem;
+        padding: 0.45rem 0.7rem 0.85rem;
+        background: #ffffff;
     }
 
     .daily-summary-table {
@@ -670,21 +676,24 @@ require_once '../includes/header.php';
         min-width: 1120px;
         border-collapse: collapse;
         table-layout: auto;
+        border: 1px solid #dbe3ee;
+        border-radius: 10px;
+        overflow: hidden;
     }
 
     .daily-summary-table th,
     .daily-summary-table td {
-        border: 1px solid #dbe5f4;
-        padding: 0.5rem 0.65rem;
+        border: 1px solid #e2e8f0;
+        padding: 0.52rem 0.68rem;
         font-size: 0.82rem;
         vertical-align: middle;
     }
 
     .daily-summary-table thead th {
-        background: #edf4ff;
-        color: #1f4b76;
+        background: #f1f5f9;
+        color: #334155;
         text-transform: uppercase;
-        letter-spacing: 0.03em;
+        letter-spacing: 0.025em;
         font-size: 0.74rem;
         font-weight: 800;
         white-space: nowrap;
@@ -695,6 +704,7 @@ require_once '../includes/header.php';
         white-space: nowrap;
         font-variant-numeric: tabular-nums;
         font-weight: 700;
+        color: #0f172a;
     }
 
     .daily-summary-table .category-cell {
@@ -702,54 +712,68 @@ require_once '../includes/header.php';
     }
 
     .daily-summary-table .category-toggle {
-        border: none;
-        background: transparent;
-        color: #194770;
+        width: 20px;
+        height: 20px;
+        border: 1px solid #94a3b8;
+        border-radius: 999px;
+        background: #ffffff;
+        color: #0f172a;
         cursor: pointer;
-        font-size: 0.82rem;
+        font-size: 0.75rem;
+        line-height: 1;
         padding: 0;
-        margin-right: 0.42rem;
+        margin-right: 0.46rem;
         font-weight: 900;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
     }
 
     .daily-summary-table .daily-category-row td {
-        font-weight: 800;
+        font-weight: 700;
         font-size: 0.84rem;
+        color: #0f172a;
     }
 
-    .daily-summary-table .daily-cat-ct td { background: #e8fbff; }
-    .daily-summary-table .daily-cat-ecg td { background: #e9f5ff; }
-    .daily-summary-table .daily-cat-echo td { background: #edf7ff; }
-    .daily-summary-table .daily-cat-lab td { background: #ecfff8; }
-    .daily-summary-table .daily-cat-mammography td { background: #f0f7ff; }
-    .daily-summary-table .daily-cat-mri td { background: #eef3ff; }
-    .daily-summary-table .daily-cat-usg td { background: #eafcff; }
-    .daily-summary-table .daily-cat-xray td { background: #edf8ff; }
+    .daily-summary-table .daily-cat-ct td { background: #ecfeff; }
+    .daily-summary-table .daily-cat-ecg td { background: #eff6ff; }
+    .daily-summary-table .daily-cat-echo td { background: #f8fafc; }
+    .daily-summary-table .daily-cat-lab td { background: #ecfdf5; }
+    .daily-summary-table .daily-cat-mammography td { background: #f5f3ff; }
+    .daily-summary-table .daily-cat-mri td { background: #eef2ff; }
+    .daily-summary-table .daily-cat-usg td { background: #f0fdfa; }
+    .daily-summary-table .daily-cat-xray td { background: #f8fafc; }
+
+    .daily-summary-table .daily-category-detail-row {
+        display: none;
+    }
 
     .daily-summary-table .daily-subtest-row td {
         background: #ffffff;
         font-weight: 500;
+        color: #334155;
     }
 
     .daily-summary-table .daily-subtest-row.is-alt td {
-        background: #f9fbff;
+        background: #f8fafc;
     }
 
     .daily-summary-table .subtest-name {
-        padding-left: 1.2rem;
-        color: #1f3552;
+        padding-left: 1.45rem;
+        color: #1e293b;
     }
 
     .daily-summary-table .daily-subtotal-row td {
-        background: #eef6ff;
+        background: #e2e8f0;
+        border-top: 2px solid #94a3b8;
         font-weight: 800;
-        color: #1c456f;
+        color: #0f172a;
     }
 
     .daily-summary-table .daily-grand-total-row td {
-        background: #114a73;
+        background: #0f172a;
         color: #ffffff;
-        font-weight: 900;
+        font-weight: 800;
     }
 
     @media (max-width: 768px) {
@@ -767,7 +791,12 @@ require_once '../includes/header.php';
         }
 
         .daily-summary-filter-form input[type="date"] {
-            min-width: 155px;
+            min-width: 150px;
+        }
+
+        .daily-summary-download-btn {
+            width: 100%;
+            justify-content: center;
         }
     }
 
@@ -966,6 +995,7 @@ require_once '../includes/header.php';
     .bill-history-table .summary-cell {
         padding: 0 !important;
         border-bottom: 1px solid #dbe7ff;
+        overflow: visible;
     }
 
     .bill-history-table .summary-line {
@@ -977,6 +1007,8 @@ require_once '../includes/header.php';
         padding: 0.74rem 0.78rem;
         text-align: left;
         line-height: 1.4;
+        overflow: visible;
+        word-break: break-word;
     }
 
     .bill-history-table .mode-summary-line {
@@ -994,10 +1026,12 @@ require_once '../includes/header.php';
     .bill-history-table .summary-pair {
         display: inline-flex;
         align-items: baseline;
+        flex-wrap: wrap;
         gap: 0.25rem;
-        white-space: nowrap;
+        white-space: normal;
         font-size: 0.87rem;
         font-variant-numeric: tabular-nums;
+        min-width: min(100%, 220px);
     }
 
     .bill-history-table .summary-pair strong {
@@ -1013,6 +1047,14 @@ require_once '../includes/header.php';
     @media (max-width: 980px) {
         .bill-history-table .summary-line {
             gap: 0.42rem 0.8rem;
+        }
+
+        .bill-history-table .summary-pair {
+            min-width: min(100%, 180px);
+        }
+
+        .bill-history-table .summary-pipe {
+            display: none;
         }
     }
 
@@ -1128,7 +1170,7 @@ require_once '../includes/header.php';
                             ?>
                             <tr class="daily-category-row <?php echo htmlspecialchars($category_css); ?>">
                                 <td class="category-cell">
-                                    <button type="button" class="category-toggle" data-category="<?php echo htmlspecialchars($category_slug); ?>" data-collapsed="0">▾</button>
+                                    <button type="button" class="category-toggle" data-category="<?php echo htmlspecialchars($category_slug); ?>" data-collapsed="1" aria-expanded="false">▸</button>
                                     <?php echo htmlspecialchars($category_name); ?>
                                 </td>
                                 <td><strong><?php echo htmlspecialchars($category_name); ?> Category</strong></td>
@@ -1143,7 +1185,7 @@ require_once '../includes/header.php';
                             <?php if (!empty($category_items)): ?>
                                 <?php $item_counter = 0; ?>
                                 <?php foreach ($category_items as $item_data): ?>
-                                    <tr class="daily-subtest-row daily-subtest-group-<?php echo htmlspecialchars($category_slug); ?> <?php echo ($item_counter % 2 === 1) ? 'is-alt' : ''; ?>">
+                                    <tr class="daily-subtest-row daily-category-detail-row daily-subtest-group-<?php echo htmlspecialchars($category_slug); ?> <?php echo ($item_counter % 2 === 1) ? 'is-alt' : ''; ?>">
                                         <td>&nbsp;</td>
                                         <td class="subtest-name"><?php echo htmlspecialchars((string)$item_data['name']); ?></td>
                                         <td class="text-right"><?php echo bh_format_inr($item_data['revenue']); ?></td>
@@ -1157,7 +1199,7 @@ require_once '../includes/header.php';
                                 <?php endforeach; ?>
                             <?php endif; ?>
 
-                            <tr class="daily-subtotal-row">
+                            <tr class="daily-subtotal-row daily-category-detail-row daily-subtest-group-<?php echo htmlspecialchars($category_slug); ?>">
                                 <td><strong><?php echo htmlspecialchars($category_name); ?></strong></td>
                                 <td><strong>Category Subtotal</strong></td>
                                 <td class="text-right"><?php echo bh_format_inr($category_totals['revenue']); ?></td>
@@ -1369,10 +1411,11 @@ document.addEventListener('DOMContentLoaded', function() {
             var isCollapsed = toggleBtn.getAttribute('data-collapsed') === '1';
             var childRows = document.querySelectorAll('.daily-subtest-group-' + categorySlug);
             childRows.forEach(function(row) {
-                row.style.display = isCollapsed ? '' : 'none';
+                row.style.display = isCollapsed ? 'table-row' : 'none';
             });
 
             toggleBtn.setAttribute('data-collapsed', isCollapsed ? '0' : '1');
+            toggleBtn.setAttribute('aria-expanded', isCollapsed ? 'true' : 'false');
             toggleBtn.textContent = isCollapsed ? '▾' : '▸';
         });
     });
