@@ -835,11 +835,12 @@ require_once '../includes/header.php';
         width: 27%;
     }
 
+    .bill-history-table .col-gross,
     .bill-history-table .col-net,
     .bill-history-table .col-discount,
     .bill-history-table .col-paid,
     .bill-history-table .col-pending {
-        width: 10%;
+        width: 9%;
     }
 
     .bill-history-table .col-status {
@@ -850,6 +851,7 @@ require_once '../includes/header.php';
         width: 17%;
     }
 
+    .bill-history-table th.col-gross,
     .bill-history-table th.col-net,
     .bill-history-table th.col-discount,
     .bill-history-table th.col-paid,
@@ -984,12 +986,23 @@ require_once '../includes/header.php';
     }
 
     .bill-history-table .group-header {
-        background: #375a9e;
-        color: #fff;
+        background: #2f4f92 !important;
+        color: #ffffff !important;
+        font-weight: 700 !important;
         text-align: left;
         font-size: 0.76rem;
         letter-spacing: 0.03em;
         padding: 0.56rem 0.72rem !important;
+        text-shadow: none !important;
+    }
+
+    body.role-receptionist.app-layout .bill-history-table th.group-header {
+        background: #2f4f92 !important;
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
+        font-weight: 800 !important;
+        text-shadow: none !important;
+        opacity: 1 !important;
     }
 
     .bill-history-table .summary-cell {
@@ -1271,10 +1284,11 @@ require_once '../includes/header.php';
         <colgroup>
             <col style="width:9%;">
             <col style="width:27%;">
+            <col style="width:9%;">
             <col style="width:10%;">
-            <col style="width:10%;">
-            <col style="width:10%;">
-            <col style="width:10%;">
+            <col style="width:9%;">
+            <col style="width:9%;">
+            <col style="width:9%;">
             <col style="width:7%;">
             <col style="width:17%;">
         </colgroup>
@@ -1282,8 +1296,9 @@ require_once '../includes/header.php';
             <tr>
                 <th class="col-bill">Bill No.</th>
                 <th class="col-patient">Patient Name</th>
-                <th class="col-net" style="text-align:right;">Net Amount</th>
+                <th class="col-gross" style="text-align:right;">Gross Amount</th>
                 <th class="col-discount" style="text-align:right;">Discount</th>
+                <th class="col-net" style="text-align:right;">Net Amount</th>
                 <th class="col-paid" style="text-align:right;">Paid Amount</th>
                 <th class="col-pending" style="text-align:right;">Pending Amount</th>
                 <th class="col-status">Status</th>
@@ -1314,7 +1329,7 @@ require_once '../includes/header.php';
                         $pair_chunks[] = '<span class="summary-pair"><strong>' . htmlspecialchars($pair['label']) . '</strong> = ₹' . number_format((float)$pair['value'], 2) . '</span>';
                     }
 
-                    return '<tr class="' . ($is_grand ? 'grand-total-row' : 'group-total-row') . '"><td colspan="8" class="summary-cell"><div class="' . $line_class . '">' . implode('<span class="summary-pipe">|</span>', $pair_chunks) . '</div></td></tr>';
+                    return '<tr class="' . ($is_grand ? 'grand-total-row' : 'group-total-row') . '"><td colspan="9" class="summary-cell"><div class="' . $line_class . '">' . implode('<span class="summary-pipe">|</span>', $pair_chunks) . '</div></td></tr>';
                 };
 
                 foreach ($bills as $index => $bill) {
@@ -1340,7 +1355,7 @@ require_once '../includes/header.php';
 
                         $group_gross = 0; $group_discount = 0; $group_net = 0; $group_paid = 0; $group_pending = 0;
                         $current_group = $mode_label;
-                        echo '<tr><th colspan="8" class="group-header">' . htmlspecialchars($current_group) . ' Bills</th></tr>';
+                        echo '<tr><th colspan="9" class="group-header">' . htmlspecialchars($current_group) . ' Bills</th></tr>';
                     }
 
                     echo '<tr class="bill-data-row">';
@@ -1356,8 +1371,9 @@ require_once '../includes/header.php';
                     echo '<small class="patient-uid" title="' . htmlspecialchars($patient_uid_raw) . '">' . htmlspecialchars($patient_uid_raw) . '</small>';
                     echo '</td>';
 
-                    echo '<td class="col-net amount-col">₹' . number_format($bill['net_amount'], 2) . '</td>';
+                    echo '<td class="col-gross amount-col">₹' . number_format($bill['gross_amount'], 2) . '</td>';
                     echo '<td class="col-discount amount-col">₹' . number_format($bill['discount'], 2) . '</td>';
+                    echo '<td class="col-net amount-col">₹' . number_format($bill['net_amount'], 2) . '</td>';
                     echo '<td class="col-paid amount-col">₹' . number_format($paid_amount, 2) . '</td>';
                     echo '<td class="col-pending amount-col">₹' . number_format($pending_amount, 2) . '</td>';
                     echo '<td class="col-status status-col"><div class="status-wrap"><span class="' . $status_class . '">' . htmlspecialchars($derived_status) . '</span></div></td>';
@@ -1388,7 +1404,7 @@ require_once '../includes/header.php';
                 echo $render_summary_row('Grand', $grand_gross, $grand_discount, $grand_net, $grand_paid, $grand_pending, true);
 
             } else {
-                echo '<tr><td colspan="8" style="text-align:center;">No bills found for the selected criteria.</td></tr>';
+                echo '<tr><td colspan="9" style="text-align:center;">No bills found for the selected criteria.</td></tr>';
             }
             ?>
         </tbody>
