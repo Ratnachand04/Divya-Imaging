@@ -13,11 +13,9 @@ $base_url = rtrim($base_url, '/');
 
 if (!isset($_SESSION['user_id'])) { header("Location: " . $base_url . "/login.php"); exit(); }
 $username = htmlspecialchars($_SESSION['username']);
-$raw_role = (string)$_SESSION['role'];
-$role = htmlspecialchars($raw_role);
+$role = htmlspecialchars($_SESSION['role']);
 $current_page = basename($_SERVER['PHP_SELF']);
 $home_link = ($role === 'manager') ? $base_url . '/manager/dashboard.php' : $base_url . '/index.php';
-$user_initial = strtoupper(substr($username, 0, 1));
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -101,7 +99,7 @@ $user_initial = strtoupper(substr($username, 0, 1));
         @keyframes popIn { to { transform: scale(1); } }
     </style>
 </head>
-<body class="role-<?php echo $role; ?> app-layout">
+<body class="role-<?php echo $role; ?>">
     <?php
     // --- Display Active Site Messages & Popups ---
     if (isset($conn)) {
@@ -158,8 +156,74 @@ $user_initial = strtoupper(substr($username, 0, 1));
         }
     }
 ?>
-    <?php require_once __DIR__ . '/layout/topbar.php'; ?>
+    <header class="main-header">
+       <div class="header-container">
+            <div class="logo-area">
+                <button id="mobile-menu-toggle" aria-label="Toggle navigation">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <a href="<?php echo htmlspecialchars($home_link); ?>"><img src="<?php echo $base_url; ?>/assets/images/logo.jpg" alt="Divya Imaging Center Logo"><span>Divya Imaging Center</span></a>
+            </div>
+            <div class="user-info-area">
+                <?php if ($role === 'superadmin'): ?>
+                    <div class="sa-global-header-actions" aria-label="Superadmin quick actions">
+                        <div class="sa-global-header-icons">
+                        <a href="manage_calendar.php" title="Calendar"><i class="far fa-calendar-alt"></i></a>
+                        <a href="notifications.php" title="Notifications"><i class="far fa-bell"></i></a>
+                        <a href="global_settings.php" title="Settings"><i class="fas fa-cog"></i></a>
+                        </div>
+                        <a href="<?php echo $base_url; ?>/logout.php" class="sa-global-logout-btn">
+                            <i class="fas fa-sign-out-alt"></i>
+                            <span>Logout</span>
+                        </a>
+                    </div>
+                <?php else: ?>
+                    <span>Welcome, <?php echo $username; ?> (<?php echo ucfirst($role); ?>)</span>
+                    <a href="<?php echo $base_url; ?>/logout.php" class="btn-logout">Logout</a>
+                <?php endif; ?>
+            </div>
+        </div>
+    </header>
 
-    <div class="app-shell">
-    <?php require_once __DIR__ . '/layout/sidebar.php'; ?>
-    <main class="app-main" id="app-main-content">
+    <nav class="main-navbar" id="main-nav">
+        <ul>
+            <?php if ($role === 'superadmin'): ?>
+                <li><a href="dashboard.php" class="<?php echo ($current_page == 'dashboard.php') ? 'active' : ''; ?>"><i class="fas fa-tachometer-alt"></i><span>Dashboard</span></a></li>
+                <li><a href="scans.php" class="<?php echo ($current_page == 'scans.php') ? 'active' : ''; ?>"><i class="fas fa-x-ray"></i><span>Scans</span></a></li>
+                <li><a href="view_doctors.php" class="<?php echo in_array($current_page, ['view_doctors.php', 'view_doctor_details.php']) ? 'active' : ''; ?>"><i class="fas fa-user-md"></i><span>Doctors</span></a></li>
+                <li><a href="test_count.php" class="<?php echo in_array($current_page, ['test_count.php', 'radiology_details.php']) ? 'active' : ''; ?>"><i class="fas fa-radiation"></i><span>Radiology</span></a></li>
+                <li><a href="expenditure.php" class="<?php echo ($current_page == 'expenditure.php') ? 'active' : ''; ?>"><i class="fas fa-wallet"></i><span>Financials</span></a></li>
+                <li><a href="patients.php" class="<?php echo in_array($current_page, ['patients.php', 'patient_details.php']) ? 'active' : ''; ?>"><i class="fas fa-procedures"></i><span>Patients</span></a></li>
+                <li><a href="employees.php" class="<?php echo in_array($current_page, ['employees.php', 'edit_employee.php', 'delete_employee.php']) ? 'active' : ''; ?>"><i class="fas fa-users"></i><span>Employee</span></a></li>
+                <li class="sa-settings-link"><a href="global_settings.php" class="<?php echo ($current_page == 'global_settings.php') ? 'active' : ''; ?>"><i class="fas fa-cogs"></i><span>Settings</span></a></li>
+            <?php elseif ($role === 'manager'): ?>
+                <li><a href="dashboard.php" class="<?php echo ($current_page == 'dashboard.php') ? 'active' : ''; ?>"><i class="fas fa-tachometer-alt"></i><span>Dashboard</span></a></li>
+                <li><a href="analytics.php" class="<?php echo ($current_page == 'analytics.php') ? 'active' : ''; ?>"><i class="fas fa-chart-pie"></i><span>Analytics</span></a></li>
+                <li><a href="manage_tests.php" class="<?php echo ($current_page == 'manage_tests.php') ? 'active' : ''; ?>"><i class="fas fa-vials"></i><span>Tests</span></a></li>
+                <li><a href="manage_doctors.php" class="<?php echo in_array($current_page, ['manage_doctors.php', 'manage_doctor_commissions.php']) ? 'active' : ''; ?>"><i class="fas fa-user-md"></i><span>Doctors</span></a></li>
+                <li><a href="expenses.php" class="<?php echo ($current_page == 'expenses.php') ? 'active' : ''; ?>"><i class="fas fa-wallet"></i><span>Expenses</span></a></li>
+                <li><a href="requests.php" class="<?php echo ($current_page == 'requests.php') ? 'active' : ''; ?>"><i class="fas fa-inbox"></i><span>Requests</span><span class="nav-badge is-hidden" data-nav-count="requests">0</span></a></li>
+                <li><a href="manage_employees.php" class="<?php echo ($current_page == 'manage_employees.php') ? 'active' : ''; ?>"><i class="fas fa-users"></i><span>Employees</span></a></li>
+                <li><a href="<?php echo $base_url; ?>/manager/view_due_bills.php" class="<?php echo ($current_page == 'view_due_bills.php') ? 'active' : ''; ?>"><i class="fas fa-file-invoice-dollar"></i><span>Pending Bills</span><span class="nav-badge is-hidden" data-nav-count="pending-bills">0</span></a></li>
+                <li><a href="print_reports.php" class="<?php echo ($current_page == 'print_reports.php') ? 'active' : ''; ?>"><i class="fas fa-print"></i><span>Print Reports</span><span class="nav-badge is-hidden" data-nav-count="pending-reports">0</span></a></li>
+                <li><a href="reporting_doctors.php" class="<?php echo ($current_page == 'reporting_doctors.php') ? 'active' : ''; ?>"><i class="fas fa-user-md"></i><span>Reporting Doctors</span></a></li>
+
+            <?php elseif ($role === 'accountant'): ?>
+                <li><a href="dashboard.php" class="<?php echo ($current_page == 'dashboard.php') ? 'active' : ''; ?>"><i class="fas fa-tachometer-alt"></i><span>Dashboard</span></a></li>
+                <li><a href="manage_payments.php" class="<?php echo ($current_page == 'manage_payments.php') ? 'active' : ''; ?>"><i class="fas fa-credit-card"></i><span>Payments</span></a></li>
+                <li><a href="doctor_payouts.php" class="<?php echo ($current_page == 'doctor_payouts.php') ? 'active' : ''; ?>"><i class="fas fa-hand-holding-usd"></i><span>Professional Charges</span></a></li>
+                <li><a href="view_expenses.php" class="<?php echo in_array($current_page, ['view_expenses.php', 'log_expense.php']) ? 'active' : ''; ?>"><i class="fas fa-receipt"></i><span>Expenses</span></a></li>
+                <li><a href="discount_report.php" class="<?php echo ($current_page == 'discount_report.php') ? 'active' : ''; ?>"><i class="fas fa-tag"></i><span>Discounts</span></a></li>
+            <?php elseif ($role === 'writer'): ?>
+                <li><a href="dashboard.php" class="<?php echo ($current_page == 'dashboard.php') ? 'active' : ''; ?>"><i class="fas fa-tachometer-alt"></i><span>Dashboard</span></a></li>
+                <li><a href="write_reports.php" class="<?php echo ($current_page == 'write_reports.php') ? 'active' : ''; ?>"><i class="fas fa-pen-nib"></i><span>Write Report</span></a></li>
+                <li><a href="view_reports.php" class="<?php echo ($current_page == 'view_reports.php') ? 'active' : ''; ?>"><i class="fas fa-file-medical-alt"></i><span>Completed</span></a></li>
+                <li><a href="templates.php" class="<?php echo ($current_page == 'templates.php') ? 'active' : ''; ?>"><i class="fas fa-layer-group"></i><span>Templates</span></a></li>
+            <?php elseif ($role === 'receptionist'): ?>
+                <li><a href="dashboard.php" class="<?php echo ($current_page == 'dashboard.php') ? 'active' : ''; ?>"><i class="fas fa-tachometer-alt"></i><span>Dashboard</span></a></li>
+                <li><a href="generate_bill.php" class="<?php echo in_array($current_page, ['generate_bill.php', 'edit_bill.php']) ? 'active' : ''; ?>"><i class="fas fa-file-medical"></i><span>Generate Bill</span></a></li>
+                <li><a href="existing_patients.php" class="<?php echo in_array($current_page, ['existing_patients.php', 'edit_patient.php']) ? 'active' : ''; ?>"><i class="fas fa-users"></i><span>Patients</span></a></li>
+                <li><a href="bill_history.php" class="<?php echo ($current_page == 'bill_history.php') ? 'active' : ''; ?>"><i class="fas fa-history"></i><span>Bill History</span></a></li>
+            <?php endif; ?>
+        </ul>
+    </nav>

@@ -5,6 +5,8 @@ require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
 require_once '../includes/header.php';
 
+$sa_active_page = 'global_settings.php';
+
 // --- Handle Filters with Session Persistence ---
 $filter_key = 'audit_log_filters';
 
@@ -62,6 +64,10 @@ function getActionBadgeClass($action) {
     return 'badge-secondary';
 }
 ?>
+
+<link rel="stylesheet" href="<?php echo $base_url; ?>/assets/css/superadmin_shell.css?v=<?php echo time(); ?>">
+
+<?php require_once __DIR__ . '/components/shell_start.php'; ?>
 
 <div class="main-content page-container">
     <div class="dashboard-header">
@@ -184,4 +190,5 @@ function getActionBadgeClass($action) {
     });
 </script>
 
+<?php require_once __DIR__ . '/components/shell_end.php'; ?>
 <?php require_once '../includes/footer.php'; ?>

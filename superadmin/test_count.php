@@ -1,236 +1,215 @@
 <?php
-$page_title = "Test Analysis";
+$page_title = "Radiology";
 $required_role = "superadmin";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
 require_once '../includes/header.php';
 
-// --- Handle Filters with Session Persistence ---
-$filter_key = 'test_count_filters';
-if (isset($_GET['reset'])) {
-    unset($_SESSION[$filter_key]);
-    header("Location: test_count.php");
-    exit();
+$sa_active_page = 'test_count.php';
+
+// Ensure column exists for radiologist assignment from writer workflow.
+$conn->query("ALTER TABLE bill_items ADD COLUMN IF NOT EXISTS reporting_doctor VARCHAR(150) DEFAULT NULL");
+
+$month = $_GET['month'] ?? date('Y-m');
+if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+    $month = date('Y-m');
 }
 
-if (isset($_GET['start_date'])) {
-    $_SESSION[$filter_key]['start_date'] = $_GET['start_date'];
-    $_SESSION[$filter_key]['end_date'] = $_GET['end_date'];
+$monthStart = $month . '-01';
+$monthEnd = date('Y-m-t', strtotime($monthStart));
+
+$referenceRadiologists = [
+    'Dr. G. Mamatha MD (RD)',
+    'Dr. G. Sri Kanth DMRD',
+    'Dr. P. Madhu Babu MD',
+    'Dr. Sahithi Chowdary',
+    'Dr. SVN. Vamsi Krishna MD(RD)',
+    'Dr. T. Koushik MD(RD)',
+    'Dr. T. Rajeshwar Rao MD DMRD',
+];
+
+$radiologists = [];
+foreach ($referenceRadiologists as $name) {
+    $radiologists[$name] = [
+        'name' => $name,
+        'total_allotted' => 0,
+        'completed_count' => 0,
+        'pending_count' => 0,
+        'top_pending' => []
+    ];
 }
 
-$start_date = $_SESSION[$filter_key]['start_date'] ?? (isset($_GET['start_date']) ? $_GET['start_date'] : date('Y-01-01'));
-$end_date = $_SESSION[$filter_key]['end_date'] ?? (isset($_GET['end_date']) ? $_GET['end_date'] : date('Y-m-d'));
-
-// Fetch test counts with price and Date Filter
-// We use a UNION to include:
-// 1. Defined tests (from 'tests' table) - showing 0 if not performed
-// 2. Undefined/Orphaned tests (from 'bill_items' table) - showing counts for IDs not in 'tests' table
-
-$sql = "
-    SELECT 
-        t.id,
-        t.main_test_name, 
-        t.sub_test_name, 
-        t.price, 
-        COUNT(b.id) as performed_count
-    FROM tests t 
-    LEFT JOIN bill_items bi ON t.id = bi.test_id AND bi.item_status = 0
-    LEFT JOIN bills b ON bi.bill_id = b.id 
-        AND b.bill_status != 'Void'
-        AND DATE(b.created_at) BETWEEN ? AND ?
-    GROUP BY t.id 
-
-    UNION ALL
-
-    SELECT 
-        bi.test_id as id,
-        'Uncategorized (Deleted/Missing Tests)' as main_test_name, 
-        CONCAT('Unknown Test (ID: ', bi.test_id, ')') as sub_test_name, 
-        0 as price, 
-        COUNT(b.id) as performed_count
+// Monthly metrics layered on top of the base list.
+$cardsSql = "
+    SELECT
+        bi.reporting_doctor AS radiologist_name,
+        COUNT(*) AS total_allotted,
+        SUM(CASE WHEN bi.report_status = 'Completed' THEN 1 ELSE 0 END) AS completed_count,
+        SUM(CASE WHEN COALESCE(bi.report_status, 'Pending') = 'Pending' THEN 1 ELSE 0 END) AS pending_count
     FROM bill_items bi
-    JOIN bills b ON bi.bill_id = b.id 
-        AND b.bill_status != 'Void'
-        AND DATE(b.created_at) BETWEEN ? AND ?
-    LEFT JOIN tests t ON bi.test_id = t.id
-    WHERE bi.item_status = 0 AND t.id IS NULL
-    GROUP BY bi.test_id
-    
-    ORDER BY main_test_name ASC, performed_count DESC
+    JOIN bills b ON b.id = bi.bill_id
+    WHERE bi.item_status = 0
+      AND b.bill_status != 'Void'
+      AND bi.reporting_doctor IS NOT NULL
+      AND bi.reporting_doctor <> ''
+      AND DATE(b.created_at) BETWEEN ? AND ?
+    GROUP BY bi.reporting_doctor
+    ORDER BY bi.reporting_doctor ASC
 ";
 
-$stmt = $conn->prepare($sql);
-// We need to bind parameters twice: ss for first query, ss for second query -> ssss
-$stmt->bind_param("ssss", $start_date, $end_date, $start_date, $end_date);
-$stmt->execute();
-$result = $stmt->get_result();
+$cardsStmt = $conn->prepare($cardsSql);
+$cardsStmt->bind_param('ss', $monthStart, $monthEnd);
+$cardsStmt->execute();
+$cardsResult = $cardsStmt->get_result();
 
-$categories = [];
-if ($result && $result->num_rows > 0) {
-    while($row = $result->fetch_assoc()) {
-        $cat = $row['main_test_name'];
-        if (!isset($categories[$cat])) {
-            $categories[$cat] = [
-                'total_performed' => 0,
-                'total_revenue' => 0,
-                'sub_tests' => []
-            ];
-        }
-        
-        $revenue = $row['performed_count'] * $row['price'];
-        $row['revenue'] = $revenue;
-        
-        $categories[$cat]['total_performed'] += $row['performed_count'];
-        $categories[$cat]['total_revenue'] += $revenue;
-        $categories[$cat]['sub_tests'][] = $row;
+while ($row = $cardsResult->fetch_assoc()) {
+    $name = trim((string)($row['radiologist_name'] ?? ''));
+    if ($name === '') {
+        continue;
+    }
+    if (!isset($radiologists[$name])) {
+        $radiologists[$name] = [
+            'name' => $name,
+            'total_allotted' => 0,
+            'completed_count' => 0,
+            'pending_count' => 0,
+            'top_pending' => []
+        ];
+    }
+
+    $radiologists[$name] = [
+        'name' => $row['radiologist_name'],
+        'total_allotted' => (int)$row['total_allotted'],
+        'completed_count' => (int)$row['completed_count'],
+        'pending_count' => (int)$row['pending_count'],
+        'top_pending' => []
+    ];
+}
+$cardsStmt->close();
+
+if (!empty($radiologists)) {
+    ksort($radiologists, SORT_NATURAL | SORT_FLAG_CASE);
+}
+
+$pendingSql = "
+    SELECT
+        bi.reporting_doctor AS radiologist_name,
+        COALESCE(NULLIF(t.sub_test_name, ''), t.main_test_name) AS test_name,
+        COUNT(*) AS pending_count
+    FROM bill_items bi
+    JOIN bills b ON b.id = bi.bill_id
+    JOIN tests t ON t.id = bi.test_id
+    WHERE bi.item_status = 0
+      AND b.bill_status != 'Void'
+      AND COALESCE(bi.report_status, 'Pending') = 'Pending'
+      AND bi.reporting_doctor IS NOT NULL
+      AND bi.reporting_doctor <> ''
+      AND DATE(b.created_at) BETWEEN ? AND ?
+    GROUP BY bi.reporting_doctor, test_name
+    ORDER BY bi.reporting_doctor ASC, pending_count DESC, test_name ASC
+";
+
+$pendingStmt = $conn->prepare($pendingSql);
+$pendingStmt->bind_param('ss', $monthStart, $monthEnd);
+$pendingStmt->execute();
+$pendingResult = $pendingStmt->get_result();
+
+while ($row = $pendingResult->fetch_assoc()) {
+    $name = $row['radiologist_name'];
+    if (!isset($radiologists[$name])) {
+        continue;
+    }
+    if (count($radiologists[$name]['top_pending']) < 2) {
+        $radiologists[$name]['top_pending'][] = [
+            'test_name' => $row['test_name'],
+            'pending_count' => (int)$row['pending_count']
+        ];
     }
 }
+$pendingStmt->close();
 ?>
 
-<div class="page-container">
-    <div class="dashboard-header">
-        <div>
-            <h1>Detailed Test Analysis</h1>
-            <p class="text-muted">Breakdown of tests performed and revenue generated.</p>
-        </div>
-        <a href="dashboard.php" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-2"></i> Back</a>
+<link rel="stylesheet" href="<?php echo $base_url; ?>/assets/css/superadmin_shell.css?v=<?php echo time(); ?>">
+<style>
+.sa-radiology-page { display: grid; gap: 1rem; }
+.sa-radiology-head h1 { margin: 0; color: #1e3a8a; font-size: 1.55rem; }
+.sa-radiology-head p { margin: 0.2rem 0 0; color: #64748b; }
+.sa-radiology-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 0.9rem; }
+.sa-radiology-card {
+    display: block;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 1rem;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+    text-decoration: none;
+    color: #0f172a;
+    transition: transform 0.18s ease, border-color 0.18s ease;
+}
+.sa-radiology-card:hover { transform: translateY(-2px); border-color: #93c5fd; text-decoration: none; }
+.sa-radiology-card h3 { margin: 0; font-size: 1.05rem; color: #1e3a8a; }
+.sa-rad-metrics { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.55rem; margin-top: 0.75rem; }
+.sa-rad-metric { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.5rem 0.55rem; }
+.sa-rad-metric .k { font-size: 0.72rem; color: #64748b; text-transform: uppercase; font-weight: 700; }
+.sa-rad-metric .v { margin-top: 0.18rem; font-size: 0.96rem; color: #0f172a; font-weight: 700; }
+.sa-pending-top { margin-top: 0.8rem; border-top: 1px dashed #cbd5e1; padding-top: 0.65rem; }
+.sa-pending-top h4 { margin: 0 0 0.4rem; color: #334155; font-size: 0.85rem; }
+.sa-pending-top ul { margin: 0; padding-left: 1rem; color: #475569; }
+.sa-pending-top li { margin: 0.15rem 0; font-size: 0.85rem; }
+.sa-radiology-empty { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 1rem; color: #475569; }
+@media (max-width: 900px) { .sa-rad-metrics { grid-template-columns: 1fr; } }
+</style>
+
+<?php require_once __DIR__ . '/components/shell_start.php'; ?>
+
+<section class="sa-radiology-page">
+    <div class="sa-radiology-head">
+        <h1>Radiology</h1>
+        <p>Radiologist workload and report status overview.</p>
     </div>
 
-    <!-- Date Filter -->
-    <form method="GET" class="filter-form compact-filters">
-        <div class="quick-filters">
-            <button type="button" class="btn-quick-date" data-range="today">Today</button>
-            <button type="button" class="btn-quick-date" data-range="yesterday">Yesterday</button>
-            <button type="button" class="btn-quick-date" data-range="this_week">Last 7 Days</button>
-            <button type="button" class="btn-quick-date" data-range="this_month">This Month</button>
-            <button type="button" class="btn-quick-date" data-range="last_month">Last Month</button>
-            <button type="button" class="btn-quick-date" data-range="this_year">This Year</button>
-        </div>
-        <div class="filter-group">
-            <div class="form-group flex-grow-1">
-                <label for="start_date">From Date</label>
-                <input type="date" id="start_date" name="start_date" value="<?php echo htmlspecialchars($start_date); ?>">
-            </div>
-            <div class="form-group flex-grow-1">
-                <label for="end_date">To Date</label>
-                <input type="date" id="end_date" name="end_date" value="<?php echo htmlspecialchars($end_date); ?>">
-            </div>
-        </div>
-        <div class="filter-actions">
-            <button type="submit" class="btn-submit">Filter</button>
-            <a href="?reset=1" class="btn-reset">Reset</a>
-        </div>
-    </form>
+    <?php if (count($radiologists) === 0): ?>
+        <div class="sa-radiology-empty">No radiologist report activity found for selected month.</div>
+    <?php else: ?>
+        <div class="sa-radiology-grid">
+            <?php foreach ($radiologists as $item): ?>
+                <a class="sa-radiology-card" href="radiology_details.php?radiologist=<?php echo urlencode($item['name']); ?>&month=<?php echo urlencode($month); ?>">
+                    <h3><?php echo htmlspecialchars($item['name']); ?></h3>
 
-    <div class="filter-info-bar">
-        <i class="fas fa-calendar-alt"></i>
-        <span>Showing analysis from <strong><?php echo date('d M Y', strtotime($start_date)); ?></strong> to <strong><?php echo date('d M Y', strtotime($end_date)); ?></strong></span>
-    </div>
+                    <div class="sa-rad-metrics">
+                        <div class="sa-rad-metric">
+                            <div class="k">Total Test Allotted</div>
+                            <div class="v"><?php echo number_format($item['total_allotted']); ?></div>
+                        </div>
+                        <div class="sa-rad-metric">
+                            <div class="k">Completed</div>
+                            <div class="v"><?php echo number_format($item['completed_count']); ?></div>
+                        </div>
+                        <div class="sa-rad-metric">
+                            <div class="k">Pending</div>
+                            <div class="v"><?php echo number_format($item['pending_count']); ?></div>
+                        </div>
+                    </div>
 
-    <div class="analysis-container mt-4">
-        <div class="search-box mb-3">
-            <input type="text" id="testSearch" class="form-control" placeholder="Search for Main Category or Sub-test name...">
-        </div>
-
-        <div id="categoriesList">
-            <?php foreach ($categories as $catName => $data): ?>
-            <div class="category-group card mb-3 border-0 shadow-sm" data-name="<?php echo strtolower($catName); ?>">
-                <div class="category-header card-header bg-white d-flex flex-wrap align-items-center justify-content-between p-3" onclick="toggleCategory(this)" style="cursor: pointer;">
-                    <div class="cat-title d-flex align-items-center gap-2 fw-bold text-dark mb-2 mb-md-0">
-                        <i class="fas fa-folder text-primary"></i>
-                        <?php echo htmlspecialchars($catName); ?>
-                    </div>
-                    <div class="cat-stats text-muted small d-flex align-items-center flex-wrap gap-2">
-                        <span>Total Tests: <strong class="text-dark"><?php echo number_format($data['total_performed']); ?></strong></span>
-                        <span class="d-none d-md-inline text-light">|</span>
-                        <span>Revenue: <strong class="text-dark">₹<?php echo number_format($data['total_revenue'], 2); ?></strong></span>
-                        <i class="fas fa-chevron-down chevron ms-2"></i>
-                    </div>
-                </div>
-                <div class="sub-test-table-container p-0" style="display: none;">
-                    <div class="table-responsive">
-                        <table class="table table-hover align-middle mb-0 sub-test-table">
-                            <thead class="bg-light">
-                                <tr>
-                                    <th>Sub Test Name</th>
-                                    <th>Standard Price</th>
-                                    <th>Times Performed</th>
-                                    <th>Revenue</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($data['sub_tests'] as $test): ?>
-                                <tr data-subname="<?php echo strtolower($test['sub_test_name']); ?>" onclick="window.location.href='view_test_details.php?test_id=<?php echo $test['id']; ?>&start_date=<?php echo $start_date; ?>&end_date=<?php echo $end_date; ?>'" style="cursor: pointer;">
-                                    <td><?php echo htmlspecialchars($test['sub_test_name']); ?> <i class="fas fa-external-link-alt small text-muted ms-1"></i></td>
-                                    <td>₹<?php echo number_format($test['price'], 2); ?></td>
-                                    <td>
-                                        <span class="badge bg-light text-dark border"><?php echo number_format($test['performed_count']); ?></span>
-                                    </td>
-                                    <td class="fw-bold">₹<?php echo number_format($test['revenue'], 2); ?></td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
+                    <?php if ($item['pending_count'] > 0): ?>
+                        <div class="sa-pending-top">
+                            <h4>Top Pending Tests</h4>
+                            <ul>
+                                <?php if (count($item['top_pending']) === 0): ?>
+                                    <li>No pending test names found.</li>
+                                <?php else: ?>
+                                    <?php foreach ($item['top_pending'] as $pending): ?>
+                                        <li><?php echo htmlspecialchars($pending['test_name']); ?> (<?php echo number_format($pending['pending_count']); ?>)</li>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </ul>
+                        </div>
+                    <?php endif; ?>
+                </a>
             <?php endforeach; ?>
         </div>
-    </div>
-</div>
+    <?php endif; ?>
+</section>
 
-<script>
-    function toggleCategory(header) {
-        // Toggle active class
-        header.classList.toggle('active');
-        
-        // Toggle content visibility
-        const content = header.nextElementSibling;
-        if (content.style.display === "block") {
-            content.style.display = "none";
-        } else {
-            content.style.display = "block";
-        }
-    }
-
-    document.getElementById('testSearch').addEventListener('keyup', function() {
-        const searchText = this.value.toLowerCase();
-        const groups = document.querySelectorAll('.category-group');
-
-        groups.forEach(group => {
-            const mainName = group.getAttribute('data-name');
-            const subRows = group.querySelectorAll('tbody tr');
-            let hasVisibleSub = false;
-
-            // Check sub-tests
-            subRows.forEach(row => {
-                const subName = row.getAttribute('data-subname');
-                if (subName.includes(searchText)) {
-                    row.style.display = '';
-                    hasVisibleSub = true;
-                } else {
-                    row.style.display = 'none';
-                }
-            });
-
-            // Logic: Show group if Main Name matches OR if any Sub-test matches
-            if (mainName.includes(searchText) || hasVisibleSub) {
-                group.style.display = '';
-                
-                // If searching and found match in sub-tests, auto-expand
-                if (searchText.length > 0 && hasVisibleSub) {
-                    const header = group.querySelector('.category-header');
-                    const content = group.querySelector('.sub-test-table-container');
-                    if (!header.classList.contains('active')) {
-                        header.classList.add('active');
-                        content.style.display = 'block';
-                    }
-                }
-            } else {
-                group.style.display = 'none';
-            }
-        });
-    });
-</script>
-
+<?php require_once __DIR__ . '/components/shell_end.php'; ?>
 <?php require_once '../includes/footer.php'; ?>
