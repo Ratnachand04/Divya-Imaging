@@ -1324,7 +1324,7 @@ body.role-manager.manager-nav-colliding .main-navbar {
     display: grid;
     grid-template-columns: minmax(150px, 1fr) minmax(260px, 2fr) minmax(130px, 1fr) minmax(150px, 1fr) auto;
     gap: 0.75rem;
-    align-items: stretch;
+    align-items: flex-start;
     margin-bottom: 0.65rem;
     padding: 0.65rem;
     border: 1px solid #e2e8f0;
@@ -1349,6 +1349,7 @@ body.role-manager.manager-nav-colliding .main-navbar {
 .role-manager .manage-tests-compact .package-test-row .package-test-base,
 .role-manager .manage-tests-compact .package-test-row .package-test-price {
     width: 100%;
+    min-height: 40px;
 }
 
 .role-manager .manage-tests-compact .package-test-row .package-test-base {
@@ -1365,13 +1366,17 @@ body.role-manager.manager-nav-colliding .main-navbar {
 }
 
 .role-manager .manage-tests-compact .package-test-row .package-test-action-group {
-    justify-content: flex-end;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
     min-width: 120px;
 }
 
 .role-manager .manage-tests-compact .package-test-row .package-test-action-group .btn-action {
     width: 100%;
     white-space: nowrap;
+    min-height: 40px;
+    margin-top: 0.15rem;
 }
 
 @media (max-width: 1080px) {
@@ -1408,16 +1413,22 @@ body.role-manager.manager-nav-colliding .main-navbar {
 
 /* ===== Manager: Requests (migrated from requests.php) ===== */
 .role-manager .filter-form.compact-filters {
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0.75rem;
+    align-items: flex-end;
 }
 
 .role-manager .filter-form.compact-filters .filter-group {
-    align-items: stretch;
+    flex: 0 1 auto;
+    min-width: 160px;
 }
 
 .role-manager .filter-form.compact-filters .filter-actions {
-    grid-column: span 2;
-    justify-content: flex-end;
+    flex: 0 0 auto;
+    margin-left: auto;
+    display: flex;
+    gap: 0.5rem;
 }
 .status-approved { background-color: var(--success); color: var(--bg-primary); padding: 3px 8px; border-radius: 4px; font-size: 0.9em; }
 .status-rejected { background-color: var(--error); color: var(--bg-primary); padding: 3px 8px; border-radius: 4px; font-size: 0.9em; }
