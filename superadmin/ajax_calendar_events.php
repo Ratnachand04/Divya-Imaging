@@ -5,22 +5,20 @@ ini_set('display_errors', 0);
 $required_role = "superadmin";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
-require_once '../includes/functions.php';
-
-$calendar_events_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'calendar_events', 'ce') : '`calendar_events` ce';
 
 if (ob_get_length()) ob_clean();
 
 header('Content-Type: application/json');
 
 // Check if table exists first to avoid fatal errors
-if (!function_exists('schema_has_table') || !schema_has_table($conn, 'calendar_events')) {
+$check = $conn->query("SHOW TABLES LIKE 'calendar_events'");
+if ($check->num_rows == 0) {
     echo json_encode([]);
     exit();
 }
 
 // Fetch all events for FullCalendar
-$result = $conn->query("SELECT ce.id, ce.title, ce.event_date as start, ce.event_type FROM {$calendar_events_source}");
+$result = $conn->query("SELECT id, title, event_date as start, event_type FROM calendar_events");
 $events = [];
 
 $colors = [

@@ -4,8 +4,6 @@ $required_role = "superadmin";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
 
-$sa_active_page = 'global_settings.php';
-
 // Ensure table exists
 $conn->query("CREATE TABLE IF NOT EXISTS calendar_events (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -65,9 +63,6 @@ unset($_SESSION['feedback']);
 require_once '../includes/header.php';
 ?>
 <link href='https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.css' rel='stylesheet' />
-<link rel="stylesheet" href="<?php echo $base_url; ?>/assets/css/superadmin_shell.css?v=<?php echo time(); ?>">
-
-<?php require_once __DIR__ . '/components/shell_start.php'; ?>
 
 <div class="page-container">
     <div class="dashboard-header">
@@ -234,5 +229,4 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 
-<?php require_once __DIR__ . '/components/shell_end.php'; ?>
 <?php require_once '../includes/footer.php'; ?>

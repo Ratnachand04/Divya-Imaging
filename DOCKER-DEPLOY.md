@@ -20,11 +20,8 @@ cp .env.example .env            # Linux
 docker-compose up -d --build
 ```
 
-**Access the website (private/local):** http://localhost:8081  
-**Access the website (public HTTPS):** https://localhost:8443  
+**Access the website:** http://localhost:8081  
 **Access phpMyAdmin:** http://localhost:8082
-
-Security default: database and phpMyAdmin host ports are bound to localhost only via `DB_BIND_IP=127.0.0.1` and `PMA_BIND_IP=127.0.0.1`.
 
 ---
 
@@ -33,8 +30,8 @@ Security default: database and phpMyAdmin host ports are bound to localhost only
 | Service | Container | Port | Description |
 |---------|-----------|------|-------------|
 | Web Server | diagnostic-center-web | 8081 (HTTP), 8443 (HTTPS) | Apache 2.4 + PHP 8.2 |
-| Database | diagnostic-center-db | 127.0.0.1:3301 (default) | MariaDB 10.4 |
-| phpMyAdmin | diagnostic-center-pma | 127.0.0.1:8082 (default) | Database management UI |
+| Database | diagnostic-center-db | 3301 | MariaDB 10.4 |
+| phpMyAdmin | diagnostic-center-pma | 8082 | Database management UI |
 
 ---
 
@@ -43,40 +40,25 @@ Security default: database and phpMyAdmin host ports are bound to localhost only
 ### Basic Setup (Local Development)
 ```env
 APP_PORT=8081
-SSL_PORT=8443
 DB_PASS=root_password
 APACHE_SERVER_NAME=localhost
-ENABLE_SSL=true
-DUAL_IP_BIND=false
-STARTUP_NETWORK_PROBES=false
-IP_MONITOR_APACHE_RELOAD=false
-DB_BIND_IP=127.0.0.1
-PMA_BIND_IP=127.0.0.1
-INIT_BUNDLE_GUARD=true
+ENABLE_SSL=false
 ```
 
 ### Local Network Access (Other computers on your network)
 ```env
 APP_PORT=8081
-SSL_PORT=8443
 DB_PASS=your_secure_password
 APACHE_SERVER_NAME=192.168.1.100    # Your computer's local IP
-ENABLE_SSL=true
-DUAL_IP_BIND=false
-STARTUP_NETWORK_PROBES=false
-IP_MONITOR_APACHE_RELOAD=false
+ENABLE_SSL=false
 ```
 
-### Public IP Access (Port forwarded to 8443)
+### Public IP Access (Port forwarded to 8081)
 ```env
 APP_PORT=8081
-SSL_PORT=8443
 DB_PASS=your_very_secure_password
 APACHE_SERVER_NAME=203.0.113.50     # Your public IP
-ENABLE_SSL=true
-DUAL_IP_BIND=true
-STARTUP_NETWORK_PROBES=false
-IP_MONITOR_APACHE_RELOAD=false
+ENABLE_SSL=false
 ```
 
 ### Production with Domain + HTTPS
@@ -86,9 +68,6 @@ SSL_PORT=443
 DB_PASS=super_secure_password_here
 APACHE_SERVER_NAME=yourdomain.com
 ENABLE_SSL=true
-DUAL_IP_BIND=true
-STARTUP_NETWORK_PROBES=false
-IP_MONITOR_APACHE_RELOAD=false
 ```
 
 ---
@@ -124,7 +103,7 @@ docker-compose up -d --build
 
 ### Step 4: Restore database (if needed)
 ```bash
-# SQL init bundle in dump/init/ auto-imports on first run.
+# The SQL file auto-imports on first run.
 # To restore a backup on an existing setup:
 docker exec -i diagnostic-center-db mysql -u root -proot_password diagnostic_center_db < backup.sql
 ```
@@ -221,8 +200,6 @@ docker exec diagnostic-center-db mysqldump -u root -proot_password diagnostic_ce
 backup-db.bat          # Windows
 ```
 
-Included backup scripts also mirror the split SQL init bundle into `dump/backup/.../sql_bundle_.../` at backup time.
-
 ### Restore
 ```bash
 docker exec -i diagnostic-center-db mysql -u root -proot_password diagnostic_center_db < backup.sql
@@ -265,8 +242,7 @@ docker exec -it diagnostic-center-db mysql -u root -proot_password  # Test conne
 ```
 
 ### Port already in use
-Edit `.env` and change `APP_PORT`, `SSL_PORT`, `DB_PORT`, or `PMA_PORT` to an available port.
-If needed, also adjust `DB_BIND_IP` / `PMA_BIND_IP` (keep `127.0.0.1` for intruder-safe default).
+Edit `.env` and change `APP_PORT`, `SSL_PORT`, or `DB_PORT` to an available port.
 
 ### Permission errors on uploads
 ```bash
@@ -294,14 +270,7 @@ diagnostic-center/
 ├── .dockerignore              # Files excluded from Docker build
 ├── setup-ssl.bat/.sh          # SSL setup helper script
 ├── backup-db.bat/.sh          # Database backup script
-├── dump/
-│   ├── diagnostic_center_db_.sql            # Key schema source SQL
-│   ├── init/                                # Auto-imported SQL bundle
-│   │   ├── 001-main-schema.sql              # Table structure
-│   │   ├── 500-data-flow-tunnel.sql         # Main data router (sources per-table files)
-│   │   ├── tables/100-data-*.sql            # One file per table data
-│   │   └── 900-post-schema.sql              # Indexes/constraints/final updates
-│   └── backup/                              # Runtime SQL backups + backup_index.json
+├── diagnostic_center_db_.sql  # Database schema + data (auto-imported)
 ├── docker/
 │   ├── apache/
 │   │   ├── vhost.conf         # HTTP virtual host config

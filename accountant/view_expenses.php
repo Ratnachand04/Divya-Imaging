@@ -3,15 +3,11 @@ $page_title = "View Expenses";
 $required_role = "accountant";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
-require_once '../includes/functions.php';
-
-$expenses_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'expenses', 'e') : '`expenses` e';
-$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
 
 $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : date('Y-m-01');
 $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : date('Y-m-t');
 
-$query = "SELECT e.id, e.expense_type, e.amount, e.status, e.created_at, e.proof_path, u.username as accountant_name FROM {$expenses_source} JOIN {$users_source} ON e.accountant_id = u.id WHERE e.created_at BETWEEN ? AND ? ORDER BY e.created_at DESC";
+$query = "SELECT e.id, e.expense_type, e.amount, e.status, e.created_at, e.proof_path, u.username as accountant_name FROM expenses e JOIN users u ON e.accountant_id = u.id WHERE e.created_at BETWEEN ? AND ? ORDER BY e.created_at DESC";
 $stmt = $conn->prepare($query);
 $end_date_for_query = $end_date . ' 23:59:59';
 $stmt->bind_param("ss", $start_date, $end_date_for_query);

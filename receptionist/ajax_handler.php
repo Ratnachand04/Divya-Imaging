@@ -6,10 +6,6 @@ require_once '../includes/functions.php';
 
 ensure_bill_payment_split_columns($conn);
 
-$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
-$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
-$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
-
 $search_term = isset($_GET['search']) ? trim($_GET['search']) : '';
 $receptionist_id = $_SESSION['user_id'];
 $output = '';
@@ -30,9 +26,9 @@ $sql = "SELECT
             b.other_amount,
             b.referral_type,
             rd.doctor_name as ref_physician_name
-        FROM {$bills_source}
-        JOIN {$patients_source} ON b.patient_id = p.id
-        LEFT JOIN {$referral_doctors_source} ON b.referral_doctor_id = rd.id
+        FROM bills b
+        JOIN patients p ON b.patient_id = p.id
+        LEFT JOIN referral_doctors rd ON b.referral_doctor_id = rd.id
         WHERE b.receptionist_id = ? AND b.bill_status != 'Void'";
 
 if (!empty($search_term)) {

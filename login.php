@@ -21,7 +21,6 @@ if (isset($_SESSION['user_id'])) {
 }
 
 require_once 'includes/db_connect.php';
-require_once 'includes/functions.php';
 
 function ensurePlatformAdminAccount(mysqli $conn): void
 {
@@ -30,16 +29,11 @@ function ensurePlatformAdminAccount(mysqli $conn): void
     $platformHash = password_hash($platformPassword, PASSWORD_DEFAULT);
     $platformRole = 'platform_admin';
 
-    if (function_exists('schema_has_column') && schema_has_column($conn, 'users', 'role')) {
-        $roleType = '';
-        if (function_exists('schema_get_column_metadata')) {
-            $roleTypeMeta = schema_get_column_metadata($conn, 'users', 'role');
-            if (is_array($roleTypeMeta)) {
-                $roleType = (string)($roleTypeMeta['COLUMN_TYPE'] ?? '');
-            }
-        }
-
-        if ($roleType !== '' && strpos($roleType, "'platform_admin'") === false) {
+    $roleColumn = $conn->query("SHOW COLUMNS FROM users LIKE 'role'");
+    if ($roleColumn) {
+        $roleMeta = $roleColumn->fetch_assoc();
+        $roleType = $roleMeta['Type'] ?? '';
+        if (strpos($roleType, "'platform_admin'") === false) {
             $platformRole = 'developer';
         }
     }

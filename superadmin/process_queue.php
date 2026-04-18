@@ -5,12 +5,6 @@ header('Content-Type: application/json');
 $required_role = 'superadmin';
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
-require_once '../includes/functions.php';
-
-$notification_queue_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'notification_queue', 'nq') : '`notification_queue` nq';
-$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
-$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
-$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
 
 // --- PHPMailer Setup ---
 // Note: You must install PHPMailer via Composer: composer require phpmailer/phpmailer
@@ -118,7 +112,7 @@ if (!empty($smtp_missing)) { ... }
 
 try {
     // Fetch queued items
-    $result = $conn->query("SELECT nq.* FROM {$notification_queue_source} WHERE nq.status = 'Queued' LIMIT 5"); 
+    $result = $conn->query("SELECT * FROM notification_queue WHERE status = 'Queued' LIMIT 5"); 
     
     if ($result->num_rows === 0) {
         echo json_encode(['success' => true, 'message' => 'Queue is empty']);
@@ -142,13 +136,13 @@ try {
 
         // Determine Recipients
         if ($row['recipient_group'] === 'all_patients') {
-            $res = $conn->query("SELECT p.name, '' as email, p.mobile_number as phone FROM {$patients_source} WHERE p.mobile_number IS NOT NULL");
+            $res = $conn->query("SELECT name, '' as email, mobile_number as phone FROM patients WHERE mobile_number IS NOT NULL");
             if($res) while($r = $res->fetch_assoc()) $recipients[] = $r;
         } elseif ($row['recipient_group'] === 'all_doctors') {
-            $res = $conn->query("SELECT rd.doctor_name as name, rd.email, rd.phone_number as phone FROM {$referral_doctors_source}");
+            $res = $conn->query("SELECT doctor_name as name, email, phone_number as phone FROM referral_doctors");
             if($res) while($r = $res->fetch_assoc()) $recipients[] = $r;
         } elseif ($row['recipient_group'] === 'all_employees') {
-            $res = $conn->query("SELECT u.username as name, '' as email, '' as phone FROM {$users_source} WHERE u.role != 'superadmin'");
+            $res = $conn->query("SELECT username as name, '' as email, '' as phone FROM users WHERE role != 'superadmin'");
             if($res) while($r = $res->fetch_assoc()) $recipients[] = $r;
         } elseif (in_array($row['recipient_group'], ['single_doctor', 'single_employee', 'custom_single'])) {
             $data = json_decode($row['recipient_data'], true);

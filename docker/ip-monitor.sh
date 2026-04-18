@@ -12,11 +12,9 @@ LAST_KNOWN_IP="${PUBLIC_IP:-}"
 HTTP_PORT="${APP_PORT:-8081}"
 HTTPS_PORT="${SSL_PORT:-8443}"
 DATABASE_PORT="${DB_PORT:-3301}"
-APACHE_RELOAD_ON_IP_CHANGE="${IP_MONITOR_APACHE_RELOAD:-false}"
 
 echo "[IP-MONITOR] Started. Checking every ${INTERVAL}s. Current IP: ${LAST_KNOWN_IP}"
 echo "[IP-MONITOR] Monitoring ports: HTTP=${HTTP_PORT}, HTTPS=${HTTPS_PORT}, DB=${DATABASE_PORT}"
-echo "[IP-MONITOR] Apache reload on IP change: ${APACHE_RELOAD_ON_IP_CHANGE}"
 
 # ---- Helper Functions ----
 
@@ -32,42 +30,6 @@ detect_public_ip() {
     done
     echo ""
     return 1
-}
-
-is_private_or_loopback_ip() {
-    local ip="$1"
-    if [ -z "$ip" ]; then
-        return 0
-    fi
-
-    if [[ "$ip" =~ ^127\. ]] || [[ "$ip" =~ ^10\. ]] || [[ "$ip" =~ ^192\.168\. ]] || [[ "$ip" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]] || [[ "$ip" =~ ^169\.254\. ]]; then
-        return 0
-    fi
-
-    return 1
-}
-
-should_reload_apache_for_public_ip_change() {
-    local server_name="${APACHE_SERVER_NAME:-localhost}"
-
-    # Only relevant when dual-IP mode is explicitly enabled.
-    if [ "${DUAL_IP_BIND:-false}" != "true" ]; then
-        return 1
-    fi
-
-    # Localhost deployments should not reload Apache on WAN IP churn.
-    if [ "$server_name" = "localhost" ] || [ "$server_name" = "127.0.0.1" ]; then
-        return 1
-    fi
-
-    # If ServerName is an IP and it is private/local, skip reload.
-    if echo "$server_name" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
-        if is_private_or_loopback_ip "$server_name"; then
-            return 1
-        fi
-    fi
-
-    return 0
 }
 
 # Log a diagnostic entry to the ip_diagnostics table
@@ -93,10 +55,7 @@ test_public_port() {
 
     # Use curl to test the port from inside the container to the public IP
     local http_code
-    http_code=$(curl -k -s -o /dev/null -w "%{http_code}" --max-time 5 "${protocol}://${ip}:${port}/" 2>/dev/null || true)
-    if [ -z "$http_code" ]; then
-        http_code="000"
-    fi
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "${protocol}://${ip}:${port}/" 2>/dev/null || echo "000")
 
     if [ "$http_code" != "000" ]; then
         PORT_CHECK_DETAIL="open:${http_code}"
@@ -205,43 +164,37 @@ EOSQL
         
         log_diagnostic "ip_change" "$NEW_IP" 0 "warning" "Public IP changed from ${LAST_KNOWN_IP} to ${NEW_IP}" "Apache ServerAlias will be updated automatically."
 
+        # Update Apache ServerAlias
+        VHOST_FILE="/etc/apache2/sites-available/000-default.conf"
+        VHOST_SSL_FILE="/etc/apache2/sites-available/default-ssl.conf"
+        
+        # Remove old auto-generated alias lines
+        sed -i '/ServerAlias.*#auto-dual-ip/d' "$VHOST_FILE" 2>/dev/null || true
+        sed -i '/ServerAlias.*#auto-dual-ip/d' "$VHOST_SSL_FILE" 2>/dev/null || true
+        
+        # Rebuild aliases
         LOCAL_IP_CURRENT=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "127.0.0.1")
-
-        if [ "${APACHE_RELOAD_ON_IP_CHANGE}" = "true" ] && should_reload_apache_for_public_ip_change; then
-            # Update Apache ServerAlias
-            VHOST_FILE="/etc/apache2/sites-available/000-default.conf"
-            VHOST_SSL_FILE="/etc/apache2/sites-available/default-ssl.conf"
-            
-            # Remove old auto-generated alias lines
-            sed -i '/ServerAlias.*#auto-dual-ip/d' "$VHOST_FILE" 2>/dev/null || true
-            sed -i '/ServerAlias.*#auto-dual-ip/d' "$VHOST_SSL_FILE" 2>/dev/null || true
-            
-            # Rebuild aliases
-            ALIASES="localhost 127.0.0.1 ${LOCAL_IP_CURRENT} ${NEW_IP}"
-            [ "${APACHE_SERVER_NAME}" != "localhost" ] && [ "${APACHE_SERVER_NAME}" != "${LOCAL_IP_CURRENT}" ] && [ "${APACHE_SERVER_NAME}" != "${NEW_IP}" ] && ALIASES="${ALIASES} ${APACHE_SERVER_NAME}"
-            
-            sed -i "/ServerName/a\\    ServerAlias ${ALIASES} #auto-dual-ip" "$VHOST_FILE" 2>/dev/null || true
-            sed -i "/ServerName/a\\    ServerAlias ${ALIASES} #auto-dual-ip" "$VHOST_SSL_FILE" 2>/dev/null || true
-            
-            # Graceful Apache reload (no downtime)
+        ALIASES="localhost 127.0.0.1 ${LOCAL_IP_CURRENT} ${NEW_IP}"
+        [ "${APACHE_SERVER_NAME}" != "localhost" ] && [ "${APACHE_SERVER_NAME}" != "${LOCAL_IP_CURRENT}" ] && [ "${APACHE_SERVER_NAME}" != "${NEW_IP}" ] && ALIASES="${ALIASES} ${APACHE_SERVER_NAME}"
+        
+        sed -i "/ServerName/a\\    ServerAlias ${ALIASES} #auto-dual-ip" "$VHOST_FILE" 2>/dev/null || true
+        sed -i "/ServerName/a\\    ServerAlias ${ALIASES} #auto-dual-ip" "$VHOST_SSL_FILE" 2>/dev/null || true
+        
+        # Graceful Apache reload (no downtime)
+        apache2ctl graceful 2>/dev/null || true
+        echo "[IP-MONITOR] Apache reloaded with new ServerAlias: ${ALIASES}"
+        
+        # If SSL is enabled, regenerate self-signed cert with new IP in SAN
+        if [ "${ENABLE_SSL}" = "true" ] && [ -f "/etc/apache2/ssl/private.key" ]; then
+            SAN_ENTRIES="DNS:${APACHE_SERVER_NAME},DNS:localhost,IP:127.0.0.1,IP:${LOCAL_IP_CURRENT},IP:${NEW_IP}"
+            openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+                -keyout "/etc/apache2/ssl/private.key" \
+                -out "/etc/apache2/ssl/certificate.crt" \
+                -subj "/C=IN/ST=State/L=City/O=DiagnosticCenter/CN=${APACHE_SERVER_NAME}" \
+                -addext "subjectAltName=${SAN_ENTRIES}" 2>/dev/null
             apache2ctl graceful 2>/dev/null || true
-            echo "[IP-MONITOR] Apache reloaded with new ServerAlias: ${ALIASES}"
-            
-            # If SSL is enabled, regenerate self-signed cert with new IP in SAN
-            if [ "${ENABLE_SSL}" = "true" ] && [ -f "/etc/apache2/ssl/private.key" ]; then
-                SAN_ENTRIES="DNS:${APACHE_SERVER_NAME},DNS:localhost,IP:127.0.0.1,IP:${LOCAL_IP_CURRENT},IP:${NEW_IP}"
-                openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-                    -keyout "/etc/apache2/ssl/private.key" \
-                    -out "/etc/apache2/ssl/certificate.crt" \
-                    -subj "/C=IN/ST=State/L=City/O=DiagnosticCenter/CN=${APACHE_SERVER_NAME}" \
-                    -addext "subjectAltName=${SAN_ENTRIES}" 2>/dev/null
-                apache2ctl graceful 2>/dev/null || true
-                echo "[IP-MONITOR] SSL certificate regenerated with new IP SAN"
-                log_diagnostic "ssl_update" "$NEW_IP" 0 "ok" "SSL cert regenerated with new public IP SAN" "SAN: ${SAN_ENTRIES}"
-            fi
-        else
-            echo "[IP-MONITOR] Skipping Apache reload for IP change (reload disabled or local/private mode)."
-            log_diagnostic "ip_change" "$NEW_IP" 0 "ok" "Public IP changed; Apache reload skipped" "IP_MONITOR_APACHE_RELOAD=${APACHE_RELOAD_ON_IP_CHANGE}; APACHE_SERVER_NAME=${APACHE_SERVER_NAME:-localhost}; DUAL_IP_BIND=${DUAL_IP_BIND:-false}"
+            echo "[IP-MONITOR] SSL certificate regenerated with new IP SAN"
+            log_diagnostic "ssl_update" "$NEW_IP" 0 "ok" "SSL cert regenerated with new public IP SAN" "SAN: ${SAN_ENTRIES}"
         fi
         
         # Update database

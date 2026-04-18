@@ -23,78 +23,6 @@ DATABASE_PORT="${DB_PORT:-3301}"
 echo "[CONFIG] Database: ${DB_HOST} / ${DB_NAME} (user: ${DB_USER})"
 echo "[CONFIG] Ports: HTTP=${HTTP_PORT}  HTTPS=${HTTPS_PORT}  DB=${DATABASE_PORT}"
 
-# ---- 1.5 SQL bundle intrusion guard ----
-INIT_SQL_ROOT="/var/www/html/dump/init"
-INIT_TUNNEL_FILE="${INIT_SQL_ROOT}/500-data-flow-tunnel.sql"
-INIT_TABLES_DIR="${INIT_SQL_ROOT}/tables"
-INIT_BUNDLE_GUARD="${INIT_BUNDLE_GUARD:-true}"
-
-validate_sql_data_tunnel() {
-    echo "[SECURITY] Validating SQL tunnel integrity..."
-
-    local required_file
-    for required_file in \
-        "${INIT_SQL_ROOT}/001-main-schema.sql" \
-        "${INIT_TUNNEL_FILE}" \
-        "${INIT_SQL_ROOT}/900-post-schema.sql"; do
-        if [ ! -f "${required_file}" ]; then
-            echo "[SECURITY] ERROR: Missing required SQL file: ${required_file}"
-            return 1
-        fi
-    done
-
-    if [ ! -d "${INIT_TABLES_DIR}" ]; then
-        echo "[SECURITY] ERROR: Missing tables directory: ${INIT_TABLES_DIR}"
-        return 1
-    fi
-
-    local table_count
-    table_count=$(find "${INIT_TABLES_DIR}" -maxdepth 1 -type f -name '*-data-*.sql' | wc -l | tr -d '[:space:]')
-    if [ -z "${table_count}" ] || [ "${table_count}" -eq 0 ]; then
-        echo "[SECURITY] ERROR: No per-table data SQL files found in ${INIT_TABLES_DIR}"
-        return 1
-    fi
-
-    local source_count
-    source_count=0
-
-    local source_line
-    local table_file
-    while IFS= read -r source_line; do
-        if echo "${source_line}" | grep -Eq '^[[:space:]]*SOURCE[[:space:]]+'; then
-            if ! echo "${source_line}" | grep -Eq '^[[:space:]]*SOURCE[[:space:]]+/docker-entrypoint-initdb\.d/tables/[A-Za-z0-9_.-]+[[:space:]]*;[[:space:]]*$'; then
-                echo "[SECURITY] ERROR: Invalid SOURCE link in tunnel: ${source_line}"
-                return 1
-            fi
-
-            table_file=$(echo "${source_line}" | sed -E 's|^[[:space:]]*SOURCE[[:space:]]+/docker-entrypoint-initdb\.d/tables/([A-Za-z0-9_.-]+)[[:space:]]*;[[:space:]]*$|\1|')
-            if [ ! -f "${INIT_TABLES_DIR}/${table_file}" ]; then
-                echo "[SECURITY] ERROR: Tunnel points to missing table file: ${table_file}"
-                return 1
-            fi
-
-            source_count=$((source_count + 1))
-        fi
-    done < "${INIT_TUNNEL_FILE}"
-
-    if [ "${source_count}" -ne "${table_count}" ]; then
-        echo "[SECURITY] ERROR: Tunnel link count mismatch (links=${source_count}, files=${table_count})"
-        return 1
-    fi
-
-    echo "[SECURITY] SQL tunnel integrity passed (${source_count} secured links)."
-    return 0
-}
-
-if [ "${INIT_BUNDLE_GUARD}" = "true" ]; then
-    if ! validate_sql_data_tunnel; then
-        echo "[SECURITY] Startup blocked to prevent SQL bundle intrusion."
-        exit 1
-    fi
-else
-    echo "[SECURITY] WARNING: SQL tunnel guard disabled (INIT_BUNDLE_GUARD=false)."
-fi
-
 # ---- 2. Wait for Database to be ready ----
 echo "[DB] Waiting for database at ${DB_HOST}..."
 MAX_RETRIES=30
@@ -110,14 +38,72 @@ until mysqladmin ping -h "${DB_HOST}" -u "${DB_USER}" -p"${DB_PASS}" --skip-ssl 
 done
 echo "[DB] Database is ready."
 
-# ---- 3. Apply compatibility updates (SQL schema is init-driven) ----
-echo "[DB] Applying compatibility updates..."
+# ---- 3. Ensure required tables exist ----
+echo "[DB] Ensuring required tables exist..."
 mysql -h "${DB_HOST}" -u "${DB_USER}" -p"${DB_PASS}" --skip-ssl "${DB_NAME}" <<'EOSQL' 2>/dev/null || true
+CREATE TABLE IF NOT EXISTS `site_messages` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `title` varchar(255) NOT NULL,
+  `message` text NOT NULL,
+  `type` enum('info','warning','maintenance','success','danger') DEFAULT 'info',
+  `show_as_popup` tinyint(1) DEFAULT 0,
+  `is_active` tinyint(1) DEFAULT 1,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `error_logs` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `error_level` int(11) DEFAULT NULL,
+  `error_message` text DEFAULT NULL,
+  `file_path` varchar(500) DEFAULT NULL,
+  `line_number` int(11) DEFAULT NULL,
+  `request_url` varchar(500) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_error_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `developer_settings` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `setting_key` varchar(100) NOT NULL UNIQUE,
+  `setting_value` text DEFAULT NULL,
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `ip_diagnostics` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `check_type` varchar(50) NOT NULL,
+  `ip_address` varchar(45) DEFAULT NULL,
+  `port` int(11) DEFAULT NULL,
+  `status` enum('ok','error','warning') NOT NULL DEFAULT 'ok',
+  `message` text DEFAULT NULL,
+  `details` text DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_diag_created` (`created_at`),
+  KEY `idx_diag_type` (`check_type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Insert default developer settings if not present
+INSERT IGNORE INTO `developer_settings` (`setting_key`, `setting_value`) VALUES
+  ('public_ip', ''),
+  ('local_ip', ''),
+  ('last_ip_check', ''),
+  ('ip_check_interval', '300'),
+  ('last_reload_time', ''),
+  ('ip_last_error', ''),
+  ('ip_change_log', ''),
+  ('port_scan_results', ''),
+  ('last_port_scan', ''),
+  ('public_ip_diagnostics', '');
+
 -- Ensure users role enum supports platform_admin and migrate any legacy developer rows
 ALTER TABLE `users` MODIFY `role` enum('manager','receptionist','accountant','writer','superadmin','platform_admin') NOT NULL;
 UPDATE `users` SET `role` = 'platform_admin' WHERE `role` = 'developer';
 EOSQL
-echo "[DB] Compatibility updates complete."
+echo "[DB] Table check complete."
 
 # ---- 3.5 Enforce platform admin credentials ----
 PLATFORM_USERNAME="platform"
@@ -139,37 +125,6 @@ WHERE role = 'developer';
 EOSQL
 echo "[DB] Platform admin credentials enforced (username: ${PLATFORM_USERNAME})."
 
-is_private_or_loopback_ip() {
-    local ip="$1"
-    if [ -z "$ip" ]; then
-        return 0
-    fi
-
-    if [[ "$ip" =~ ^127\. ]] || [[ "$ip" =~ ^10\. ]] || [[ "$ip" =~ ^192\.168\. ]] || [[ "$ip" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]] || [[ "$ip" =~ ^169\.254\. ]]; then
-        return 0
-    fi
-
-    return 1
-}
-
-PUBLIC_EXPOSURE_MODE="true"
-if [ "${DUAL_IP_BIND:-false}" != "true" ]; then
-    PUBLIC_EXPOSURE_MODE="false"
-fi
-
-# Optional: run WAN probe checks during startup.
-# Keep disabled by default so ports become available quickly.
-STARTUP_NETWORK_PROBES="${STARTUP_NETWORK_PROBES:-false}"
-
-# Local/private deployments do not need WAN diagnostics or dynamic Apache reloads.
-if [ "${APACHE_SERVER_NAME}" = "localhost" ] || [ "${APACHE_SERVER_NAME}" = "127.0.0.1" ]; then
-    PUBLIC_EXPOSURE_MODE="false"
-elif echo "${APACHE_SERVER_NAME}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
-    if is_private_or_loopback_ip "${APACHE_SERVER_NAME}"; then
-        PUBLIC_EXPOSURE_MODE="false"
-    fi
-fi
-
 # ---- 4. Auto-detect IPs ----
 echo "[IP] Detecting network configuration..."
 
@@ -180,26 +135,21 @@ fi
 echo "[IP] Local IP: ${LOCAL_IP}"
 
 # Detect public IP using multiple services (fallback chain)
-if [ "${PUBLIC_EXPOSURE_MODE}" = "true" ]; then
-    if [ -z "${PUBLIC_IP}" ]; then
-        for svc in "https://api.ipify.org" "https://ifconfig.me" "https://icanhazip.com" "https://checkip.amazonaws.com"; do
-            PUBLIC_IP=$(curl -s --max-time 5 "$svc" 2>/dev/null | tr -d '[:space:]')
-            if echo "$PUBLIC_IP" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
-                echo "[IP] Public IP detected via $svc: ${PUBLIC_IP}"
-                break
-            fi
-            PUBLIC_IP=""
-        done
-    fi
+if [ -z "${PUBLIC_IP}" ]; then
+    for svc in "https://api.ipify.org" "https://ifconfig.me" "https://icanhazip.com" "https://checkip.amazonaws.com"; do
+        PUBLIC_IP=$(curl -s --max-time 5 "$svc" 2>/dev/null | tr -d '[:space:]')
+        if echo "$PUBLIC_IP" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "[IP] Public IP detected via $svc: ${PUBLIC_IP}"
+            break
+        fi
+        PUBLIC_IP=""
+    done
+fi
 
-    if [ -n "${PUBLIC_IP}" ]; then
-        echo "[IP] Public IP: ${PUBLIC_IP}"
-    else
-        echo "[IP] WARNING: Could not detect public IP from any service"
-    fi
+if [ -n "${PUBLIC_IP}" ]; then
+    echo "[IP] Public IP: ${PUBLIC_IP}"
 else
-    PUBLIC_IP=""
-    echo "[IP] Public exposure mode: disabled (local/private deployment)."
+    echo "[IP] WARNING: Could not detect public IP from any service"
 fi
 
 # ---- 5. Port Auto-Scan on both IPs ----
@@ -241,18 +191,11 @@ for port in ${HTTP_PORT} ${HTTPS_PORT} ${DATABASE_PORT}; do
 done
 
 # Public IP port scan: test reachability using external callback
-if [ "${PUBLIC_EXPOSURE_MODE}" = "true" ] && [ "${STARTUP_NETWORK_PROBES}" = "true" ] && [ -n "${PUBLIC_IP}" ]; then
+if [ -n "${PUBLIC_IP}" ]; then
     for port in ${HTTP_PORT} ${HTTPS_PORT}; do
         echo -n "[PORT-SCAN]   Public ${PUBLIC_IP}:${port} -> "
-        # We try a request to our own public IP + port to see if we're reachable.
-        scheme="http"
-        if [ "${port}" = "${HTTPS_PORT}" ]; then
-            scheme="https"
-        fi
-        HTTP_CODE=$(curl -k -s -o /dev/null -w "%{http_code}" --max-time 5 "${scheme}://${PUBLIC_IP}:${port}/" 2>/dev/null || true)
-        if [ -z "${HTTP_CODE}" ]; then
-            HTTP_CODE="000"
-        fi
+        # We try a curl HEAD to our own public IP + port to see if we're reachable
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://${PUBLIC_IP}:${port}/" 2>/dev/null || echo "000")
         if [ "$HTTP_CODE" != "000" ]; then
             echo "OPEN (HTTP ${HTTP_CODE})"
             PORT_SCAN_RESULTS="${PORT_SCAN_RESULTS}public:${port}=open;"
@@ -270,7 +213,7 @@ echo "[DIAG] Running public IP diagnostics..."
 
 DIAG_SUMMARY=""
 
-if [ "${PUBLIC_EXPOSURE_MODE}" = "true" ] && [ "${STARTUP_NETWORK_PROBES}" = "true" ] && [ -n "${PUBLIC_IP}" ]; then
+if [ -n "${PUBLIC_IP}" ]; then
     # Test 1: Can we reach our own public IP? (hairpin NAT test)
     echo -n "[DIAG]   Hairpin NAT test... "
     HAIRPIN=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://${PUBLIC_IP}:${HTTP_PORT}/" 2>/dev/null || echo "000")
@@ -325,15 +268,9 @@ if [ "${PUBLIC_EXPOSURE_MODE}" = "true" ] && [ "${STARTUP_NETWORK_PROBES}" = "tr
         echo "SKIP (could not verify)"
         DIAG_SUMMARY="${DIAG_SUMMARY}ip_consistent=unknown;"
     fi
-elif [ "${PUBLIC_EXPOSURE_MODE}" = "true" ] && [ "${STARTUP_NETWORK_PROBES}" = "true" ]; then
+else
     DIAG_SUMMARY="no_public_ip;"
     log_port_scan "startup_check" "" 0 "error" "No public IP detected at startup" "All external IP detection services failed. Check internet connectivity or set PUBLIC_IP manually in .env"
-elif [ "${PUBLIC_EXPOSURE_MODE}" = "true" ]; then
-    DIAG_SUMMARY="public_diagnostics_deferred;"
-    PORT_SCAN_RESULTS="${PORT_SCAN_RESULTS}public:${HTTP_PORT}=deferred;public:${HTTPS_PORT}=deferred;"
-    log_port_scan "startup_check" "${PUBLIC_IP}" 0 "warning" "Startup WAN diagnostics deferred" "Set STARTUP_NETWORK_PROBES=true to run WAN probes during startup."
-else
-    DIAG_SUMMARY="public_diagnostics_disabled;"
 fi
 
 # Store results in database
@@ -466,8 +403,11 @@ if [ "${ENABLE_SSL}" = "true" ]; then
     if [ -f "$CERT_FILE" ] && [ -f "$KEY_FILE" ]; then
         echo "[SSL] Found SSL certificates, enabling HTTPS..."
         a2ensite default-ssl.conf 2>/dev/null || true
-
-        echo "[SSL] HTTPS enabled on port ${HTTPS_PORT}; HTTP on port ${HTTP_PORT} remains available."
+        
+        sed -i 's/# RewriteCond %{HTTPS} off/RewriteCond %{HTTPS} off/' "$VHOST_FILE"
+        sed -i 's/# RewriteRule \^(.\*)$ https/RewriteRule ^(.*)$ https/' "$VHOST_FILE"
+        
+        echo "[SSL] HTTPS redirect enabled"
     else
         echo "[SSL] Generating self-signed certificate..."
         mkdir -p /etc/apache2/ssl
@@ -485,7 +425,6 @@ if [ "${ENABLE_SSL}" = "true" ]; then
         
         a2ensite default-ssl.conf 2>/dev/null || true
         echo "[SSL] Self-signed certificate generated (SAN: ${SAN_ENTRIES})"
-        echo "[SSL] HTTPS enabled on port ${HTTPS_PORT}; HTTP on port ${HTTP_PORT} remains available."
     fi
 else
     echo "[SSL] SSL is DISABLED (HTTP only)"
@@ -494,8 +433,7 @@ fi
 
 # ---- 10. Set correct permissions ----
 echo "[PERMS] Setting file permissions..."
-for dir in uploads saved_bills final_reports manager/uploads dump/backup templates/report_templates data data/receipts data/reports data/expenses data/professional_charges data/monthly_reports data/daily_reports; do
-    mkdir -p "/var/www/html/$dir" 2>/dev/null || true
+for dir in uploads saved_bills final_reports manager/uploads data_backup; do
     if [ -d "/var/www/html/$dir" ]; then
         chown -R www-data:www-data "/var/www/html/$dir" 2>/dev/null || true
         chmod -R 775 "/var/www/html/$dir" 2>/dev/null || true
@@ -504,7 +442,7 @@ done
 
 # ---- 10.5 Monthly Database Backup (auto) ----
 echo "[BACKUP] Checking monthly backup..."
-BACKUP_DIR="/var/www/html/dump/backup"
+BACKUP_DIR="/var/www/html/data_backup"
 mkdir -p "${BACKUP_DIR}"
 chown -R www-data:www-data "${BACKUP_DIR}" 2>/dev/null || true
 chmod -R 775 "${BACKUP_DIR}" 2>/dev/null || true
@@ -522,20 +460,12 @@ if command -v crontab &>/dev/null; then
 fi
 
 # ---- 11. Start Public IP Monitor (background) ----
-if [ "${PUBLIC_EXPOSURE_MODE}" = "true" ] && [ "${DUAL_IP_BIND:-false}" = "true" ] && [ "${IP_CHECK_INTERVAL:-0}" -gt 0 ] 2>/dev/null; then
+if [ "${DUAL_IP_BIND}" = "true" ] && [ "${IP_CHECK_INTERVAL:-0}" -gt 0 ] 2>/dev/null; then
     echo "[IP-MONITOR] Starting public IP monitor + port scanner (interval: ${IP_CHECK_INTERVAL}s)..."
     /usr/local/bin/ip-monitor.sh &
-else
-    echo "[IP-MONITOR] Skipped for local/private mode."
 fi
 
-# ---- 12. Write readiness marker ----
-READY_DIR="/var/www/html/health"
-READY_FILE="${READY_DIR}/ready.txt"
-mkdir -p "${READY_DIR}"
-date -u "+ready %Y-%m-%dT%H:%M:%SZ" > "${READY_FILE}"
-
-# ---- 13. Print access info ----
+# ---- 12. Print access info ----
 echo ""
 echo "============================================"
 echo "  Website Ready!"
@@ -567,5 +497,5 @@ echo "  DIAGNOSTICS: ${DIAG_SUMMARY:-none}"
 echo "============================================"
 echo ""
 
-# ---- 14. Start Apache ----
+# ---- 13. Start Apache ----
 exec "$@"

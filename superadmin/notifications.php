@@ -6,13 +6,6 @@ require_once '../includes/db_connect.php';
 require_once '../includes/functions.php';
 require_once '../includes/header.php';
 
-$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
-$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
-$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
-$notification_queue_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'notification_queue', 'nq') : '`notification_queue` nq';
-
-$sa_active_page = 'global_settings.php';
-
 // Ensure the notification_queue table has necessary columns
 $conn->query("CREATE TABLE IF NOT EXISTS notification_queue (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -29,14 +22,14 @@ $conn->query("CREATE TABLE IF NOT EXISTS notification_queue (
 
 // Fetch Lists for Dropdowns
 $doctors = [];
-$res = $conn->query("SELECT rd.id, rd.doctor_name, rd.email, rd.phone_number as phone FROM {$referral_doctors_source} ORDER BY rd.doctor_name");
+$res = $conn->query("SELECT id, doctor_name, email, phone_number as phone FROM referral_doctors ORDER BY doctor_name");
 if ($res) {
     while($row = $res->fetch_assoc()) { $doctors[] = $row; }
 }
 
 $employees = [];
 // Note: Using 'users' table for employees. Contact info is currently unavailable in this table.
-$res = $conn->query("SELECT u.id, u.username as name, '' as email, '' as phone FROM {$users_source} WHERE u.role != 'superadmin' ORDER BY u.username");
+$res = $conn->query("SELECT id, username as name, '' as email, '' as phone FROM users WHERE role != 'superadmin' ORDER BY username");
 if ($res) {
     while($row = $res->fetch_assoc()) { $employees[] = $row; }
 }
@@ -128,11 +121,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['recipient_type'])) {
     $count = 0;
 
     if ($type === 'group_patients') {
-        $res = $conn->query("SELECT COUNT(*) as cnt FROM {$patients_source}");
+        $res = $conn->query("SELECT COUNT(*) as cnt FROM patients");
         $count = $res->fetch_assoc()['cnt'];
         $recipient_group = 'all_patients';
     } elseif ($type === 'group_doctors') {
-        $res = $conn->query("SELECT COUNT(*) as cnt FROM {$referral_doctors_source}");
+        $res = $conn->query("SELECT COUNT(*) as cnt FROM referral_doctors");
         $count = $res->fetch_assoc()['cnt'];
         $recipient_group = 'all_doctors';
     } elseif ($type === 'individual_doctor') {
@@ -193,13 +186,9 @@ $notification_prefs = app_settings_resolve($conn, $notification_pref_defaults, [
 ]);
 
 // Fetch Notification History
-$history_sql = "SELECT nq.* FROM {$notification_queue_source} ORDER BY nq.created_at DESC LIMIT 20";
+$history_sql = "SELECT * FROM notification_queue ORDER BY created_at DESC LIMIT 20";
 $history_result = $conn->query($history_sql);
 ?>
-
-<link rel="stylesheet" href="<?php echo $base_url; ?>/assets/css/superadmin_shell.css?v=<?php echo time(); ?>">
-
-<?php require_once __DIR__ . '/components/shell_start.php'; ?>
 
 <div class="main-content page-container">
     <div class="dashboard-header">
@@ -469,5 +458,4 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 
-<?php require_once __DIR__ . '/components/shell_end.php'; ?>
 <?php require_once '../includes/footer.php'; ?>

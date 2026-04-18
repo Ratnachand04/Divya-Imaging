@@ -7,73 +7,6 @@ function isDevModeOn($conn) {
     return $res && ($res->fetch_row()[0] ?? 'false') === 'true';
 }
 
-function ghost_is_safe_identifier(string $identifier): bool {
-    return (bool)preg_match('/^[A-Za-z0-9_]+$/', $identifier);
-}
-
-function ghost_quote_identifier(string $identifier): string {
-    return '`' . str_replace('`', '``', $identifier) . '`';
-}
-
-function ghost_schema_table_exists(mysqli $conn, string $table): bool {
-    $table = trim($table);
-    if (!ghost_is_safe_identifier($table)) {
-        return false;
-    }
-
-    if (function_exists('schema_has_table')) {
-        return schema_has_table($conn, $table);
-    }
-
-    $stmt = $conn->prepare("SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? LIMIT 1");
-    if (!$stmt) {
-        return false;
-    }
-
-    $stmt->bind_param('s', $table);
-    $stmt->execute();
-    $res = $stmt->get_result();
-    $exists = $res && (bool)$res->fetch_row();
-    $stmt->close();
-
-    return $exists;
-}
-
-function ghost_schema_columns(mysqli $conn, string $table): array {
-    $table = trim($table);
-    if (!ghost_schema_table_exists($conn, $table)) {
-        return [];
-    }
-
-    $columns = [];
-    $stmt = $conn->prepare("SELECT
-            COLUMN_NAME AS Field,
-            COLUMN_TYPE AS Type,
-            COLLATION_NAME AS Collation,
-            IS_NULLABLE AS `Null`,
-            COLUMN_KEY AS `Key`,
-            COLUMN_DEFAULT AS `Default`,
-            EXTRA AS Extra,
-            COLUMN_COMMENT AS Comment
-        FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = ?
-        ORDER BY ORDINAL_POSITION");
-    if (!$stmt) {
-        return [];
-    }
-
-    $stmt->bind_param('s', $table);
-    $stmt->execute();
-    $res = $stmt->get_result();
-    while ($res && ($row = $res->fetch_assoc())) {
-        $columns[] = $row;
-    }
-    $stmt->close();
-
-    return $columns;
-}
-
 // ---- AJAX Handler ----
 if (isset($_POST['action'])) {
     header('Content-Type: application/json');
@@ -175,73 +108,57 @@ if (isset($_POST['action'])) {
         
         // ---- Browse table with pagination ----
         case 'browse_table':
-            $table = trim((string)($_POST['table'] ?? ''));
+            $table = $conn->real_escape_string($_POST['table'] ?? '');
             $page = max(1, (int)($_POST['page'] ?? 1));
             $per_page = min(200, max(10, (int)($_POST['per_page'] ?? 50)));
-            $sort_col = trim((string)($_POST['sort_col'] ?? ''));
+            $sort_col = $_POST['sort_col'] ?? '';
             $sort_dir = strtoupper($_POST['sort_dir'] ?? 'ASC') === 'DESC' ? 'DESC' : 'ASC';
             $search = trim($_POST['search'] ?? '');
             
-            if ($table === '' || !ghost_is_safe_identifier($table)) {
+            if (empty($table)) {
                 echo json_encode(['success' => false, 'error' => 'No table specified']);
                 exit;
             }
-
-            if (!ghost_schema_table_exists($conn, $table)) {
-                echo json_encode(['success' => false, 'error' => 'Table not found']);
-                exit;
-            }
-
-            $quoted_table = ghost_quote_identifier($table);
             
             // Get columns
-            $columns = ghost_schema_columns($conn, $table);
+            $columns = [];
             $pk_col = null;
-            foreach ($columns as $c) {
-                if (($c['Key'] ?? '') === 'PRI' && !$pk_col) {
-                    $pk_col = (string)$c['Field'];
+            $col_res = $conn->query("SHOW COLUMNS FROM `$table`");
+            if ($col_res) {
+                while ($c = $col_res->fetch_assoc()) {
+                    $columns[] = $c;
+                    if ($c['Key'] === 'PRI' && !$pk_col) $pk_col = $c['Field'];
                 }
             }
-
-            if (empty($columns)) {
-                echo json_encode(['success' => false, 'error' => 'Unable to read table schema']);
-                exit;
-            }
-
-            $column_names = array_values(array_filter(array_map(static function ($col) {
-                $field = (string)($col['Field'] ?? '');
-                return ghost_is_safe_identifier($field) ? $field : '';
-            }, $columns)));
             
             // Build WHERE clause for search
             $where = '';
             if (!empty($search)) {
                 $safe_search = $conn->real_escape_string($search);
                 $clauses = [];
-                foreach ($column_names as $field) {
-                    $clauses[] = ghost_quote_identifier($field) . " LIKE '%{$safe_search}%'";
+                foreach ($columns as $c) {
+                    $clauses[] = "`{$c['Field']}` LIKE '%{$safe_search}%'";
                 }
-                if (!empty($clauses)) {
-                    $where = 'WHERE ' . implode(' OR ', $clauses);
-                }
+                $where = 'WHERE ' . implode(' OR ', $clauses);
             }
             
             // Count total
-            $count_res = $conn->query("SELECT COUNT(*) FROM {$quoted_table} {$where}");
+            $count_res = $conn->query("SELECT COUNT(*) FROM `$table` $where");
             $total = $count_res ? (int)$count_res->fetch_row()[0] : 0;
             
             // Build ORDER BY
             $order = '';
-            if ($sort_col !== '' && in_array($sort_col, $column_names, true)) {
-                $order = 'ORDER BY ' . ghost_quote_identifier($sort_col) . ' ' . $sort_dir;
+            if (!empty($sort_col)) {
+                $safe_col = $conn->real_escape_string($sort_col);
+                $order = "ORDER BY `$safe_col` $sort_dir";
             } elseif ($pk_col) {
-                $order = 'ORDER BY ' . ghost_quote_identifier($pk_col) . ' ASC';
+                $order = "ORDER BY `$pk_col` ASC";
             }
             
             // Fetch rows
             $offset = ($page - 1) * $per_page;
             $rows = [];
-            $result = $conn->query("SELECT * FROM {$quoted_table} {$where} {$order} LIMIT {$per_page} OFFSET {$offset}");
+            $result = $conn->query("SELECT * FROM `$table` $where $order LIMIT $per_page OFFSET $offset");
             if ($result) {
                 while ($row = $result->fetch_assoc()) {
                     $rows[] = $row;
@@ -263,30 +180,22 @@ if (isset($_POST['action'])) {
         
         // ---- View table structure ----
         case 'view_structure':
-            $table = trim((string)($_POST['table'] ?? ''));
-
-            if ($table === '' || !ghost_is_safe_identifier($table)) {
-                echo json_encode(['success' => false, 'error' => 'Invalid table specified']);
-                exit;
-            }
-
-            if (!ghost_schema_table_exists($conn, $table)) {
-                echo json_encode(['success' => false, 'error' => 'Table not found']);
-                exit;
-            }
+            $table = $conn->real_escape_string($_POST['table'] ?? '');
             
-            $quoted_table = ghost_quote_identifier($table);
-            
-            $columns = ghost_schema_columns($conn, $table);
+            $columns = [];
+            $res = $conn->query("SHOW FULL COLUMNS FROM `$table`");
+            if ($res) {
+                while ($row = $res->fetch_assoc()) $columns[] = $row;
+            }
             
             $indexes = [];
-            $idx_res = $conn->query("SHOW INDEX FROM {$quoted_table}");
+            $idx_res = $conn->query("SHOW INDEX FROM `$table`");
             if ($idx_res) {
                 while ($row = $idx_res->fetch_assoc()) $indexes[] = $row;
             }
             
             $create_sql = '';
-            $create_res = $conn->query("SHOW CREATE TABLE {$quoted_table}");
+            $create_res = $conn->query("SHOW CREATE TABLE `$table`");
             if ($create_res) {
                 $row = $create_res->fetch_row();
                 $create_sql = $row[1] ?? '';

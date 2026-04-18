@@ -4,9 +4,6 @@ $page_title = "Employee Management";
 $required_role = "manager";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
-require_once '../includes/functions.php';
-
-$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
 
 $feedback = isset($_SESSION['feedback']) ? $_SESSION['feedback'] : '';
 unset($_SESSION['feedback']);
@@ -22,7 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_employee'])) {
     } elseif ($role === 'superadmin') {
         $feedback = "<div class='error-banner'>Managers cannot create Superadmin accounts.</div>";
     } else {
-        $stmt_check = $conn->prepare("SELECT u.id FROM {$users_source} WHERE u.username = ?");
+        $stmt_check = $conn->prepare("SELECT id FROM users WHERE username = ?");
         $stmt_check->bind_param("s", $username);
         $stmt_check->execute();
         $stmt_check->store_result();
@@ -52,7 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_employee'])) {
 }
 
 // Fetch users for the table (excluding privileged roles)
-$users_result = $conn->query("SELECT u.id, u.username, u.role, u.is_active, u.created_at FROM {$users_source} WHERE u.role NOT IN ('superadmin', 'platform_admin', 'developer') ORDER BY u.username ASC");
+$users_result = $conn->query("SELECT id, username, role, is_active, created_at FROM users WHERE role NOT IN ('superadmin', 'platform_admin', 'developer') ORDER BY username ASC");
 
 require_once '../includes/header.php';
 ?>

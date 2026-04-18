@@ -4,9 +4,6 @@ $required_role = "receptionist";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
 
-$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
-$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
-
 $search_term = isset($_GET['search']) ? trim($_GET['search']) : '';
 $receptionist_id = $_SESSION['user_id'];
 $output = '';
@@ -15,7 +12,7 @@ if (!empty($search_term)) {
     $search_query = "%" . $search_term . "%";
     $stmt = $conn->prepare(
         "SELECT b.id, p.uid as patient_uid, p.name as patient_name, b.net_amount, b.created_at, b.payment_status
-            FROM {$bills_source} JOIN {$patients_source} ON b.patient_id = p.id
+         FROM bills b JOIN patients p ON b.patient_id = p.id
          WHERE b.receptionist_id = ? AND (b.id LIKE ? OR p.uid LIKE ? OR p.name LIKE ?)
          ORDER BY b.id DESC"
     );
@@ -25,7 +22,7 @@ if (!empty($search_term)) {
     $limit = 15;
     $stmt = $conn->prepare(
         "SELECT b.id, p.uid as patient_uid, p.name as patient_name, b.net_amount, b.created_at, b.payment_status
-            FROM {$bills_source} JOIN {$patients_source} ON b.patient_id = p.id
+         FROM bills b JOIN patients p ON b.patient_id = p.id
          WHERE b.receptionist_id = ? ORDER BY b.id DESC LIMIT ?"
     );
     $stmt->bind_param("ii", $receptionist_id, $limit);

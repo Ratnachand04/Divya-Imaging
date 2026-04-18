@@ -2,7 +2,7 @@
 # ============================================================
 # Monthly Database Backup - Diagnostic Center
 # ============================================================
-# Saves SQL backup to: dump/backup/YEAR/MONTH/
+# Saves SQL backup to: data_backup/YEAR/MONTH/
 # Usage: chmod +x monthly-backup.sh && ./monthly-backup.sh
 # Supports: Direct MySQL, Docker exec, or PHP-based backup
 # ============================================================
@@ -25,9 +25,8 @@ YEAR=$(date +"%Y")
 MONTH=$(date +"%m")
 TIMESTAMP=$(date +"%Y-%m-%d_%H%M%S")
 
-BACKUP_DIR="dump/backup/${YEAR}/${MONTH}"
+BACKUP_DIR="data_backup/${YEAR}/${MONTH}"
 BACKUP_FILE="${BACKUP_DIR}/backup_${TIMESTAMP}.sql"
-MIRROR_DIR="${BACKUP_DIR}/sql_bundle_${TIMESTAMP}"
 
 echo "Backup folder: ${BACKUP_DIR}"
 echo "Backup file:   ${BACKUP_FILE}"
@@ -53,8 +52,12 @@ elif command -v mysqldump &>/dev/null; then
         --triggers \
         -h "${DB_HOST}" \
         -u "${DB_USER}" -p"${DB_PASS}" "${DB_NAME}" > "${BACKUP_FILE}"
+elif command -v php &>/dev/null; then
+    echo "Using PHP backup engine..."
+    php data_backup/backup_engine.php
+    exit $?
 else
-    echo "ERROR: No backup tool available (docker or mysqldump)"
+    echo "ERROR: No backup tool available (docker, mysqldump, or php)"
     exit 1
 fi
 
@@ -64,15 +67,11 @@ if [ $? -eq 0 ] && [ -s "${BACKUP_FILE}" ]; then
     echo "Backup completed successfully!"
     echo "File: ${BACKUP_FILE}"
     echo "Size: ${FILE_SIZE}"
-
-    mkdir -p "${MIRROR_DIR}"
-    if cp -R dump/init "${MIRROR_DIR}/init"; then
-        echo "SQL bundle mirrored: ${MIRROR_DIR}"
-    else
-        echo "WARNING: SQL bundle mirror failed."
-    fi
     
-    echo "Stored in dump/backup automatically."
+    # Update JSON index if PHP is available
+    if command -v php &>/dev/null; then
+        php data_backup/update_index_cli.php "${BACKUP_FILE}" "${DB_NAME}" "${YEAR}" "${MONTH}"
+    fi
 else
     echo ""
     echo "ERROR: Backup failed or produced empty file."

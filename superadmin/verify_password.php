@@ -6,8 +6,6 @@ $required_role = "superadmin";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
 
-$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
-
 // Ensure this is a POST request
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     echo json_encode(['success' => false, 'message' => 'Invalid request method.']);
@@ -26,7 +24,7 @@ if (empty($submitted_password)) {
 $user_id = $_SESSION['user_id'];
 
 // Fetch the hashed password from the database for the current user
-$stmt = $conn->prepare("SELECT u.password FROM {$users_source} WHERE u.id = ?");
+$stmt = $conn->prepare("SELECT password FROM users WHERE id = ?");
 $stmt->bind_param("i", $user_id);
 $stmt->execute();
 $result = $stmt->get_result();

@@ -1427,6 +1427,59 @@ body.nav-collapsed .main-navbar {
     max-height: 380px;
 }
 
+/* ===== DESKTOP: Compact Filter Forms (Single Row Layout) ===== */
+.filter-form.compact-filters {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.5rem;
+    overflow-x: auto;
+    margin-bottom: 1rem;
+}
+
+.filter-form.compact-filters .filter-group {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: auto;
+}
+
+.filter-form.compact-filters .filter-group label {
+    min-width: auto;
+    white-space: nowrap;
+    font-size: 0.9rem;
+    margin: 0;
+}
+
+.filter-form.compact-filters .filter-group input,
+.filter-form.compact-filters .filter-group select {
+    width: 140px;
+    padding: 0.4rem 0.5rem;
+    font-size: 0.85rem;
+    height: 36px;
+}
+
+.filter-form.compact-filters .filter-actions {
+    flex: 0 0 auto;
+    margin-left: auto;
+    display: flex;
+    gap: 0.4rem;
+    margin-top: 0;
+}
+
+.filter-form.compact-filters .filter-actions .btn-submit,
+.filter-form.compact-filters .filter-actions .btn-cancel {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+    white-space: nowrap;
+    height: 36px;
+    display: flex;
+    align-items: center;
+}
+
 @media (max-width: 768px) {
     .charts-section {
         gap: 1rem;
@@ -1724,36 +1777,6 @@ body.nav-collapsed .main-navbar {
     
     .main-navbar ul li a:hover::after {
         display: none; /* Remove hover underline effect if exists */
-    }
-
-    /* Filters & Forms */
-    .filter-form.compact-filters {
-        flex-direction: column;
-        align-items: stretch;
-    }
-    
-    .filter-group {
-        flex-direction: column;
-        align-items: stretch;
-        width: 100%;
-    }
-
-    .form-group, .filter-group .form-group {
-        min-width: 100%;
-        width: 100% !important;
-    }
-
-    .filter-actions {
-        width: 100%;
-        flex-wrap: wrap;
-        justify-content: stretch;
-        margin-top: 1rem;
-    }
-
-    .filter-actions .btn-submit,
-    .filter-actions .btn-cancel {
-        flex: 1;
-        justify-content: center;
     }
 
     .quick-date-pills {
@@ -2168,7 +2191,32 @@ body.app-layout .main-navbar {
     border-right: 1px solid var(--nav-border);
     box-shadow: 8px 0 28px rgba(249, 168, 212, 0.3);
     max-height: none;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
     transition: width 0.24s ease, padding 0.24s ease, transform 0.24s ease;
+}
+
+body.app-layout .main-navbar::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
+
+body.app-layout .main-navbar:hover {
+    scrollbar-width: thin;
+}
+
+body.app-layout .main-navbar:hover::-webkit-scrollbar {
+    width: 6px;
+}
+
+body.app-layout .main-navbar:hover::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.45);
+    border-radius: 999px;
+}
+
+body.app-layout .main-navbar:hover::-webkit-scrollbar-thumb {
+    background: rgba(224, 55, 106, 0.55);
+    border-radius: 999px;
 }
 
 body.app-layout .sidebar-role-label {

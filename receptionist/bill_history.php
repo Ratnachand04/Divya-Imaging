@@ -7,13 +7,6 @@ require_once '../includes/functions.php';
 
 ensure_bill_payment_split_columns($conn);
 
-$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
-$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
-$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
-$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
-$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
-$bill_item_screenings_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_item_screenings', 'bis') : '`bill_item_screenings` bis';
-
 // --- Handle All Filters ---
 $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : date('Y-m-d');
 $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : date('Y-m-d');
@@ -39,9 +32,9 @@ $base_query = "SELECT
         b.id, p.uid as patient_uid, p.name as patient_name, b.gross_amount, b.discount, b.net_amount,
     b.amount_paid, b.balance_amount, b.created_at, b.payment_mode, b.cash_amount, b.card_amount, b.upi_amount, b.other_amount, b.payment_status, b.referral_type,
         rd.doctor_name as ref_physician_name
-    FROM {$bills_source}
-    JOIN {$patients_source} ON b.patient_id = p.id
-    LEFT JOIN {$referral_doctors_source} ON b.referral_doctor_id = rd.id"; //
+    FROM bills b
+    JOIN patients p ON b.patient_id = p.id
+    LEFT JOIN referral_doctors rd ON b.referral_doctor_id = rd.id"; //
 
 $where_clauses = ["b.receptionist_id = ?", "b.bill_status != 'Void'", "DATE(b.created_at) BETWEEN ? AND ?"]; //
 $params = [$receptionist_id, $start_date, $end_date]; //
@@ -135,17 +128,26 @@ function bh_csv_amount($value) {
 }
 
 function bh_has_table(mysqli $conn, $table_name) {
-    if (!function_exists('schema_has_table')) {
+    $safe_table = $conn->real_escape_string((string)$table_name);
+    $result = $conn->query("SHOW TABLES LIKE '{$safe_table}'");
+    if (!$result) {
         return false;
     }
-    return schema_has_table($conn, (string)$table_name);
+    $exists = $result->num_rows > 0;
+    $result->free();
+    return $exists;
 }
 
 function bh_has_column(mysqli $conn, $table_name, $column_name) {
-    if (!function_exists('schema_has_column')) {
+    $safe_table = $conn->real_escape_string((string)$table_name);
+    $safe_column = $conn->real_escape_string((string)$column_name);
+    $result = $conn->query("SHOW COLUMNS FROM {$safe_table} LIKE '{$safe_column}'");
+    if (!$result) {
         return false;
     }
-    return schema_has_column($conn, (string)$table_name, (string)$column_name);
+    $exists = $result->num_rows > 0;
+    $result->free();
+    return $exists;
 }
 
 function bh_normalize_category($raw_category) {
@@ -245,10 +247,10 @@ $daily_grand_totals = bh_amount_template();
 
 $daily_bills = [];
 $daily_bill_stmt = $conn->prepare("SELECT id, net_amount, discount, amount_paid, balance_amount, cash_amount, card_amount, upi_amount, other_amount
-                                                                    FROM {$bills_source}
-                                                                    WHERE b.receptionist_id = ?
-                                                                        AND b.bill_status != 'Void'
-                                                                        AND DATE(b.created_at) = ?");
+                                  FROM bills
+                                  WHERE receptionist_id = ?
+                                    AND bill_status != 'Void'
+                                    AND DATE(created_at) = ?");
 if ($daily_bill_stmt) {
     $daily_bill_stmt->bind_param('is', $receptionist_id, $summary_date);
     $daily_bill_stmt->execute();
@@ -268,7 +270,7 @@ if (!empty($daily_bills)) {
     $placeholders = implode(',', array_fill(0, count($bill_ids), '?'));
 
     $screening_join_sql = $has_screening_table
-        ? "LEFT JOIN {$bill_item_screenings_source} ON bis.bill_item_id = bi.id"
+        ? 'LEFT JOIN bill_item_screenings bis ON bis.bill_item_id = bi.id'
         : '';
     $screening_amount_sql = $has_screening_table
         ? 'COALESCE(bis.screening_amount, 0) AS screening_amount'
@@ -283,8 +285,8 @@ if (!empty($daily_bills)) {
                                COALESCE(t.price, 0) AS base_price,
                                {$item_discount_sql},
                                {$screening_amount_sql}
-                                                FROM {$bill_items_source}
-                                                JOIN {$tests_source} ON t.id = bi.test_id
+                        FROM bill_items bi
+                        JOIN tests t ON t.id = bi.test_id
                         {$screening_join_sql}
                         WHERE bi.bill_id IN ({$placeholders})
                           AND bi.item_status = 0
@@ -833,11 +835,12 @@ require_once '../includes/header.php';
         width: 27%;
     }
 
+    .bill-history-table .col-gross,
     .bill-history-table .col-net,
     .bill-history-table .col-discount,
     .bill-history-table .col-paid,
     .bill-history-table .col-pending {
-        width: 10%;
+        width: 9%;
     }
 
     .bill-history-table .col-status {
@@ -848,6 +851,7 @@ require_once '../includes/header.php';
         width: 17%;
     }
 
+    .bill-history-table th.col-gross,
     .bill-history-table th.col-net,
     .bill-history-table th.col-discount,
     .bill-history-table th.col-paid,
@@ -982,12 +986,23 @@ require_once '../includes/header.php';
     }
 
     .bill-history-table .group-header {
-        background: #375a9e;
-        color: #fff;
+        background: #2f4f92 !important;
+        color: #ffffff !important;
+        font-weight: 700 !important;
         text-align: left;
         font-size: 0.76rem;
         letter-spacing: 0.03em;
         padding: 0.56rem 0.72rem !important;
+        text-shadow: none !important;
+    }
+
+    body.role-receptionist.app-layout .bill-history-table th.group-header {
+        background: #2f4f92 !important;
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
+        font-weight: 800 !important;
+        text-shadow: none !important;
+        opacity: 1 !important;
     }
 
     .bill-history-table .summary-cell {
@@ -1269,10 +1284,11 @@ require_once '../includes/header.php';
         <colgroup>
             <col style="width:9%;">
             <col style="width:27%;">
+            <col style="width:9%;">
             <col style="width:10%;">
-            <col style="width:10%;">
-            <col style="width:10%;">
-            <col style="width:10%;">
+            <col style="width:9%;">
+            <col style="width:9%;">
+            <col style="width:9%;">
             <col style="width:7%;">
             <col style="width:17%;">
         </colgroup>
@@ -1280,8 +1296,9 @@ require_once '../includes/header.php';
             <tr>
                 <th class="col-bill">Bill No.</th>
                 <th class="col-patient">Patient Name</th>
-                <th class="col-net" style="text-align:right;">Net Amount</th>
+                <th class="col-gross" style="text-align:right;">Gross Amount</th>
                 <th class="col-discount" style="text-align:right;">Discount</th>
+                <th class="col-net" style="text-align:right;">Net Amount</th>
                 <th class="col-paid" style="text-align:right;">Paid Amount</th>
                 <th class="col-pending" style="text-align:right;">Pending Amount</th>
                 <th class="col-status">Status</th>
@@ -1312,7 +1329,7 @@ require_once '../includes/header.php';
                         $pair_chunks[] = '<span class="summary-pair"><strong>' . htmlspecialchars($pair['label']) . '</strong> = ₹' . number_format((float)$pair['value'], 2) . '</span>';
                     }
 
-                    return '<tr class="' . ($is_grand ? 'grand-total-row' : 'group-total-row') . '"><td colspan="8" class="summary-cell"><div class="' . $line_class . '">' . implode('<span class="summary-pipe">|</span>', $pair_chunks) . '</div></td></tr>';
+                    return '<tr class="' . ($is_grand ? 'grand-total-row' : 'group-total-row') . '"><td colspan="9" class="summary-cell"><div class="' . $line_class . '">' . implode('<span class="summary-pipe">|</span>', $pair_chunks) . '</div></td></tr>';
                 };
 
                 foreach ($bills as $index => $bill) {
@@ -1338,7 +1355,7 @@ require_once '../includes/header.php';
 
                         $group_gross = 0; $group_discount = 0; $group_net = 0; $group_paid = 0; $group_pending = 0;
                         $current_group = $mode_label;
-                        echo '<tr><th colspan="8" class="group-header">' . htmlspecialchars($current_group) . ' Bills</th></tr>';
+                        echo '<tr><th colspan="9" class="group-header">' . htmlspecialchars($current_group) . ' Bills</th></tr>';
                     }
 
                     echo '<tr class="bill-data-row">';
@@ -1354,8 +1371,9 @@ require_once '../includes/header.php';
                     echo '<small class="patient-uid" title="' . htmlspecialchars($patient_uid_raw) . '">' . htmlspecialchars($patient_uid_raw) . '</small>';
                     echo '</td>';
 
-                    echo '<td class="col-net amount-col">₹' . number_format($bill['net_amount'], 2) . '</td>';
+                    echo '<td class="col-gross amount-col">₹' . number_format($bill['gross_amount'], 2) . '</td>';
                     echo '<td class="col-discount amount-col">₹' . number_format($bill['discount'], 2) . '</td>';
+                    echo '<td class="col-net amount-col">₹' . number_format($bill['net_amount'], 2) . '</td>';
                     echo '<td class="col-paid amount-col">₹' . number_format($paid_amount, 2) . '</td>';
                     echo '<td class="col-pending amount-col">₹' . number_format($pending_amount, 2) . '</td>';
                     echo '<td class="col-status status-col"><div class="status-wrap"><span class="' . $status_class . '">' . htmlspecialchars($derived_status) . '</span></div></td>';
@@ -1386,7 +1404,7 @@ require_once '../includes/header.php';
                 echo $render_summary_row('Grand', $grand_gross, $grand_discount, $grand_net, $grand_paid, $grand_pending, true);
 
             } else {
-                echo '<tr><td colspan="8" style="text-align:center;">No bills found for the selected criteria.</td></tr>';
+                echo '<tr><td colspan="9" style="text-align:center;">No bills found for the selected criteria.</td></tr>';
             }
             ?>
         </tbody>

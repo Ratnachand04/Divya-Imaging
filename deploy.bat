@@ -68,14 +68,12 @@ echo How do you want to access this website?
 echo.
 echo   1. Localhost only     (http://localhost:8081)
 echo   2. Private/Local IP   (e.g., http://192.168.1.100:8081)
-echo   3. Public IP          (e.g., https://203.45.67.89:8443)
-echo   4. Domain name        (e.g., https://mysite.com:8443)
+echo   3. Public IP          (e.g., http://203.45.67.89:8081)
+echo   4. Domain name        (e.g., http://mysite.com)
 echo.
 set /p mode="Enter choice (1/2/3/4): "
 
 set SERVER_NAME=localhost
-set DUAL_BIND=false
-set PUBLIC_IP_VALUE=
 
 if "%mode%"=="1" (
     set SERVER_NAME=localhost
@@ -92,16 +90,13 @@ if "%mode%"=="2" (
 if "%mode%"=="3" (
     echo.
     echo   TIP: Find your public IP at https://whatismyip.com
-    echo   Make sure port 8443 is forwarded in your router.
+    echo   Make sure port 8081 is forwarded in your router.
     echo.
     set /p SERVER_NAME="Enter your public IP: "
-    set DUAL_BIND=true
-    set PUBLIC_IP_VALUE=!SERVER_NAME!
 )
 if "%mode%"=="4" (
     echo.
     set /p SERVER_NAME="Enter your domain name (e.g., mysite.com): "
-    set DUAL_BIND=true
 )
 
 echo.
@@ -129,8 +124,6 @@ echo APP_PORT=8081
 echo SSL_PORT=8443
 echo PMA_PORT=8082
 echo DB_PORT=3301
-echo DB_BIND_IP=127.0.0.1
-echo PMA_BIND_IP=127.0.0.1
 echo.
 echo DB_HOST=db
 echo DB_USER=root
@@ -141,16 +134,13 @@ echo DB_EXTRA_USER=diagnostic_user
 echo DB_EXTRA_PASS=diagnostic_pass
 echo.
 echo APACHE_SERVER_NAME=%SERVER_NAME%
-echo ENABLE_SSL=true
+echo ENABLE_SSL=false
 echo.
 echo # ---- Public IP Configuration ----
-echo PUBLIC_IP=%PUBLIC_IP_VALUE%
+echo PUBLIC_IP=
 echo LOCAL_IP=
-echo DUAL_IP_BIND=%DUAL_BIND%
+echo DUAL_IP_BIND=true
 echo IP_CHECK_INTERVAL=300
-echo STARTUP_NETWORK_PROBES=false
-echo IP_MONITOR_APACHE_RELOAD=false
-echo INIT_BUNDLE_GUARD=true
 ) > "%DEPLOY_DIR%.env"
 
 echo   .env file created
@@ -172,42 +162,24 @@ echo     image: ratnachand/diagnostic-center-web:latest
 echo     container_name: diagnostic-center-web
 echo     restart: always
 echo     ports:
-echo       - "8081:80"
-echo       - "8443:443"
+echo       - "${APP_PORT:-8081}:80"
+echo       - "${SSL_PORT:-8443}:443"
 echo     environment:
 echo       - DB_HOST=${DB_HOST:-db}
 echo       - DB_USER=${DB_USER:-root}
 echo       - DB_PASS=${DB_PASS:-root_password}
 echo       - DB_NAME=${DB_NAME:-diagnostic_center_db}
 echo       - APACHE_SERVER_NAME=${APACHE_SERVER_NAME:-localhost}
-echo       - ENABLE_SSL=${ENABLE_SSL:-true}
-echo       - PUBLIC_IP=${PUBLIC_IP:-}
-echo       - LOCAL_IP=${LOCAL_IP:-}
-echo       - DUAL_IP_BIND=${DUAL_IP_BIND:-false}
-echo       - IP_CHECK_INTERVAL=${IP_CHECK_INTERVAL:-300}
-echo       - STARTUP_NETWORK_PROBES=${STARTUP_NETWORK_PROBES:-false}
-echo       - IP_MONITOR_APACHE_RELOAD=${IP_MONITOR_APACHE_RELOAD:-false}
-echo       - APP_PORT=${APP_PORT:-8081}
-echo       - SSL_PORT=${SSL_PORT:-8443}
-echo       - DB_PORT=${DB_PORT:-3301}
-echo       - PMA_PORT=${PMA_PORT:-8082}
-echo       - INIT_BUNDLE_GUARD=${INIT_BUNDLE_GUARD:-true}
+echo       - ENABLE_SSL=${ENABLE_SSL:-false}
 echo     volumes:
 echo       - uploads_data:/var/www/html/uploads
 echo       - saved_bills_data:/var/www/html/saved_bills
 echo       - final_reports_data:/var/www/html/final_reports
 echo       - manager_uploads_data:/var/www/html/manager/uploads
-echo       - dump_backup_data:/var/www/html/dump/backup
 echo       - ssl_certs:/etc/apache2/ssl
 echo     depends_on:
 echo       db:
 echo         condition: service_healthy
-echo     healthcheck:
-echo       test: ["CMD-SHELL", "curl -fsS http://localhost/login.php ^> /dev/null ^|^| exit 1"]
-echo       interval: 10s
-echo       timeout: 5s
-echo       retries: 6
-echo       start_period: 20s
 echo     networks:
 echo       - diagnostic-net
 echo.
@@ -221,10 +193,10 @@ echo       - MYSQL_DATABASE=${DB_NAME:-diagnostic_center_db}
 echo       - MYSQL_USER=${DB_EXTRA_USER:-diagnostic_user}
 echo       - MYSQL_PASSWORD=${DB_EXTRA_PASS:-diagnostic_pass}
 echo     ports:
-echo       - "${DB_BIND_IP:-127.0.0.1}:${DB_PORT:-3301}:3306"
+echo       - "${DB_PORT:-3301}:3306"
 echo     volumes:
 echo       - db_data:/var/lib/mysql
-echo       - ./dump/init:/docker-entrypoint-initdb.d:ro
+echo       - ./diagnostic_center_db_.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
 echo     healthcheck:
 echo       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASS:-root_password}"]
 echo       interval: 10s
@@ -239,7 +211,7 @@ echo     image: phpmyadmin/phpmyadmin:latest
 echo     container_name: diagnostic-center-pma
 echo     restart: always
 echo     ports:
-echo       - "${PMA_BIND_IP:-127.0.0.1}:${PMA_PORT:-8082}:80"
+echo       - "${PMA_PORT:-8082}:80"
 echo     environment:
 echo       - PMA_HOST=db
 echo       - PMA_USER=root
@@ -257,7 +229,6 @@ echo   uploads_data:
 echo   saved_bills_data:
 echo   final_reports_data:
 echo   manager_uploads_data:
-echo   dump_backup_data:
 echo   ssl_certs:
 echo.
 echo networks:
@@ -270,8 +241,8 @@ echo.
 echo Pulling Docker images (this may take a few minutes)...
 docker compose -f "%DEPLOY_DIR%docker-compose.deploy.yml" pull
 
-REM ---- Import SQL database if init files exist ----
-if exist "%DEPLOY_DIR%dump\init\*.sql" (
+REM ---- Import SQL database if file exists ----
+if exist "%DEPLOY_DIR%diagnostic_center_db_.sql" (
     echo.
     echo Loading database schema...
     REM Start only db first
@@ -290,28 +261,20 @@ if exist "%DEPLOY_DIR%dump\init\*.sql" (
     for /f %%i in ('docker exec diagnostic-center-db mysql -u root -p%DB_PASSWORD% -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='diagnostic_center_db'" 2^>nul') do set TABLE_COUNT=%%i
     
     if "%TABLE_COUNT%"=="0" (
-        echo   Importing SQL init files from dump\init\ ...
-        set IMPORT_FAILED=0
-        for %%F in ("%DEPLOY_DIR%dump\init\*.sql") do (
-            echo      - %%~nxF
-            docker exec -i diagnostic-center-db mysql -u root -p%DB_PASSWORD% diagnostic_center_db < "%%F"
-            if errorlevel 1 (
-                set IMPORT_FAILED=1
-                echo   WARNING: Failed to import %%~nxF
-            )
-        )
-        if "!IMPORT_FAILED!"=="0" (
+        echo   Importing database schema and data...
+        docker exec -i diagnostic-center-db mysql -u root -p%DB_PASSWORD% diagnostic_center_db < "%DEPLOY_DIR%diagnostic_center_db_.sql"
+        if %errorlevel% equ 0 (
             echo   Database imported successfully!
         ) else (
-            echo   WARNING: One or more SQL files failed to import. Check manually via phpMyAdmin.
+            echo   WARNING: Database import had errors. Check manually via phpMyAdmin.
         )
     ) else (
         echo   Database already has %TABLE_COUNT% tables, skipping import.
     )
 ) else (
     echo.
-    echo NOTE: No SQL init files found. Database will be empty.
-    echo   Place SQL init files in dump\init\ and re-run to import.
+    echo NOTE: No SQL file found. Database will be empty.
+    echo   Place diagnostic_center_db_.sql in this folder and re-run to import.
 )
 
 REM ---- Start all containers ----
@@ -322,27 +285,7 @@ docker compose -f "%DEPLOY_DIR%docker-compose.deploy.yml" --env-file "%DEPLOY_DI
 REM ---- Wait and verify ----
 echo.
 echo Waiting for services to be ready...
-set READY_URL=http://%SERVER_NAME%:8081/health/ready.php
-set READY_TIMEOUT=90
-set READY_INTERVAL=3
-set /a READY_ELAPSED=0
-
-:waitready
-for /f %%H in ('curl -s -o NUL -w "%%{http_code}" "%READY_URL%"') do set READY_CODE=%%H
-if "%READY_CODE%"=="200" goto readyok
-set /a READY_ELAPSED+=%READY_INTERVAL%
-if %READY_ELAPSED% GEQ %READY_TIMEOUT% goto readytimeout
-timeout /t %READY_INTERVAL% /nobreak >nul
-goto waitready
-
-:readytimeout
-echo   WARNING: Readiness check timed out after %READY_TIMEOUT% seconds.
-goto readydone
-
-:readyok
-echo   Readiness check OK.
-
-:readydone
+timeout /t 10 /nobreak >nul
 
 echo.
 echo Checking container status...
@@ -353,8 +296,7 @@ echo ============================================================
 echo   DEPLOYMENT COMPLETE!
 echo ============================================================
 echo.
-echo   HTTP:       http://%SERVER_NAME%:8081
-echo   HTTPS:      https://%SERVER_NAME%:8443
+echo   Website:    http://%SERVER_NAME%:8081
 echo   phpMyAdmin: http://%SERVER_NAME%:8082
 echo.
 echo   All containers will AUTO-START when Windows boots.

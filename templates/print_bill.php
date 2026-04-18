@@ -5,16 +5,6 @@ require_once '../includes/functions.php';
 ensure_bill_payment_split_columns($conn);
 ensure_package_management_schema($conn);
 
-$bill_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
-$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
-$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
-$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
-$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
-$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
-$test_packages_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'test_packages', 'tp') : '`test_packages` tp';
-$screenings_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_item_screenings', 'bis') : '`bill_item_screenings` bis';
-$bill_package_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_package_items', 'bpi') : '`bill_package_items` bpi';
-
 if (!isset($_GET['bill_id']) || !is_numeric($_GET['bill_id'])) {
     die('Invalid Bill ID provided.');
 }
@@ -25,10 +15,10 @@ $stmt = $conn->prepare(
             p.uid AS patient_uid, p.name AS patient_name, p.age, p.sex, p.address, p.city, p.mobile_number,
             u.username AS receptionist_name,
             rd.doctor_name AS referral_doctor_name
-    FROM {$bill_source}
-    JOIN {$patients_source} ON b.patient_id = p.id
-    JOIN {$users_source} ON b.receptionist_id = u.id
-    LEFT JOIN {$referral_doctors_source} ON b.referral_doctor_id = rd.id
+     FROM bills b
+     JOIN patients p ON b.patient_id = p.id
+     JOIN users u ON b.receptionist_id = u.id
+     LEFT JOIN referral_doctors rd ON b.referral_doctor_id = rd.id
      WHERE b.id = ?"
 );
 $stmt->bind_param('i', $bill_id);
@@ -50,10 +40,10 @@ $items_stmt = $conn->prepare(
                         t.sub_test_name,
                         t.price,
                         COALESCE(bis.screening_amount, 0) AS screening_amount
-         FROM {$bill_items_source}
-         LEFT JOIN {$tests_source} ON bi.test_id = t.id
-         LEFT JOIN {$test_packages_source} ON tp.id = bi.package_id
-         LEFT JOIN {$screenings_source} ON bis.bill_item_id = bi.id
+         FROM bill_items bi
+         LEFT JOIN tests t ON bi.test_id = t.id
+         LEFT JOIN test_packages tp ON tp.id = bi.package_id
+         LEFT JOIN bill_item_screenings bis ON bis.bill_item_id = bi.id
          WHERE bi.bill_id = ?
              AND bi.item_status = 0
              AND (COALESCE(bi.item_type, 'test') = 'package' OR bi.package_id IS NULL)
@@ -67,10 +57,10 @@ $items_stmt->close();
 
 $package_breakdown_map = [];
 $package_items_stmt = $conn->prepare(
-    "SELECT bpi.bill_item_id, bpi.test_name, bpi.package_test_price
-     FROM {$bill_package_items_source}
-     WHERE bpi.bill_id = ?
-     ORDER BY bpi.id ASC"
+    "SELECT bill_item_id, test_name, package_test_price
+     FROM bill_package_items
+     WHERE bill_id = ?
+     ORDER BY id ASC"
 );
 if ($package_items_stmt) {
     $package_items_stmt->bind_param('i', $bill_id);
@@ -291,7 +281,7 @@ $emptyRows = max(0, $minItemRows - count($display_items));
         .bill-receipt-title {
             position: absolute;
             top: calc(13% + 38mm);
-            left: 50%;
+            left: 48.8%;
             transform: translateX(-50%);
             font-size: 19.45px;
             font-weight: 700;
@@ -313,6 +303,11 @@ $emptyRows = max(0, $minItemRows - count($display_items));
             flex: 1 1 0;
             max-width: 48%;
             min-width: 0;
+        }
+
+        .field-row.two-column .field-group:last-child:not(:only-child) {
+            margin-left: 4mm;
+            max-width: calc(48% - 4mm);
         }
 
         .field-row.two-column .field-group:only-child {
@@ -364,7 +359,6 @@ $emptyRows = max(0, $minItemRows - count($display_items));
     .row-patient { top: 24%; }
     .row-age { top: 27.5%; }
     .row-ref { top: 31%; }
-    .row-pay { top: 34.2%; }
 
         .items-container {
             position: absolute;
@@ -595,15 +589,12 @@ $emptyRows = max(0, $minItemRows - count($display_items));
                 </div>
             </div>
 
-            <div class="field-row single row-ref">
+            <div class="field-row two-column row-ref">
                 <div class="field-group">
                     <span class="field-label">Mobile No</span>
                     <span class="field-colon">:</span>
                     <span class="field-value"><?php echo htmlspecialchars($patientMobile !== '' ? $patientMobile : '-'); ?></span>
                 </div>
-            </div>
-
-            <div class="field-row single row-pay">
                 <div class="field-group">
                     <span class="field-label">City</span>
                     <span class="field-colon">:</span>

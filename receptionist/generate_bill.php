@@ -153,10 +153,10 @@ function generateAndSaveBillPdf($bill_id, $conn, $patient_name, $base_save_path)
             foreach ($package_tests as $package_test) {
                 $package_total += (float)($package_test['package_test_price'] ?? 0);
             }
-            $package_total = round($package_total, 2);
+            $package_total = round($package_total, 0);
 
             $package_label = htmlspecialchars($package_name . ' (PACKAGE)');
-            $items_html .= "<tr><td>{$package_label}</td><td style='text-align:right;'>" . number_format($package_total, 2) . "</td></tr>";
+            $items_html .= "<tr><td>{$package_label}</td><td style='text-align:right;'>" . number_format($package_total, 0) . "</td></tr>";
 
             foreach ($package_tests as $package_test) {
                 $test_name = trim((string)($package_test['test_name'] ?? 'Included Test'));
@@ -176,13 +176,13 @@ function generateAndSaveBillPdf($bill_id, $conn, $patient_name, $base_save_path)
             $raw_name = 'Unnamed Test';
         }
         $test_label = htmlspecialchars('Test ' . $raw_name);
-        $base_price = number_format($item['price'], 2);
+        $base_price = number_format($item['price'], 0);
         $items_html .= "<tr><td>{$test_label}</td><td style='text-align:right;'>{$base_price}</td></tr>";
 
         $screening_amount = (float)$item['screening_amount'];
         if ($screening_amount > 0) {
             $screen_label = htmlspecialchars($raw_name . ' Screening');
-            $screen_price = number_format($screening_amount, 2);
+            $screen_price = number_format($screening_amount, 0);
             $items_html .= "<tr><td>{$screen_label}</td><td style='text-align:right;'>{$screen_price}</td></tr>";
         }
     }
@@ -494,8 +494,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 continue;
             }
 
-            $screening_amount = isset($entry['screening']) ? max(0, round((float)$entry['screening'], 2)) : 0.00;
-            $discount_amount = isset($entry['discount']) ? max(0, round((float)$entry['discount'], 2)) : 0.00;
+            $screening_amount = isset($entry['screening']) ? max(0, round((float)$entry['screening'], 0)) : 0.00;
+            $discount_amount = isset($entry['discount']) ? max(0, round((float)$entry['discount'], 0)) : 0.00;
             $structured_tests[] = [
                 'id' => $test_id,
                 'screening' => $screening_amount,
@@ -614,8 +614,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $sum_package_test_price = 0.0;
             $normalized_tests = [];
             foreach ($package_tests as $pkg_test_row) {
-                $base_price = round((float)$pkg_test_row['base_test_price'], 0);
-                $package_test_price = round((float)$pkg_test_row['package_test_price'], 0);
+                $base_price = round((float)$pkg_test_row['base_test_price'], 2);
+                $package_test_price = round((float)$pkg_test_row['package_test_price'], 2);
                 if ($package_test_price < 0) {
                     $package_test_price = 0.0;
                 }
@@ -710,9 +710,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
         unset($package_entry);
 
-        $gross_amount = round($gross_amount, 2);
-        $total_discount = round(min($total_discount, $gross_amount), 2);
-        $net_amount = round($gross_amount - $total_discount, 2);
+        $gross_amount = round($gross_amount, 0);
+        $total_discount = round(min($total_discount, $gross_amount), 0);
+        $net_amount = round($gross_amount - $total_discount, 0);
 
         $allowed_discount_sources = ['Center', 'Doctor'];
         $discount_by_input = trim($_POST['discount_by'] ?? '');
@@ -733,54 +733,32 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
         $payment_status = normalize_payment_status_label($_POST['payment_status'] ?? 'Paid', 'Paid');
 
-        $net_amount_paise = currency_to_paise($net_amount);
-        $prefer_whole_payment = ($net_amount_paise % 100) === 0;
-        $amount_paid_paise = 0;
-        $balance_paise = $net_amount_paise;
+        $amount_paid = 0.0;
+        $balance_amount = $net_amount;
 
         if ($payment_status === 'Partial Paid') {
-            $amount_paid_paise = max(0, currency_to_paise($_POST['amount_paid'] ?? 0));
-            $amount_paid_paise = snap_near_whole_paise($amount_paid_paise, $prefer_whole_payment);
-            if ($amount_paid_paise <= 0) {
+            $amount_paid = max(0, round((float)($_POST['amount_paid'] ?? 0), 0));
+            if ($amount_paid <= 0) {
                 $payment_status = 'Due';
-                $amount_paid_paise = 0;
-                $balance_paise = $net_amount_paise;
-            } elseif ($amount_paid_paise >= $net_amount_paise) {
+                $amount_paid = 0.0;
+                $balance_amount = $net_amount;
+            } elseif ($amount_paid >= $net_amount) {
                 $payment_status = 'Paid';
-                $amount_paid_paise = $net_amount_paise;
-                $balance_paise = 0;
+                $amount_paid = $net_amount;
+                $balance_amount = 0.0;
             } else {
-                $balance_paise = max($net_amount_paise - $amount_paid_paise, 0);
+                $balance_amount = round($net_amount - $amount_paid, 0);
             }
         } elseif ($payment_status === 'Paid') {
-            $amount_paid_paise = $net_amount_paise;
-            $balance_paise = 0;
+            $amount_paid = $net_amount;
+            $balance_amount = 0.0;
         } else {
             $payment_status = 'Due';
-            $amount_paid_paise = 0;
-            $balance_paise = $net_amount_paise;
+            $amount_paid = 0.0;
+            $balance_amount = $net_amount;
         }
 
-        $balance_paise = snap_near_whole_paise($balance_paise, $prefer_whole_payment);
-        $amount_paid = paise_to_currency($amount_paid_paise);
-        $balance_amount = paise_to_currency($balance_paise);
-
-        $split_source = $_POST;
-        if ($prefer_whole_payment) {
-            foreach (['split_cash_amount', 'split_card_amount', 'split_upi_amount', 'split_other_amount'] as $split_field) {
-                if (!isset($split_source[$split_field])) {
-                    continue;
-                }
-                $raw_split_val = trim((string)$split_source[$split_field]);
-                if ($raw_split_val === '' || !is_numeric($raw_split_val)) {
-                    continue;
-                }
-                $normalized_split_paise = snap_near_whole_paise(currency_to_paise($raw_split_val), true);
-                $split_source[$split_field] = number_format(paise_to_currency($normalized_split_paise), 2, '.', '');
-            }
-        }
-
-        $split_amounts = build_payment_split_from_input($split_source, $payment_mode, $amount_paid);
+        $split_amounts = build_payment_split_from_input($_POST, $payment_mode, $amount_paid);
         $cash_amount = $split_amounts['cash_amount'];
         $card_amount = $split_amounts['card_amount'];
         $upi_amount = $split_amounts['upi_amount'];

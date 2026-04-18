@@ -2,7 +2,7 @@
 REM ============================================================
 REM Monthly Database Backup - Diagnostic Center
 REM ============================================================
-REM Saves SQL backup to: dump\backup\YEAR\MONTH\
+REM Saves SQL backup to: data_backup\YEAR\MONTH\
 REM Usage: Run from the project root folder
 REM ============================================================
 
@@ -16,8 +16,8 @@ for /f "tokens=1-3 delims=/ " %%a in ('date /t') do (
     set MONTH=%%a
 )
 
-REM Create folder structure: dump\backup\YEAR\MONTH
-set BACKUP_DIR=dump\backup\%YEAR%\%MONTH%
+REM Create folder structure: data_backup\YEAR\MONTH
+set BACKUP_DIR=data_backup\%YEAR%\%MONTH%
 if not exist "%BACKUP_DIR%" mkdir "%BACKUP_DIR%"
 
 REM Generate timestamp for filename
@@ -25,7 +25,6 @@ for /f "tokens=1-3 delims=/ " %%a in ('date /t') do set mydate=%%c-%%a-%%b
 for /f "tokens=1-2 delims=:. " %%a in ('echo %TIME%') do set mytime=%%a%%b
 
 set BACKUP_FILE=%BACKUP_DIR%\backup_%mydate%_%mytime%.sql
-set MIRROR_DIR=%BACKUP_DIR%\sql_bundle_%mydate%_%mytime%
 
 echo Backup folder: %BACKUP_DIR%
 echo Backup file:   %BACKUP_FILE%
@@ -59,13 +58,13 @@ if %errorlevel% equ 0 (
     echo Backup completed successfully!
     echo File: %BACKUP_FILE%
     for %%A in ("%BACKUP_FILE%") do echo Size: %%~zA bytes
-
-    if not exist "%MIRROR_DIR%" mkdir "%MIRROR_DIR%"
-    xcopy "dump\init" "%MIRROR_DIR%\init\" /E /I /Y >nul
-    echo SQL bundle mirrored: %MIRROR_DIR%
     echo.
 
-    echo Stored in dump\backup automatically.
+    REM Update the index via PHP if available
+    where php >nul 2>&1
+    if %errorlevel% equ 0 (
+        php data_backup\update_index_cli.php "%BACKUP_FILE%" "%DB_NAME%" "%YEAR%" "%MONTH%"
+    )
 ) else (
     echo.
     echo ERROR: Backup failed!

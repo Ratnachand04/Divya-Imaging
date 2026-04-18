@@ -5,8 +5,6 @@ require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
 require_once '../includes/functions.php';
 
-$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
-
 $patient_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 $error_message = '';
 $success_message = '';
@@ -48,7 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $patient_id > 0) {
 }
 
 if ($error_message === '' && $patient_id > 0) {
-    $stmt = $conn->prepare("SELECT p.id, p.uid, p.name, p.age, p.sex, p.mobile_number, p.address, p.city FROM {$patients_source} WHERE p.id = ? LIMIT 1");
+    $stmt = $conn->prepare("SELECT id, uid, name, age, sex, mobile_number, address, city FROM patients WHERE id = ? LIMIT 1");
     if ($stmt) {
         $stmt->bind_param('i', $patient_id);
         $stmt->execute();

@@ -4,8 +4,6 @@ require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
 require_once '../includes/functions.php';
 
-$expenses_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'expenses', 'e') : '`expenses` e';
-
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     header('Location: view_expenses.php');
     exit();
@@ -24,7 +22,7 @@ if ($delete_reason === '' || mb_strlen($delete_reason) < 5) {
     exit();
 }
 
-$expense_stmt = $conn->prepare("SELECT e.id, e.expense_type, e.amount, e.status, e.proof_path FROM {$expenses_source} WHERE e.id = ?");
+$expense_stmt = $conn->prepare('SELECT id, expense_type, amount, status, proof_path FROM expenses WHERE id = ?');
 $expense_stmt->bind_param('i', $expense_id);
 $expense_stmt->execute();
 $expense_result = $expense_stmt->get_result();
@@ -36,17 +34,7 @@ if (!$expense) {
     exit();
 }
 
-$delete_table = function_exists('table_scale_find_physical_table_by_id')
-    ? table_scale_find_physical_table_by_id($conn, 'expenses', $expense_id)
-    : 'expenses';
-if (!$delete_table || (function_exists('table_scale_is_safe_identifier') && !table_scale_is_safe_identifier($delete_table))) {
-    $delete_table = 'expenses';
-}
-$delete_table_sql = function_exists('table_scale_quote_identifier')
-    ? table_scale_quote_identifier($delete_table)
-    : '`' . str_replace('`', '', $delete_table) . '`';
-
-$delete_stmt = $conn->prepare("DELETE FROM {$delete_table_sql} WHERE id = ?");
+$delete_stmt = $conn->prepare('DELETE FROM expenses WHERE id = ?');
 $delete_stmt->bind_param('i', $expense_id);
 
 if ($delete_stmt->execute()) {

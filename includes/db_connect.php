@@ -20,51 +20,6 @@ if ($conn->connect_error) {
 // Set character set to utf8mb4 for better Unicode support
 $conn->set_charset("utf8mb4");
 
-// Always keep package-feature schema aligned for existing databases.
-if (!function_exists('ensure_package_management_schema')) {
-    $functions_file = __DIR__ . '/functions.php';
-    if (is_file($functions_file)) {
-        require_once $functions_file;
-    }
-}
-
-if (function_exists('ensure_package_management_schema')) {
-    try {
-        ensure_package_management_schema($conn);
-    } catch (Throwable $e) {
-        // Do not block normal app flow if migration guard fails; log for troubleshooting.
-        error_log('Package schema sync failed: ' . $e->getMessage());
-    }
-}
-
-if (function_exists('ensure_data_storage_base_structure')) {
-    try {
-        ensure_data_storage_base_structure();
-    } catch (Throwable $e) {
-        // Keep app requests running even if filesystem prep fails.
-        error_log('Data storage setup failed: ' . $e->getMessage());
-    }
-}
-
-// Keep horizontal table scaling metadata and shard views aligned.
-if (function_exists('ensure_horizontal_table_scaling')) {
-    try {
-        ensure_horizontal_table_scaling($conn, 100000);
-    } catch (Throwable $e) {
-        // Avoid blocking user requests if shard maintenance fails.
-        error_log('Horizontal scaling sync failed: ' . $e->getMessage());
-    }
-}
-
-if (function_exists('ensure_table_mirror_sync')) {
-    try {
-        ensure_table_mirror_sync($conn);
-    } catch (Throwable $e) {
-        // Keep app alive even when mirror setup has an issue.
-        error_log('Table mirror sync failed: ' . $e->getMessage());
-    }
-}
-
 // ERROR HANDLER FOR DEVELOPER ROLE
 if (!function_exists('custom_error_handler')) {
     function custom_error_handler($errno, $errstr, $errfile, $errline) {

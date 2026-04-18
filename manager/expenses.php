@@ -3,11 +3,6 @@ $page_title = "View Expenses";
 $required_role = "manager"; //
 require_once '../includes/auth_check.php'; //
 require_once '../includes/db_connect.php'; //
-require_once '../includes/functions.php';
-
-$expenses_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'expenses', 'e') : '`expenses` e';
-$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
-$expenses_source_lookup = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'expenses', 'e_types') : '`expenses` e_types';
 
 $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : date('Y-m-01'); //
 $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : date('Y-m-t'); //
@@ -32,14 +27,14 @@ if ($search_term !== '') {
     $query_types .= 'sssss';
 }
 
-$query = "SELECT e.id, e.expense_type, e.amount, e.status, e.created_at, e.proof_path, u.username as accountant_name FROM {$expenses_source} JOIN {$users_source} ON e.accountant_id = u.id WHERE " . implode(' AND ', $query_conditions) . " ORDER BY e.created_at DESC"; //
+$query = "SELECT e.id, e.expense_type, e.amount, e.status, e.created_at, e.proof_path, u.username as accountant_name FROM expenses e JOIN users u ON e.accountant_id = u.id WHERE " . implode(' AND ', $query_conditions) . " ORDER BY e.created_at DESC"; //
 $stmt = $conn->prepare($query); //
 if ($stmt === false) { die('Failed to prepare expenses query: ' . $conn->error); }
 $stmt->bind_param($query_types, ...$query_params);
 $stmt->execute(); //
 $expenses_result = $stmt->get_result(); //
 
-$expense_types_result = $conn->query("SELECT DISTINCT e_types.expense_type FROM {$expenses_source_lookup} ORDER BY e_types.expense_type ASC");
+$expense_types_result = $conn->query("SELECT DISTINCT expense_type FROM expenses ORDER BY expense_type ASC");
 $expense_types = $expense_types_result ? $expense_types_result->fetch_all(MYSQLI_ASSOC) : [];
 if ($expense_types_result) { $expense_types_result->free(); }
 
@@ -125,7 +120,8 @@ require_once '../includes/header.php'; //
                         <td>
                             <?php if (!empty($expense['proof_path'])): ?>
                             <?php
-                                $proof_url = '../accountant/download_proof.php?file=' . urlencode(ltrim(str_replace('../', '', (string)$expense['proof_path']), '/'));
+                                // --- Construct correct relative URL for proof ---
+                                $proof_url = $expense['proof_path'];
                             ?>
                             <a href="<?php echo $proof_url; ?>" target="_blank" class="btn-action btn-view">View</a>
                             <?php else: ?> N/A <?php endif; ?>

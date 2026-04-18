@@ -3,10 +3,6 @@ $page_title = "Bill Edit History";
 $required_role = "manager";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
-require_once '../includes/functions.php';
-
-$bill_edit_log_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_edit_log', 'l') : '`bill_edit_log` l';
-$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
 
 $feedback = '';
 
@@ -50,8 +46,8 @@ if (isset($_GET['delete_id']) && is_numeric($_GET['delete_id'])) {
 // Fetch all edit logs for display
 $logs_result = $conn->query(
     "SELECT l.*, u.username as editor_name
-    FROM {$bill_edit_log_source}
-    JOIN {$users_source} ON l.editor_id = u.id
+     FROM bill_edit_log l
+     JOIN users u ON l.editor_id = u.id
      ORDER BY l.changed_at DESC"
 );
 

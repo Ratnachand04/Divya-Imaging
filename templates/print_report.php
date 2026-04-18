@@ -5,23 +5,10 @@ require_once '../includes/functions.php';
 
 ensure_package_management_schema($conn);
 
-$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
-$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
-$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
-$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
-$test_packages_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'test_packages', 'tp') : '`test_packages` tp';
-$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
-
 // Basic security check
 if (!isset($_SESSION['user_id'])) {
     header("Location: ../login.php");
     exit();
-}
-
-$viewer_role = $_SESSION['role'] ?? '';
-if (!in_array($viewer_role, ['writer', 'manager', 'superadmin'], true)) {
-    http_response_code(403);
-    die('Forbidden: You do not have permission to view reports.');
 }
 
 if (!isset($_GET['item_id']) || !is_numeric($_GET['item_id'])) {
@@ -33,19 +20,18 @@ $item_id = (int)$_GET['item_id'];
 // Fetch all necessary report details from the database
 $stmt = $conn->prepare(
     "SELECT 
-                bi.report_content, bi.updated_at as report_date, COALESCE(bi.report_status, 'Pending') as report_status,
-                bi.report_docx_path, COALESCE(bi.report_copy_number, 1) AS report_copy_number,
+        bi.report_content, bi.updated_at as report_date,
         b.id as bill_id,
         p.name as patient_name, p.age, p.sex,
         t.main_test_name, t.sub_test_name,
           COALESCE(NULLIF(bi.package_name, ''), tp.package_name) AS package_name,
         rd.doctor_name as referral_doctor_name
-    FROM {$bill_items_source}
-    JOIN {$bills_source} ON bi.bill_id = b.id
-    JOIN {$patients_source} ON b.patient_id = p.id
-    JOIN {$tests_source} ON bi.test_id = t.id
-     LEFT JOIN {$test_packages_source} ON tp.id = bi.package_id
-    LEFT JOIN {$referral_doctors_source} ON b.referral_doctor_id = rd.id
+     FROM bill_items bi
+     JOIN bills b ON bi.bill_id = b.id
+     JOIN patients p ON b.patient_id = p.id
+     JOIN tests t ON bi.test_id = t.id
+      LEFT JOIN test_packages tp ON tp.id = bi.package_id
+     LEFT JOIN referral_doctors rd ON b.referral_doctor_id = rd.id
      WHERE bi.id = ?"
 );
 $stmt->bind_param("i", $item_id);
@@ -57,167 +43,165 @@ if ($report_result->num_rows === 0) {
 }
 $report = $report_result->fetch_assoc();
 $stmt->close();
-
-if ($viewer_role === 'manager' && ($report['report_status'] ?? 'Pending') !== 'Completed') {
-    http_response_code(403);
-    die('Report is not uploaded yet. Manager access is available only after upload.');
-}
-
-$download_requested = isset($_GET['download']) && (string)$_GET['download'] === '1';
-$can_download_docx = in_array($viewer_role, ['writer', 'manager', 'superadmin'], true);
-$auto_print_requested = isset($_GET['print']) && (string)$_GET['print'] === '1';
-
-if ($download_requested && $can_download_docx) {
-    $docx_path_raw = trim((string)($report['report_docx_path'] ?? ''));
-    if ($docx_path_raw === '') {
-        http_response_code(404);
-        die('Word report file is not available for this item.');
-    }
-
-    $absolute_docx_path = null;
-    if (function_exists('data_storage_resolve_primary_or_mirror')) {
-        $resolved = data_storage_resolve_primary_or_mirror($docx_path_raw);
-        if (is_string($resolved) && $resolved !== '' && is_file($resolved)) {
-            $absolute_docx_path = $resolved;
-        }
-    }
-
-    if ($absolute_docx_path === null) {
-        $relative = ltrim(str_replace(['..\\', '../'], '', str_replace('\\', '/', $docx_path_raw)), '/');
-        if ($relative !== '') {
-            $candidate = dirname(__DIR__) . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relative);
-            if (is_file($candidate)) {
-                $absolute_docx_path = $candidate;
-            }
-        }
-    }
-
-    if ($absolute_docx_path === null || !is_file($absolute_docx_path)) {
-        http_response_code(404);
-        die('Word report file not found on disk.');
-    }
-
-    $conn->query("CREATE TABLE IF NOT EXISTS writer_report_print_logs (
-        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-        bill_item_id INT UNSIGNED NOT NULL,
-        printed_by INT UNSIGNED NOT NULL,
-        printed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_bill_item (bill_item_id),
-        INDEX idx_printed_at (printed_at)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-
-    $print_user_id = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0;
-    if ($print_user_id > 0) {
-        $log_stmt = $conn->prepare("INSERT INTO writer_report_print_logs (bill_item_id, printed_by) VALUES (?, ?)");
-        if ($log_stmt) {
-            $log_stmt->bind_param('ii', $item_id, $print_user_id);
-            $log_stmt->execute();
-            $log_stmt->close();
-        }
-    }
-
-    $download_filename = trim((string)basename(str_replace('\\', '/', $docx_path_raw)));
-    if ($download_filename === '' || !preg_match('/\.docx$/i', $download_filename)) {
-        $download_filename = 'report_item_' . (int)$item_id . '.docx';
-    }
-    $download_filename = (string)preg_replace('/[^A-Za-z0-9._-]+/', '_', $download_filename);
-
-    while (ob_get_level() > 0) {
-        ob_end_clean();
-    }
-
-    header('Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    header('Content-Disposition: attachment; filename="' . $download_filename . '"');
-    header('Content-Length: ' . (string)filesize($absolute_docx_path));
-    header('Cache-Control: private, must-revalidate');
-    header('Pragma: public');
-    readfile($absolute_docx_path);
-    exit();
-}
-
-$back_link = '../writer/dashboard.php';
-if ($viewer_role === 'manager') {
-    $back_link = '../manager/print_reports.php';
-} elseif ($viewer_role === 'superadmin') {
-    $back_link = '../superadmin/dashboard.php';
-}
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>Report for <?php echo htmlspecialchars($report['patient_name']); ?> - <?php echo htmlspecialchars($report['sub_test_name']); ?></title>
-
+    
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
+
+        :root {
+            --text-dark: #333;
+            --text-light: #777;
+            --border-color: #e0e0e0;
+            --header-blue: #004a99;
+        }
+
         body {
-            font-family: "Times New Roman", serif;
-            background-color: #f7f7f7;
+            font-family: 'Roboto', sans-serif;
+            background-color: #f4f4f4;
             margin: 0;
             padding: 0;
-            color: #222;
+            color: var(--text-dark);
         }
 
         .print-controls {
             position: fixed;
             top: 20px;
             right: 20px;
-            background-color: #ffffff;
+            background-color: #fff;
             padding: 10px 15px;
             border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
             z-index: 100;
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            flex-wrap: wrap;
         }
 
-        .print-controls button,
-        .print-controls a {
-            background-color: #184a82;
-            color: #fff;
+        .print-controls button, .print-controls a {
+            background-color: var(--header-blue);
+            color: white;
             padding: 10px 15px;
             border: none;
             border-radius: 5px;
             text-decoration: none;
             cursor: pointer;
             font-size: 14px;
+            margin-left: 10px;
+        }
+        .print-controls button:hover, .print-controls a:hover {
+            background-color: #003366;
         }
 
-        .print-controls button:hover,
-        .print-controls a:hover {
-            background-color: #123861;
-        }
-
-        .report-content-wrap {
-            width: 210mm;
-            min-height: 297mm;
+        /* The main container, styled to look like an A4 paper */
+        .report-container {
+            width: 210mm; /* A4 width */
+            min-height: 297mm; /* A4 height */
             margin: 20px auto;
-            background: #fff;
-            box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+            background: white;
+            box-shadow: 0 0 15px rgba(0,0,0,0.1);
             padding: 1in;
             box-sizing: border-box;
         }
 
-        .report-content {
-            font-size: 12pt;
-            line-height: 1.6;
-            word-break: break-word;
+        /* --- Report Header (Letterhead) --- */
+        .report-header {
+            text-align: center;
+            border-bottom: 3px solid var(--header-blue);
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        .report-header h1 {
+            margin: 0;
+            color: var(--header-blue);
+            font-size: 28px;
+            font-weight: 700;
+        }
+        .report-header p {
+            margin: 5px 0 0;
+            color: var(--text-light);
+            font-size: 14px;
         }
 
+        /* --- Patient Details Section --- */
+        .patient-info {
+            margin-bottom: 30px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .patient-info h2 {
+            margin: 0;
+            padding: 12px 15px;
+            background-color: #f9f9f9;
+            font-size: 16px;
+            color: var(--text-dark);
+            border-bottom: 1px solid var(--border-color);
+        }
+        .patient-info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            padding: 15px;
+            gap: 15px;
+        }
+        .patient-info-grid div {
+            font-size: 14px;
+        }
+        .patient-info-grid strong {
+            color: var(--text-light);
+            display: inline-block;
+            width: 120px; /* Aligns the values */
+        }
+        
+        /* --- Main Report Body --- */
+        .report-body {
+            margin-top: 30px;
+        }
+        .report-body h2.report-title {
+            text-align: center;
+            font-size: 20px;
+            font-weight: 700;
+            text-decoration: underline;
+            margin-bottom: 25px;
+        }
+        .report-content {
+            font-size: 14px;
+            line-height: 1.6;
+            text-align: justify;
+        }
+        /* Ensure content from the editor keeps its formatting */
         .report-content p { margin: 0 0 1em 0; }
         .report-content strong { font-weight: 700; }
         .report-content em { font-style: italic; }
         .report-content ul, .report-content ol { padding-left: 20px; }
+        
+        /* --- Report Footer (Signature) --- */
+        .report-footer {
+            margin-top: 80px;
+            text-align: right;
+        }
+        .signature-area {
+            display: inline-block;
+            text-align: center;
+            padding-top: 10px;
+            border-top: 1px solid var(--text-dark);
+            width: 250px;
+        }
+        .signature-area strong {
+            font-size: 14px;
+            font-weight: 500;
+        }
 
+        /* --- Special styles for printing the page --- */
         @media print {
             body {
                 background: none;
             }
             .print-controls {
-                display: none;
+                display: none; /* Hide the print button when printing */
             }
-            .report-content-wrap {
+            .report-container {
                 margin: 0;
                 width: 100%;
                 min-height: 0;
@@ -230,25 +214,43 @@ if ($viewer_role === 'manager') {
 <body>
 
     <div class="print-controls">
-        <button type="button" onclick="window.print()">Print Report</button>
-        <?php if ($can_download_docx): ?>
-            <a href="?item_id=<?php echo (int)$item_id; ?>&download=1">Download Word Report</a>
-        <?php endif; ?>
-        <a href="<?php echo htmlspecialchars($back_link); ?>">Back to Dashboard</a>
+        <button onclick="window.print()">Print Report</button>
+        <a href="../writer/dashboard.php">Back to Dashboard</a>
     </div>
 
-    <div class="report-content-wrap">
-        <div class="report-content">
-            <?php echo $report['report_content']; ?>
+    <div class="report-container">
+        <div class="report-header">
+            <h1>Divya Imaging & Diagnostics</h1>
+            <p>1st Floor, Near Clock Tower, Mahbubnagar | Phone: (123) 456-7890</p>
+        </div>
+
+        <div class="patient-info">
+            <h2>Patient & Report Details</h2>
+            <div class="patient-info-grid">
+                <div><strong>Patient Name:</strong> <?php echo htmlspecialchars($report['patient_name']); ?></div>
+                <div><strong>Bill No:</strong> <?php echo $report['bill_id']; ?></div>
+                <div><strong>Age / Gender:</strong> <?php echo htmlspecialchars($report['age']); ?> / <?php echo htmlspecialchars($report['sex']); ?></div>
+                <div><strong>Report Date:</strong> <?php echo date("F j, Y, g:i a", strtotime($report['report_date'])); ?></div>
+                <?php if (!empty($report['package_name'])): ?>
+                    <div style="grid-column: 1 / -1;"><strong>Package:</strong> <?php echo htmlspecialchars($report['package_name']); ?></div>
+                <?php endif; ?>
+                <div style="grid-column: 1 / -1;"><strong>Referred By:</strong> <?php echo htmlspecialchars($report['referral_doctor_name'] ?? 'Self'); ?></div>
+            </div>
+        </div>
+
+        <div class="report-body">
+            <h2 class="report-title"><?php echo strtoupper(htmlspecialchars($report['sub_test_name'])); ?><?php echo !empty($report['package_name']) ? ' (PACKAGE)' : ''; ?></h2>
+            <div class="report-content">
+                <?php echo $report['report_content']; // This displays the formatted content from the editor ?>
+            </div>
+        </div>
+
+        <div class="report-footer">
+            <div class="signature-area">
+                <strong>Lab Director / Pathologist</strong>
+            </div>
         </div>
     </div>
 
 </body>
-<?php if ($auto_print_requested): ?>
-<script>
-window.addEventListener('load', function () {
-    window.print();
-});
-</script>
-<?php endif; ?>
 </html>

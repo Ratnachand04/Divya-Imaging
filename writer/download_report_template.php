@@ -3,7 +3,6 @@ $page_title = "Download Report Template";
 $required_role = "writer";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
-require_once '../includes/functions.php';
 
 $item_id = isset($_GET['item_id']) ? (int)$_GET['item_id'] : 0;
 $debugMode = isset($_GET['debug']) && $_GET['debug'] === '1';
@@ -13,32 +12,22 @@ if ($item_id <= 0) {
     exit;
 }
 
-$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
-$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
-$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
-$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
-$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
-$patient_uid_expression = function_exists('get_patient_identifier_expression') ? get_patient_identifier_expression($conn, 'p') : 'CAST(p.id AS CHAR)';
-
 $sql = "SELECT
             bi.id AS bill_item_id,
             b.id AS bill_id,
             b.created_at AS bill_created_at,
             p.name AS patient_name,
-            {$patient_uid_expression} AS patient_uid,
             p.age AS patient_age,
             p.sex AS patient_sex,
             COALESCE(rd.doctor_name, '') AS referral_doctor,
-            b.referral_source_other,
-            b.referral_type,
             t.main_test_name,
             t.sub_test_name,
             t.document AS template_path
-        FROM {$bill_items_source}
-        JOIN {$bills_source} ON bi.bill_id = b.id
-        JOIN {$patients_source} ON b.patient_id = p.id
-        LEFT JOIN {$referral_doctors_source} ON b.referral_doctor_id = rd.id
-        JOIN {$tests_source} ON bi.test_id = t.id
+        FROM bill_items bi
+        JOIN bills b ON bi.bill_id = b.id
+        JOIN patients p ON b.patient_id = p.id
+        LEFT JOIN referral_doctors rd ON b.referral_doctor_id = rd.id
+        JOIN tests t ON bi.test_id = t.id
         WHERE bi.id = ?";
 
 $stmt = $conn->prepare($sql);
@@ -60,8 +49,8 @@ if (!$report) {
     exit;
 }
 
-$reportTemplateBaseDir = dirname(__DIR__) . '/templates/report_templates/';
-$reportTemplateBaseUrl = '../templates/report_templates/';
+$reportTemplateBaseDir = dirname(__DIR__) . '/uploads/report_templates/';
+$reportTemplateBaseUrl = '../uploads/report_templates/';
 $legacyTemplateBaseDir = dirname(__DIR__) . '/uploads/test_documents/';
 
 function resolve_template_absolute($document, $newBaseDir, $legacyBaseDir) {
@@ -98,18 +87,11 @@ function resolve_template_absolute($document, $newBaseDir, $legacyBaseDir) {
     if (file_exists($directCandidate)) {
         return [true, $directCandidate];
     }
-
-    $relativeCandidates = [
-        'templates/report_templates/' . $normalized,
-        'uploads/report_templates/' . $normalized,
-    ];
-    foreach ($relativeCandidates as $relativeCandidate) {
-        $candidateAbsolute = $projectRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativeCandidate);
-        if (file_exists($candidateAbsolute)) {
-            return [true, $candidateAbsolute];
-        }
-    }
-
+    
+    // Also try checking relative to project root directly (in case $segments already includes 'uploads')
+    $altCandidate = $projectRoot . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . $segments; 
+    // (Wait, if segments is 'uploads/foo.docx' then directCandidate covers it. If segments is 'foo.docx', we might need to check 'uploads')
+    
     $candidate = rtrim($newBaseDir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $segments;
     if (file_exists($candidate)) {
         return [true, $candidate];
@@ -118,21 +100,6 @@ function resolve_template_absolute($document, $newBaseDir, $legacyBaseDir) {
     $legacyCandidate = rtrim($legacyBaseDir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . basename($normalized);
     if (file_exists($legacyCandidate)) {
         return [true, $legacyCandidate];
-    }
-
-    $baseName = basename($normalized);
-    if ($baseName !== '') {
-        $globPatterns = [
-            $projectRoot . '/templates/report_templates/*/' . $baseName,
-            $projectRoot . '/uploads/report_templates/*/' . $baseName,
-        ];
-
-        foreach ($globPatterns as $pattern) {
-            $matches = glob($pattern);
-            if (!empty($matches)) {
-                return [true, $matches[0]];
-            }
-        }
     }
 
     return [false, null];
@@ -155,8 +122,6 @@ if (!$templateExists || !$templateAbsolutePath) {
 $zipSupportAvailable = class_exists('ZipArchive');
 
 $patientName = $report['patient_name'] ?? '';
-$patientUid = trim((string)($report['patient_uid'] ?? ''));
-$patientUid = $patientUid !== '' ? $patientUid : 'N/A';
 $patientAge = $report['patient_age'] !== null ? trim((string)$report['patient_age']) : '';
 $patientGender = $report['patient_sex'] ?? '';
 $patientGenderShort = strtoupper(substr(trim((string)$patientGender), 0, 1));
@@ -168,9 +133,6 @@ if ($patientGenderShort !== '') {
     $ageSexValue = trim($ageSexValue . ' / ' . $patientGenderShort);
 }
 $refDoctor = trim($report['referral_doctor'] ?? '');
-if (($report['referral_type'] ?? '') === 'Other' && !empty($report['referral_source_other'])) {
-    $refDoctor = trim((string)$report['referral_source_other']);
-}
 if ($refDoctor !== '' && stripos($refDoctor, 'Dr.') !== 0) {
     $refDoctor = 'Dr. ' . $refDoctor;
 }
@@ -183,20 +145,12 @@ $reportDate = $billDateTime ? date('d-M-Y', strtotime($billDateTime)) : date('d-
 $replacements = [
     '{{NAME}}' => $patientName,
     '{{PATIENT_NAME}}' => $patientName,
-    '{{PATIENT_UID}}' => $patientUid,
-    '{{UID}}' => $patientUid,
-    '{{UHID}}' => $patientUid,
-    '{{PATIENT_ID}}' => $patientUid,
-    '{{REG_NO}}' => $patientUid,
-    '{{REGISTRATION_ID}}' => $patientUid,
     '{{AGE}}' => $patientAge,
     '{{AGE_SEX}}' => $ageSexValue,
     '{{GENDER}}' => $patientGender,
     '{{SEX}}' => $patientGenderShort,
     '{{REF_DR}}' => $refDoctor,
     '{{REF_DOCTOR}}' => $refDoctor,
-    '{{REFERRED_BY}}' => $refDoctor,
-    '{{REFERRED_DOCTOR}}' => $refDoctor,
     '{{DATE}}' => $reportDate,
     '{{REPORT_DATE}}' => $reportDate,
     '{{BILL_NO}}' => $report['bill_id'],
@@ -276,7 +230,7 @@ function append_value_after_label($xml, $labels, $value, &$debugLabelHits = null
     return $xml;
 }
 
-function fill_report_xml_content($xml, $xmlSafeReplacements, $patientName, $patientUid, $patientAge, $patientGender, $patientGenderShort, $ageSexValue, $refDoctor, $reportDate, &$debugPlaceholderHits = null, &$debugLabelHits = null, $partName = '') {
+function fill_report_xml_content($xml, $xmlSafeReplacements, $patientName, $patientAge, $patientGender, $patientGenderShort, $ageSexValue, $refDoctor, $reportDate, &$debugPlaceholderHits = null, &$debugLabelHits = null, $partName = '') {
     if (is_array($debugPlaceholderHits)) {
         foreach ($xmlSafeReplacements as $placeholder => $_value) {
             if (strpos($xml, $placeholder) !== false) {
@@ -291,7 +245,6 @@ function fill_report_xml_content($xml, $xmlSafeReplacements, $patientName, $pati
     $xml = str_replace(array_keys($xmlSafeReplacements), array_values($xmlSafeReplacements), $xml);
 
     $xml = append_value_after_label($xml, ['NAME:', 'NAME :', 'PATIENT NAME:', 'PATIENT NAME :'], $patientName, $debugLabelHits, $partName, 'name');
-    $xml = append_value_after_label($xml, ['UID:', 'UID :', 'UHID:', 'UHID :', 'PATIENT ID:', 'PATIENT ID :', 'PATIENT UID:', 'PATIENT UID :', 'REG NO:', 'REG NO :', 'REGISTRATION ID:', 'REGISTRATION ID :'], $patientUid, $debugLabelHits, $partName, 'patient_uid');
     $xml = append_value_after_label($xml, ['AGE/SEX:', 'AGE /SEX:', 'AGE / SEX:', 'AGE/ SEX:', 'AGE /SEX :', 'AGE / SEX :'], $ageSexValue, $debugLabelHits, $partName, 'age_sex');
     $xml = append_value_after_label($xml, ['AGE:', 'AGE :'], $patientAge, $debugLabelHits, $partName, 'age');
     $xml = append_value_after_label($xml, ['SEX:', 'SEX :', 'GENDER:', 'GENDER :'], $patientGenderShort !== '' ? $patientGenderShort : $patientGender, $debugLabelHits, $partName, 'sex');
@@ -321,7 +274,6 @@ if ($zipSupportAvailable) {
                 $xml,
                 $xmlSafeReplacements,
                 $patientName,
-                $patientUid,
                 $patientAge,
                 $patientGender,
                 $patientGenderShort,

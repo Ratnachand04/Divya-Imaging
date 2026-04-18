@@ -3,8 +3,6 @@ $required_role = "manager";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
 
-$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
-
 header('Content-Type: application/json');
 
 $term = isset($_GET['term']) ? trim($_GET['term']) : '';
@@ -15,17 +13,17 @@ if (!empty($term)) {
     $search_param = "%{$term}%";
     
     // Build the query dynamically
-    $query = "SELECT DISTINCT t.sub_test_name FROM {$tests_source} WHERE t.sub_test_name LIKE ?";
+    $query = "SELECT DISTINCT sub_test_name FROM tests WHERE sub_test_name LIKE ?";
     $params = [$search_param];
     $types = 's';
 
     if ($category !== 'all') {
-        $query .= " AND t.main_test_name = ?";
+        $query .= " AND main_test_name = ?";
         $params[] = $category;
         $types .= 's';
     }
     
-    $query .= " ORDER BY t.sub_test_name LIMIT 10";
+    $query .= " ORDER BY sub_test_name LIMIT 10";
 
     $stmt = $conn->prepare($query);
     $stmt->bind_param($types, ...$params);

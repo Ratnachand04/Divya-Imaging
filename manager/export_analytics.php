@@ -6,19 +6,6 @@ require_once '../includes/functions.php';
 
 ensure_bill_payment_split_columns($conn);
 
-$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
-$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
-$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
-$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
-$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
-$bill_item_screenings_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_item_screenings', 'bis') : '`bill_item_screenings` bis';
-$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
-$doctor_test_payables_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'doctor_test_payables', 'dtp') : '`doctor_test_payables` dtp';
-
-$referral_doctors_source_lookup = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd_lookup') : '`referral_doctors` rd_lookup';
-$users_source_lookup = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u_lookup') : '`users` u_lookup';
-$tests_source_lookup = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't_lookup') : '`tests` t_lookup';
-
 $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : date('Y-m-01');
 $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : date('Y-m-t');
 $referral_type = isset($_GET['referral_type']) ? $_GET['referral_type'] : 'all';
@@ -50,7 +37,7 @@ $filter_details[] = ['Referral Type', $where_referral];
 
 $doctor_label = 'All Doctors';
 if ($doctor_id !== 'all') {
-    $doc_stmt = $conn->prepare("SELECT rd_lookup.doctor_name FROM {$referral_doctors_source_lookup} WHERE rd_lookup.id = ?");
+    $doc_stmt = $conn->prepare("SELECT doctor_name FROM referral_doctors WHERE id = ?");
     $doc_stmt->bind_param('i', $doctor_id);
     $doc_stmt->execute();
     $doctor_label = $doc_stmt->get_result()->fetch_assoc()['doctor_name'] ?? 'N/A';
@@ -61,7 +48,7 @@ $filter_details[] = ['Doctor', $doctor_label];
 
 $receptionist_label = 'All Receptionists';
 if ($receptionist_id !== 'all') {
-    $rec_stmt = $conn->prepare("SELECT u_lookup.username FROM {$users_source_lookup} WHERE u_lookup.id = ?");
+    $rec_stmt = $conn->prepare("SELECT username FROM users WHERE id = ?");
     $rec_stmt->bind_param('i', $receptionist_id);
     $rec_stmt->execute();
     $receptionist_label = $rec_stmt->get_result()->fetch_assoc()['username'] ?? 'N/A';
@@ -79,7 +66,7 @@ $filter_details[] = ['Test Category', $test_category_label];
 
 $sub_test_label = 'All Tests';
 if ($sub_test_id !== 'all') {
-    $sub_stmt = $conn->prepare("SELECT t_lookup.sub_test_name FROM {$tests_source_lookup} WHERE t_lookup.id = ?");
+    $sub_stmt = $conn->prepare("SELECT sub_test_name FROM tests WHERE id = ?");
     $sub_stmt->bind_param('i', $sub_test_id);
     $sub_stmt->execute();
     $sub_test_label = $sub_stmt->get_result()->fetch_assoc()['sub_test_name'] ?? 'N/A';
@@ -108,14 +95,14 @@ if (!function_exists('calculateDoctorProfessionalCharge')) {
 }
 
 $base_query_from = "
-    FROM {$bills_source}
-    JOIN {$patients_source} ON b.patient_id = p.id
-    JOIN {$users_source} ON b.receptionist_id = u.id
-    JOIN {$bill_items_source} ON b.id = bi.bill_id AND bi.item_status = 0
-    JOIN {$tests_source} ON bi.test_id = t.id
-    LEFT JOIN {$bill_item_screenings_source} ON bis.bill_item_id = bi.id
-    LEFT JOIN {$referral_doctors_source} ON b.referral_doctor_id = rd.id
-    LEFT JOIN {$doctor_test_payables_source} ON rd.id = dtp.doctor_id AND bi.test_id = dtp.test_id
+    FROM bills b
+    JOIN patients p ON b.patient_id = p.id
+    JOIN users u ON b.receptionist_id = u.id
+    JOIN bill_items bi ON b.id = bi.bill_id AND bi.item_status = 0
+    JOIN tests t ON bi.test_id = t.id
+    LEFT JOIN bill_item_screenings bis ON bis.bill_item_id = bi.id
+    LEFT JOIN referral_doctors rd ON b.referral_doctor_id = rd.id
+    LEFT JOIN doctor_test_payables dtp ON rd.id = dtp.doctor_id AND bi.test_id = dtp.test_id
 ";
 
 $where_clauses = ["b.created_at BETWEEN ? AND ?", "b.bill_status != 'Void'"];

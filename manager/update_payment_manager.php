@@ -8,9 +8,6 @@ require_once '../includes/functions.php';
 ensure_bill_payment_split_columns($conn);
 ensure_payment_history_split_columns($conn);
 
-$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
-$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
-
 $error_message = '';
 $bill_id = isset($_GET['bill_id']) ? (int)$_GET['bill_id'] : 0;
 
@@ -19,7 +16,7 @@ if (!$bill_id) {
     exit();
 }
 
-$stmt = $conn->prepare("SELECT b.*, p.name as patient_name FROM {$bills_source} JOIN {$patients_source} ON b.patient_id = p.id WHERE b.id = ? AND b.bill_status != 'Void'");
+$stmt = $conn->prepare("SELECT b.*, p.name as patient_name FROM bills b JOIN patients p ON b.patient_id = p.id WHERE b.id = ? AND b.bill_status != 'Void'");
 $stmt->bind_param("i", $bill_id);
 $stmt->execute();
 $result = $stmt->get_result();

@@ -5,11 +5,6 @@ require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
 require_once '../includes/functions.php';
 
-$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
-$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
-$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
-$users_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'users', 'u') : '`users` u';
-
 // --- Handle Filters ---
 $start_date = isset($_GET['start_date']) ? $_GET['start_date'] : date('Y-m-01');
 $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : date('Y-m-t');
@@ -21,16 +16,12 @@ if ($all_dates) {
 // Default to actionable pending only (Due + Partial Paid)
 $status_filter = isset($_GET['status']) ? $_GET['status'] : 'pending';
 
-$patient_identifier_expr = function_exists('get_patient_identifier_expression')
-    ? get_patient_identifier_expression($conn, 'p')
-    : 'CAST(p.id AS CHAR)';
-
 $pending_amount_expr = "ROUND(GREATEST(b.net_amount - b.amount_paid, 0), 2)";
 
 // --- Build Query ---
 $query = "SELECT 
                         b.id,
-                        {$patient_identifier_expr} as patient_uid,
+                        p.uid as patient_uid,
                         p.name as patient_name,
                         b.net_amount,
                         b.discount,
@@ -43,10 +34,10 @@ $query = "SELECT
                         b.referral_source_other,
                         rd.doctor_name as ref_physician_name,
                         u.username as receptionist_name
-          FROM {$bills_source}
-          JOIN {$patients_source} ON b.patient_id = p.id
-                    LEFT JOIN {$referral_doctors_source} ON rd.id = b.referral_doctor_id
-          JOIN {$users_source} ON b.receptionist_id = u.id
+          FROM bills b
+          JOIN patients p ON b.patient_id = p.id
+                    LEFT JOIN referral_doctors rd ON rd.id = b.referral_doctor_id
+          JOIN users u ON b.receptionist_id = u.id
           WHERE b.bill_status != 'Void' AND DATE(b.created_at) BETWEEN ? AND ?";
 
 $params = [$start_date, $end_date];

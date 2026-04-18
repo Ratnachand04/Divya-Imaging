@@ -3,10 +3,6 @@ $page_title = "Manage Professional Charges";
 $required_role = "manager";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
-require_once '../includes/functions.php';
-
-$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
-$tests_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'tests', 't') : '`tests` t';
 
 $feedback = '';
 
@@ -19,7 +15,7 @@ if (!isset($_GET['doctor_id'])) {
 $doctor_id = (int)$_GET['doctor_id'];
 
 // Fetch doctor details
-$stmt = $conn->prepare("SELECT rd.* FROM {$referral_doctors_source} WHERE rd.id = ?");
+$stmt = $conn->prepare("SELECT * FROM referral_doctors WHERE id = ?");
 $stmt->bind_param("i", $doctor_id);
 $stmt->execute();
 $doctor = $stmt->get_result()->fetch_assoc();
@@ -61,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['commissions'])) {
 }
 
 // Fetch all tests
-$tests = $conn->query("SELECT t.* FROM {$tests_source} ORDER BY t.main_test_name, t.sub_test_name");
+$tests = $conn->query("SELECT * FROM tests ORDER BY main_test_name, sub_test_name");
 
 // Fetch existing commissions for this doctor
 $existing_commissions = [];
@@ -82,8 +78,7 @@ $stmt->close();
  * @return float The base commission percentage.
  */
 function getDoctorBaseCommission($conn, $doctor_id) {
-    $referral_doctors_source_base = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd_base') : '`referral_doctors` rd_base';
-    $stmt = $conn->prepare("SELECT rd_base.commission_percentage FROM {$referral_doctors_source_base} WHERE rd_base.id = ?");
+    $stmt = $conn->prepare("SELECT commission_percentage FROM referral_doctors WHERE id = ?");
     $stmt->bind_param("i", $doctor_id);
     $stmt->execute();
     $result = $stmt->get_result();

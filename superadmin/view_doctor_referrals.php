@@ -3,14 +3,7 @@ $page_title = "Doctor Referrals";
 $required_role = "superadmin";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
-require_once '../includes/functions.php';
 require_once '../includes/header.php';
-
-$referral_doctors_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'referral_doctors', 'rd') : '`referral_doctors` rd';
-$bills_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bills', 'b') : '`bills` b';
-$patients_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'patients', 'p') : '`patients` p';
-$bill_items_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'bill_items', 'bi') : '`bill_items` bi';
-$doctor_test_payables_source = function_exists('table_scale_get_read_source') ? table_scale_get_read_source($conn, 'doctor_test_payables', 'dtp') : '`doctor_test_payables` dtp';
 
 $doctor_id = isset($_GET['doctor_id']) ? (int)$_GET['doctor_id'] : 0;
 
@@ -28,7 +21,7 @@ if (!$doctor_id) {
 }
 
 // Fetch Doctor Info
-$stmt = $conn->prepare("SELECT rd.doctor_name, rd.hospital_name, rd.phone_number FROM {$referral_doctors_source} WHERE rd.id = ?");
+$stmt = $conn->prepare("SELECT doctor_name, hospital_name, phone_number FROM referral_doctors WHERE id = ?");
 $stmt->bind_param("i", $doctor_id);
 $stmt->execute();
 $doctor_info = $stmt->get_result()->fetch_assoc();
@@ -51,10 +44,10 @@ $sql = "SELECT
             b.net_amount as bill_amount,
             b.payment_status,
             SUM(COALESCE(dtp.payable_amount, 0)) as total_payable
-        FROM {$bills_source}
-        JOIN {$patients_source} ON b.patient_id = p.id
-        JOIN {$bill_items_source} ON b.id = bi.bill_id AND bi.item_status = 0
-        LEFT JOIN {$doctor_test_payables_source} ON b.referral_doctor_id = dtp.doctor_id AND bi.test_id = dtp.test_id
+        FROM bills b
+        JOIN patients p ON b.patient_id = p.id
+        JOIN bill_items bi ON b.id = bi.bill_id AND bi.item_status = 0
+        LEFT JOIN doctor_test_payables dtp ON b.referral_doctor_id = dtp.doctor_id AND bi.test_id = dtp.test_id
         WHERE b.referral_doctor_id = ? 
         AND b.bill_status != 'Void'
         AND DATE(b.created_at) BETWEEN ? AND ?
