@@ -584,10 +584,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 throw new Exception("One or more selected tests are invalid. Please refresh and try again.");
             }
 
-            $base_price = $test_price_map[$test_id];
+            $base_price = round(max($test_price_map[$test_id], 0), 0);
             $item_gross = $base_price + $test_entry['screening'];
-            if ($test_entry['discount'] > $item_gross) {
-                $test_entry['discount'] = $item_gross;
+            if ($test_entry['discount'] > $base_price) {
+                throw new Exception("Discount cannot exceed the selected test cost.");
             }
             $gross_amount += $item_gross;
             $total_discount += $test_entry['discount'];
