@@ -363,14 +363,6 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!isFinite(numeric)) {
                 return 0;
             }
-            return Math.round((numeric + Number.EPSILON) * 100) / 100;
-        }
-
-        function toWholeRupee(value) {
-            const numeric = Number(value);
-            if (!isFinite(numeric) || numeric < 0) {
-                return 0;
-            }
             return Math.round(numeric);
         }
 
@@ -386,22 +378,6 @@ document.addEventListener('DOMContentLoaded', function() {
             return roundMoney((Number(paise) || 0) / 100);
         }
 
-        function snapNearWholeRupeeArtifacts(value, contextAmount) {
-            const normalized = parseAmount(value);
-            const contextPaise = toPaise(contextAmount);
-
-            if (contextPaise <= 0 || contextPaise % 100 !== 0) {
-                return normalized;
-            }
-
-            const valuePaise = toPaise(normalized);
-            const paisePart = Math.abs(valuePaise) % 100;
-            if (paisePart === 1 || paisePart === 99) {
-                return fromPaise(Math.round(valuePaise / 100) * 100);
-            }
-
-            return normalized;
-        }
 
         function updateSelectionSectionVisibility() {
             if (selectedTestsSection) {
@@ -437,13 +413,13 @@ document.addEventListener('DOMContentLoaded', function() {
         function updateScreeningSummary(entry) {
             if (!entry || !entry.ui || !entry.ui.summarySpan) return;
             const amount = entry.screeningAmount || 0;
-            entry.ui.summarySpan.textContent = `Screening: ₹${amount.toFixed(2)}`;
+            entry.ui.summarySpan.textContent = `Screening: ₹${amount.toFixed(0)}`;
         }
 
         function updateDiscountSummary(entry) {
             if (!entry || !entry.ui || !entry.ui.discountSummary) return;
             const amount = entry.discountAmount || 0;
-            entry.ui.discountSummary.textContent = `Discount: ₹${amount.toFixed(2)}`;
+            entry.ui.discountSummary.textContent = `Discount: ₹${amount.toFixed(0)}`;
         }
 
         function updateChargeSummary(entry) {
@@ -452,7 +428,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const screening = parseFloat(entry.screeningAmount) || 0;
             const gross = base + screening;
             const net = Math.max(gross - (parseFloat(entry.discountAmount) || 0), 0);
-            entry.ui.chargeSummary.textContent = `Applied Amount: ₹${net.toFixed(2)}`;
+            entry.ui.chargeSummary.textContent = `Applied Amount: ₹${net.toFixed(0)}`;
         }
 
         function clampDiscountToGross(entry) {
@@ -460,9 +436,6 @@ document.addEventListener('DOMContentLoaded', function() {
             const gross = (parseFloat(entry.price) || 0) + (parseFloat(entry.screeningAmount) || 0);
             if (entry.discountAmount > gross) {
                 entry.discountAmount = gross;
-                if (entry.ui && entry.ui.discountInput) {
-                    entry.ui.discountInput.value = gross.toFixed(2);
-                }
             }
             updateDiscountSummary(entry);
         }
@@ -507,7 +480,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const nameSpan = document.createElement('span');
             nameSpan.className = 'test-name';
-            const displayPrice = isFinite(basePrice) ? basePrice.toFixed(2) : '0.00';
+            const displayPrice = isFinite(basePrice) ? basePrice.toFixed(0) : '0';
             nameSpan.textContent = `${testName} - ₹${displayPrice}`;
             leftContainer.appendChild(nameSpan);
 
@@ -526,8 +499,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const customInput = document.createElement('input');
             customInput.type = 'number';
             customInput.min = '0';
-            customInput.step = '0.01';
-            customInput.placeholder = '0.00';
+            customInput.step = '1';
+            customInput.placeholder = '0';
             customInput.className = 'screening-custom-input';
             customContainer.appendChild(customInput);
 
@@ -538,17 +511,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const summarySpan = document.createElement('span');
             summarySpan.className = 'screening-summary';
-            summarySpan.textContent = 'Screening: ₹0.00';
+            summarySpan.textContent = 'Screening: ₹0';
             rightContainer.appendChild(summarySpan);
 
             const discountSummary = document.createElement('span');
             discountSummary.className = 'discount-summary';
-            discountSummary.textContent = 'Discount: ₹0.00';
+            discountSummary.textContent = 'Discount: ₹0';
             rightContainer.appendChild(discountSummary);
 
             const chargeSummary = document.createElement('span');
             chargeSummary.className = 'charge-summary';
-            chargeSummary.textContent = 'Applied Amount: ₹0.00';
+            chargeSummary.textContent = 'Applied Amount: ₹0';
             rightContainer.appendChild(chargeSummary);
 
             const discountWrapper = document.createElement('div');
@@ -562,7 +535,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const discountField = document.createElement('input');
             discountField.type = 'number';
             discountField.min = '0';
-            discountField.step = '0.01';
+            discountField.step = '1';
             discountField.placeholder = 'Enter discount';
             discountField.value = '';
             discountField.id = `test-discount-${testId}`;
@@ -686,8 +659,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const packageName = packageData.package_name || 'Package';
             const packageCode = packageData.package_code || '';
-            const packagePrice = toWholeRupee(parseFloat(packageData.package_price) || 0);
-            const baseTotal = toWholeRupee(parseFloat(packageData.total_base_price) || 0);
+            const packagePrice = Math.max(roundMoney(parseFloat(packageData.package_price) || 0), 0);
+            const baseTotal = Math.max(roundMoney(parseFloat(packageData.total_base_price) || 0), 0);
             const tests = Array.isArray(packageData.tests) ? packageData.tests : [];
 
             const listItem = document.createElement('li');
@@ -704,7 +677,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const packageMeta = document.createElement('span');
             packageMeta.className = 'discount-summary';
-            packageMeta.textContent = `Original: ₹${baseTotal.toFixed(2)} | Package: ₹${packagePrice.toFixed(2)}`;
+            packageMeta.textContent = `Original: ₹${baseTotal.toFixed(0)} | Package: ₹${packagePrice.toFixed(0)}`;
             leftContainer.appendChild(packageMeta);
 
             if (tests.length > 0) {
@@ -721,7 +694,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     const li = document.createElement('li');
                     const label = test.test_name || 'Unnamed Test';
                     const testPrice = parseFloat(test.package_test_price) || 0;
-                    li.textContent = `${label} - ₹${testPrice.toFixed(2)}`;
+                    li.textContent = `${label} - ₹${testPrice.toFixed(0)}`;
                     includeUl.appendChild(li);
                 });
                 includeList.appendChild(includeUl);
@@ -733,12 +706,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const amountBadge = document.createElement('span');
             amountBadge.className = 'charge-summary';
-            amountBadge.textContent = `Package Amount: ₹${packagePrice.toFixed(2)}`;
+            amountBadge.textContent = `Package Amount: ₹${packagePrice.toFixed(0)}`;
             rightContainer.appendChild(amountBadge);
 
             const packageDiscountSummary = document.createElement('span');
             packageDiscountSummary.className = 'discount-summary';
-            packageDiscountSummary.textContent = 'Total Package Discount: ₹0.00';
+            packageDiscountSummary.textContent = 'Total Package Discount: ₹0';
             rightContainer.appendChild(packageDiscountSummary);
 
             const extraDiscountWrapper = document.createElement('div');
@@ -800,7 +773,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (!isFinite(value) || value < 0) {
                     value = 0;
                 }
-                entry.extraDiscount = toWholeRupee(value);
+                entry.extraDiscount = roundMoney(value);
                 updateBill();
             });
 
@@ -812,14 +785,14 @@ document.addEventListener('DOMContentLoaded', function() {
         };
 
         function getPackagePricingSummary(pkg) {
-            const baseTotal = toWholeRupee(pkg.baseTotal);
-            const packagePrice = toWholeRupee(pkg.packagePrice);
+            const baseTotal = Math.max(roundMoney(pkg.baseTotal), 0);
+            const packagePrice = Math.max(roundMoney(pkg.packagePrice), 0);
             const billableGross = packagePrice <= baseTotal ? baseTotal : packagePrice;
-            const packageDiscount = packagePrice <= baseTotal ? toWholeRupee(baseTotal - packagePrice) : 0;
-            const maxExtraDiscount = Math.max(toWholeRupee(billableGross - packageDiscount), 0);
-            const normalizedExtra = Math.min(Math.max(toWholeRupee(pkg.extraDiscount), 0), maxExtraDiscount);
-            const totalPackageDiscount = toWholeRupee(packageDiscount + normalizedExtra);
-            const netPackageAmount = Math.max(toWholeRupee(billableGross - totalPackageDiscount), 0);
+            const packageDiscount = packagePrice <= baseTotal ? roundMoney(baseTotal - packagePrice) : 0;
+            const maxExtraDiscount = Math.max(roundMoney(billableGross - packageDiscount), 0);
+            const normalizedExtra = Math.min(Math.max(roundMoney(pkg.extraDiscount), 0), maxExtraDiscount);
+            const totalPackageDiscount = roundMoney(packageDiscount + normalizedExtra);
+            const netPackageAmount = Math.max(roundMoney(billableGross - totalPackageDiscount), 0);
 
             return {
                 baseTotal,
@@ -842,16 +815,13 @@ document.addEventListener('DOMContentLoaded', function() {
             pkg.extraDiscount = summary.extraDiscount;
 
             if (pkg.ui.metaSpan) {
-                pkg.ui.metaSpan.textContent = `Original: ₹${summary.baseTotal.toFixed(2)} | Package: ₹${summary.packagePrice.toFixed(2)} | Standard Discount: ₹${summary.packageDiscount.toFixed(2)} | Extra Discount: ₹${summary.extraDiscount.toFixed(2)}`;
+                pkg.ui.metaSpan.textContent = `Original: ₹${summary.baseTotal.toFixed(0)} | Package: ₹${summary.packagePrice.toFixed(0)} | Standard Discount: ₹${summary.packageDiscount.toFixed(0)} | Extra Discount: ₹${summary.extraDiscount.toFixed(0)}`;
             }
             if (pkg.ui.amountBadge) {
-                pkg.ui.amountBadge.textContent = `Package Amount: ₹${summary.netPackageAmount.toFixed(2)}`;
+                pkg.ui.amountBadge.textContent = `Package Amount: ₹${summary.netPackageAmount.toFixed(0)}`;
             }
             if (pkg.ui.discountSummary) {
-                pkg.ui.discountSummary.textContent = `Total Package Discount: ₹${summary.totalPackageDiscount.toFixed(2)}`;
-            }
-            if (pkg.ui.extraDiscountInput) {
-                pkg.ui.extraDiscountInput.value = summary.extraDiscount > 0 ? summary.extraDiscount.toFixed(0) : '';
+                pkg.ui.discountSummary.textContent = `Total Package Discount: ₹${summary.totalPackageDiscount.toFixed(0)}`;
             }
         }
 
@@ -885,10 +855,10 @@ document.addEventListener('DOMContentLoaded', function() {
             const netAmount = roundMoney(grossAmount - totalDiscount);
 
             if (grossAmountInput) {
-                grossAmountInput.value = roundMoney(grossAmount).toFixed(2);
+                grossAmountInput.value = roundMoney(grossAmount).toFixed(0);
             }
             if (discountInput) {
-                discountInput.value = roundMoney(totalDiscount).toFixed(2);
+                discountInput.value = roundMoney(totalDiscount).toFixed(0);
             }
             if (discountBySelect) {
                 const hasDiscount = totalDiscount > 0.0001;
@@ -898,7 +868,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
             if (netAmountInput) {
-                netAmountInput.value = roundMoney(Math.max(netAmount, 0)).toFixed(2);
+                netAmountInput.value = roundMoney(Math.max(netAmount, 0)).toFixed(0);
             }
 
             // Update partial-paid calculation whenever the bill total changes
@@ -914,7 +884,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const packagePayload = Object.entries(selectedPackages).map(([id, data]) => ({
                 id: parseInt(id, 10) || 0,
                 item_type: 'package',
-                extra_discount: toWholeRupee(data.extraDiscount)
+                extra_discount: roundMoney(data.extraDiscount)
             }));
 
             const finalPayload = testPayload.concat(packagePayload);
@@ -954,10 +924,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 entry.screeningAmount = Math.max(parseAmount(test.screening), 0);
                 entry.discountAmount = Math.max(parseAmount(test.discount), 0);
                 if (entry.ui && entry.ui.customInput) {
-                    entry.ui.customInput.value = entry.screeningAmount > 0 ? entry.screeningAmount.toFixed(2) : '';
+                    entry.ui.customInput.value = entry.screeningAmount > 0 ? entry.screeningAmount.toFixed(0) : '';
                 }
                 if (entry.ui && entry.ui.discountInput) {
-                    entry.ui.discountInput.value = entry.discountAmount > 0 ? entry.discountAmount.toFixed(2) : '';
+                    entry.ui.discountInput.value = entry.discountAmount > 0 ? entry.discountAmount.toFixed(0) : '';
                 }
                 updateScreeningSummary(entry);
                 clampDiscountToGross(entry);
@@ -977,7 +947,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (!packageEntry) {
                     return;
                 }
-                packageEntry.extraDiscount = Math.max(toWholeRupee(pkg.extra_discount), 0);
+                packageEntry.extraDiscount = Math.max(roundMoney(pkg.extra_discount), 0);
                 if (packageEntry.ui && packageEntry.ui.extraDiscountInput) {
                     packageEntry.ui.extraDiscountInput.value = packageEntry.extraDiscount > 0 ? packageEntry.extraDiscount.toFixed(0) : '';
                 }
@@ -993,17 +963,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 paymentStatusSelect.value = String(prefill.payment_status);
             }
             if (amountPaidInput && prefill.amount_paid !== undefined && prefill.amount_paid !== null) {
-                amountPaidInput.value = parseAmount(prefill.amount_paid).toFixed(2);
+                amountPaidInput.value = parseAmount(prefill.amount_paid).toFixed(0);
             }
 
             if (splitCashInput && prefill.split_cash_amount !== undefined && prefill.split_cash_amount !== null) {
-                splitCashInput.value = parseAmount(prefill.split_cash_amount).toFixed(2);
+                splitCashInput.value = parseAmount(prefill.split_cash_amount).toFixed(0);
             }
             if (splitCardInput && prefill.split_card_amount !== undefined && prefill.split_card_amount !== null) {
-                splitCardInput.value = parseAmount(prefill.split_card_amount).toFixed(2);
+                splitCardInput.value = parseAmount(prefill.split_card_amount).toFixed(0);
             }
             if (splitUpiInput && prefill.split_upi_amount !== undefined && prefill.split_upi_amount !== null) {
-                splitUpiInput.value = parseAmount(prefill.split_upi_amount).toFixed(2);
+                splitUpiInput.value = parseAmount(prefill.split_upi_amount).toFixed(0);
             }
 
             updateBill();
@@ -1020,7 +990,12 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         function isCombinedMode(mode) {
-            return mode === 'Cash + Card' || mode === 'UPI + Cash' || mode === 'Card + UPI';
+            return mode === 'Cash + Card'
+                || mode === 'Card + Cash'
+                || mode === 'UPI + Cash'
+                || mode === 'Cash + UPI'
+                || mode === 'Card + UPI'
+                || mode === 'UPI + Card';
         }
 
         const splitFieldMap = {
@@ -1030,13 +1005,13 @@ document.addEventListener('DOMContentLoaded', function() {
         };
 
         function getSplitModeConfig(mode) {
-            if (mode === 'Cash + Card') {
+            if (mode === 'Cash + Card' || mode === 'Card + Cash') {
                 return { keys: ['cash', 'card'] };
             }
-            if (mode === 'UPI + Cash') {
+            if (mode === 'UPI + Cash' || mode === 'Cash + UPI') {
                 return { keys: ['upi', 'cash'] };
             }
-            if (mode === 'Card + UPI') {
+            if (mode === 'Card + UPI' || mode === 'UPI + Card') {
                 return { keys: ['card', 'upi'] };
             }
             return null;
@@ -1073,7 +1048,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (paymentStatusSelect.value === 'Partial Paid') {
                 const entered = parseAmount(amountPaidInput ? amountPaidInput.value : 0);
                 const expected = Math.min(entered, netAmount);
-                return snapNearWholeRupeeArtifacts(expected, netAmount);
+                return expected;
             }
             return 0;
         }
@@ -1092,7 +1067,7 @@ document.addEventListener('DOMContentLoaded', function() {
             inputEl.required = shouldShow;
             inputEl.setCustomValidity('');
             if (shouldShow) {
-                inputEl.max = expectedAmount.toFixed(2);
+                inputEl.max = expectedAmount.toFixed(0);
             } else {
                 inputEl.value = '';
                 inputEl.removeAttribute('max');
@@ -1103,15 +1078,15 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!splitTotalDisplay) return;
 
             const expected = getExpectedPaymentAmount();
-            const total = snapNearWholeRupeeArtifacts(roundMoney(parseAmount(splitCashInput ? splitCashInput.value : 0)
+            const total = roundMoney(parseAmount(splitCashInput ? splitCashInput.value : 0)
                 + parseAmount(splitCardInput ? splitCardInput.value : 0)
-                + parseAmount(splitUpiInput ? splitUpiInput.value : 0)), expected);
+                + parseAmount(splitUpiInput ? splitUpiInput.value : 0));
 
-            splitTotalDisplay.textContent = `₹${total.toFixed(2)}`;
+            splitTotalDisplay.textContent = `₹${total.toFixed(0)}`;
             if (splitRequiredDisplay) {
-                splitRequiredDisplay.textContent = `₹${expected.toFixed(2)}`;
+                splitRequiredDisplay.textContent = `₹${expected.toFixed(0)}`;
             } else {
-                splitTotalDisplay.textContent = `₹${total.toFixed(2)} (Required: ₹${expected.toFixed(2)})`;
+                splitTotalDisplay.textContent = `₹${total.toFixed(0)} (Required: ₹${expected.toFixed(0)})`;
             }
         }
 
@@ -1147,7 +1122,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const enteredRaw = parseFloat(raw);
             let entered = roundMoney(enteredRaw);
-            entered = snapNearWholeRupeeArtifacts(entered, expectedAmount);
             if (!isFinite(entered) || entered < 0) {
                 sourceField.input.setCustomValidity(`${sourceField.label} must be a valid non-negative amount.`);
                 if (showValidation) {
@@ -1168,13 +1142,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
 
-            if (Math.abs(entered - parseAmount(raw)) > 0.0001) {
-                sourceField.input.value = entered.toFixed(2);
-            }
-
-            const remaining = snapNearWholeRupeeArtifacts(roundMoney(Math.max(expectedAmount - entered, 0)), expectedAmount);
+            const remaining = roundMoney(Math.max(expectedAmount - entered, 0));
             companionField.input.setCustomValidity('');
-            companionField.input.value = remaining.toFixed(2);
+            companionField.input.value = remaining.toFixed(0);
             updateSplitTotalDisplay();
         }
 
@@ -1276,20 +1246,10 @@ document.addEventListener('DOMContentLoaded', function() {
             let firstVal = roundMoney(firstRaw);
             let secondVal = roundMoney(secondRaw);
 
-            firstVal = snapNearWholeRupeeArtifacts(firstVal, expectedAmount);
-            secondVal = snapNearWholeRupeeArtifacts(secondVal, expectedAmount);
-
             if (!isFinite(firstVal) || !isFinite(secondVal) || firstVal < 0 || secondVal < 0) {
                 secondInput.setCustomValidity('Split amounts must be valid non-negative numbers.');
                 secondInput.reportValidity();
                 return false;
-            }
-
-            if (Math.abs(firstVal - parseAmount(rawFirst)) > 0.0001) {
-                firstInput.value = firstVal.toFixed(2);
-            }
-            if (Math.abs(secondVal - parseAmount(rawSecond)) > 0.0001) {
-                secondInput.value = secondVal.toFixed(2);
             }
 
             if (firstVal <= 0 || secondVal <= 0) {
@@ -1304,7 +1264,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 return false;
             }
 
-            const total = snapNearWholeRupeeArtifacts(roundMoney(firstVal + secondVal), expectedAmount);
+            const total = roundMoney(firstVal + secondVal);
             if (total > expectedAmount + 0.01) {
                 secondInput.setCustomValidity('Split total cannot exceed the payable amount.');
                 secondInput.reportValidity();
@@ -1328,26 +1288,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 partialPaidDetails.style.display = 'flex'; // Use 'flex' to show the row
                 let netAmount = parseAmount(netAmountInput.value);
                 let amountPaid = parseAmount(amountPaidInput.value);
-                amountPaid = snapNearWholeRupeeArtifacts(amountPaid, netAmount);
-                if (amountPaidInput.value.trim() !== '' && Math.abs(amountPaid - parseAmount(amountPaidInput.value)) > 0.0001) {
-                    amountPaidInput.value = amountPaid.toFixed(2);
-                }
                 
                 // Prevent paying more than the net amount
                 if (amountPaid > netAmount) {
-                    amountPaid = netAmount;
-                    amountPaidInput.value = amountPaid.toFixed(2);
-                }
-
-                if (amountPaid <= 0) {
+                    amountPaidInput.setCustomValidity('Amount paid cannot exceed net amount.');
+                } else if (amountPaid <= 0) {
                     amountPaidInput.setCustomValidity('Amount paid must be greater than zero for Partial Paid status.');
                 } else {
                     amountPaidInput.setCustomValidity('');
                 }
 
-                let balance = snapNearWholeRupeeArtifacts(roundMoney(Math.max(netAmount - amountPaid, 0)), netAmount);
-                balanceAmountInput.value = balance.toFixed(2);
-                amountPaidInput.max = netAmount.toFixed(2); // Set max attribute for validation
+                const payableNow = Math.min(amountPaid, netAmount);
+                let balance = roundMoney(Math.max(netAmount - payableNow, 0));
+                balanceAmountInput.value = balance.toFixed(0);
+                amountPaidInput.max = netAmount.toFixed(0); // Set max attribute for validation
             } else {
                 partialPaidDetails.style.display = 'none'; // Hide the section
                 amountPaidInput.value = ''; // Clear the values when not visible
@@ -1365,13 +1319,9 @@ document.addEventListener('DOMContentLoaded', function() {
         if(amountPaidInput) {
             amountPaidInput.addEventListener('input', updatePartialPaid);
             amountPaidInput.addEventListener('change', function() {
-                if (!netAmountInput || amountPaidInput.value.trim() === '') {
-                    updatePartialPaid();
-                    return;
+                if (amountPaidInput.value.trim() !== '') {
+                    amountPaidInput.value = parseAmount(amountPaidInput.value).toFixed(0);
                 }
-                const netAmount = parseAmount(netAmountInput.value);
-                const normalizedPaid = snapNearWholeRupeeArtifacts(parseAmount(amountPaidInput.value), netAmount);
-                amountPaidInput.value = normalizedPaid.toFixed(2);
                 updatePartialPaid();
             });
         }
@@ -1387,7 +1337,7 @@ document.addEventListener('DOMContentLoaded', function() {
             });
             field.input.addEventListener('change', function() {
                 if (field.input.value.trim() !== '') {
-                    field.input.value = parseAmount(field.input.value).toFixed(2);
+                    field.input.value = parseAmount(field.input.value).toFixed(0);
                 }
                 autoBalanceSplitFields(key, true);
             });
@@ -1402,20 +1352,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 e.preventDefault();
                 return;
             }
-
-            const netAmountForSubmit = parseAmount(netAmountInput ? netAmountInput.value : 0);
-            if (amountPaidInput && amountPaidInput.value.trim() !== '') {
-                const normalizedPaid = snapNearWholeRupeeArtifacts(parseAmount(amountPaidInput.value), netAmountForSubmit);
-                amountPaidInput.value = normalizedPaid.toFixed(2);
-            }
-
-            const expectedForSplit = getExpectedPaymentAmount();
-            [splitCashInput, splitCardInput, splitUpiInput].forEach(function(input) {
-                if (input && input.value.trim() !== '') {
-                    const normalizedSplit = snapNearWholeRupeeArtifacts(parseAmount(input.value), expectedForSplit);
-                    input.value = normalizedSplit.toFixed(2);
-                }
-            });
 
             if (discountBySelect && discountInput) {
                 const hasDiscount = parseAmount(discountInput.value) > 0.0001;
@@ -1620,7 +1556,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function formatCurrency(amount) {
         const numeric = parseFloat(amount) || 0;
-        return `₹${numeric.toFixed(2)}`;
+        return `₹${numeric.toFixed(0)}`;
     }
 
     function formatTimestamp(ts) {
