@@ -281,7 +281,7 @@ $emptyRows = max(0, $minItemRows - count($display_items));
         .bill-receipt-title {
             position: absolute;
             top: calc(13% + 38mm);
-            left: 50%;
+            left: 48.8%;
             transform: translateX(-50%);
             font-size: 19.45px;
             font-weight: 700;
@@ -303,6 +303,11 @@ $emptyRows = max(0, $minItemRows - count($display_items));
             flex: 1 1 0;
             max-width: 48%;
             min-width: 0;
+        }
+
+        .field-row.two-column .field-group:last-child:not(:only-child) {
+            margin-left: 4mm;
+            max-width: calc(48% - 4mm);
         }
 
         .field-row.two-column .field-group:only-child {
@@ -354,7 +359,6 @@ $emptyRows = max(0, $minItemRows - count($display_items));
     .row-patient { top: 24%; }
     .row-age { top: 27.5%; }
     .row-ref { top: 31%; }
-    .row-pay { top: 34.2%; }
 
         .items-container {
             position: absolute;
@@ -585,15 +589,12 @@ $emptyRows = max(0, $minItemRows - count($display_items));
                 </div>
             </div>
 
-            <div class="field-row single row-ref">
+            <div class="field-row two-column row-ref">
                 <div class="field-group">
                     <span class="field-label">Mobile No</span>
                     <span class="field-colon">:</span>
                     <span class="field-value"><?php echo htmlspecialchars($patientMobile !== '' ? $patientMobile : '-'); ?></span>
                 </div>
-            </div>
-
-            <div class="field-row single row-pay">
                 <div class="field-group">
                     <span class="field-label">City</span>
                     <span class="field-colon">:</span>
