@@ -473,12 +473,37 @@ function app_settings_set(
 }
 
 /**
- * Returns the fixed reporting radiologist list used across manager and writer pages.
+ * Ensures reporting doctors management table exists.
+ */
+function ensure_reporting_doctors_schema(mysqli $conn): void {
+    $conn->query("CREATE TABLE IF NOT EXISTS reporting_doctors (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        doctor_name VARCHAR(150) NOT NULL,
+        phone_number VARCHAR(30) NOT NULL,
+        email VARCHAR(150) DEFAULT NULL,
+        address TEXT DEFAULT NULL,
+        city VARCHAR(120) DEFAULT NULL,
+        hospital_name VARCHAR(180) DEFAULT NULL,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_reporting_doctor_name (doctor_name)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+}
+
+/**
+ * Returns reporting radiologist list used across manager and writer pages.
+ * Uses reporting_doctors table when available; falls back to legacy defaults.
  *
  * @return array<int, string>
  */
 function get_reporting_radiologist_list(): array {
-    return [
+    static $cached = null;
+    if ($cached !== null) {
+        return $cached;
+    }
+
+    $defaults = [
         'Dr. G. Mamatha MD (RD)',
         'Dr. G. Sri Kanth DMRD',
         'Dr. P. Madhu Babu MD',
@@ -487,6 +512,45 @@ function get_reporting_radiologist_list(): array {
         'Dr. T. Koushik MD(RD)',
         'Dr. T. Rajeshwar Rao MD DMRD',
     ];
+
+    $cached = $defaults;
+
+    if (!isset($GLOBALS['conn']) || !($GLOBALS['conn'] instanceof mysqli)) {
+        return $cached;
+    }
+
+    $conn = $GLOBALS['conn'];
+    ensure_reporting_doctors_schema($conn);
+
+    $list = [];
+    $result = $conn->query("SELECT doctor_name FROM reporting_doctors WHERE is_active = 1 ORDER BY doctor_name ASC");
+    if ($result instanceof mysqli_result) {
+        while ($row = $result->fetch_assoc()) {
+            $name = trim((string)($row['doctor_name'] ?? ''));
+            if ($name !== '') {
+                $list[] = $name;
+            }
+        }
+        $result->free();
+    }
+
+    if (!empty($list)) {
+        $cached = array_values(array_unique($list));
+        return $cached;
+    }
+
+    // Seed defaults for first-time setup to preserve existing behavior.
+    $insert = $conn->prepare("INSERT IGNORE INTO reporting_doctors (doctor_name, phone_number, is_active) VALUES (?, 'NA', 1)");
+    if ($insert) {
+        foreach ($defaults as $default_name) {
+            $insert->bind_param('s', $default_name);
+            $insert->execute();
+        }
+        $insert->close();
+    }
+
+    $cached = $defaults;
+    return $cached;
 }
 
 /**
@@ -1079,7 +1143,6 @@ function snap_near_whole_paise(int $amount_paise, bool $prefer_whole = true): in
 function build_payment_split_from_input(array $source, $payment_mode, float $expected_amount): array {
     $mode = sanitize_payment_mode_input((string)$payment_mode);
     $expected_paise = max(0, currency_to_paise($expected_amount));
-    $prefer_whole_split = ($expected_paise % 100) === 0;
 
     $fields = [
         'cash' => 'split_cash_amount',
@@ -1102,12 +1165,11 @@ function build_payment_split_from_input(array $source, $payment_mode, float $exp
             throw new Exception('Please enter valid numeric split amounts.');
         }
 
-        $amount_paise = currency_to_paise($raw_val);
+        $amount_rupees = (int)round((float)$raw_val, 0);
+        $amount_paise = $amount_rupees * 100;
         if ($amount_paise < 0) {
             throw new Exception('Split amounts cannot be negative.');
         }
-
-        $amount_paise = snap_near_whole_paise($amount_paise, $prefer_whole_split);
 
         $split_paise[$key] = $amount_paise;
     }
