@@ -1,7 +1,4 @@
 <header class="sa-header">
-    <button id="sa-sidebar-toggle" class="sa-sidebar-toggle" type="button" aria-label="Toggle menu">
-        <i class="fas fa-bars"></i>
-    </button>
     <div class="sa-header-actions" aria-label="Quick actions">
         <div class="sa-header-icons">
         <a href="manage_calendar.php" title="Calendar"><i class="far fa-calendar-alt"></i></a>

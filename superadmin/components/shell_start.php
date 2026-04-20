@@ -9,9 +9,5 @@ if (!isset($sa_active_page)) {
 ?>
 
 <div class="sa-shell">
-    <?php require __DIR__ . '/sidebar_component.php'; ?>
-
-    <div class="sa-content-wrap">
-        <?php require __DIR__ . '/header_component.php'; ?>
-
+    <div class="sa-content-wrap sa-content-wrap-full">
         <main class="sa-main-content">
