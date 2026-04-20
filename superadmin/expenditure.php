@@ -380,10 +380,6 @@ $topProfessionalCharges = fetchTopProfessionalCharges($conn, $periodStartDate, $
 
 <script>
 window.addEventListener('load', function () {
-    if (typeof Chart !== 'undefined' && window.ChartDataLabels) {
-        Chart.register(ChartDataLabels);
-    }
-
     const periodStart = document.getElementById('sa-period-start');
     const periodEnd = document.getElementById('sa-period-end');
     const periodForm = document.getElementById('sa-period-filter');
@@ -426,18 +422,7 @@ window.addEventListener('load', function () {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: { display: false },
-                    datalabels: {
-                        display: context => Number(context.dataset.data?.[context.dataIndex] ?? 0) > 0,
-                        formatter: value => 'Rs. ' + Number(value ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-                        color: '#0f172a',
-                        font: { weight: '600', size: 10 },
-                        anchor: 'end',
-                        align: 'top',
-                        offset: 4,
-                        clamp: true,
-                        clip: false
-                    }
+                    legend: { display: false }
                 },
                 scales: {
                     y: {

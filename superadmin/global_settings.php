@@ -1,186 +1,92 @@
 <?php
-$page_title = "Global Settings";
+$page_title = "Settings";
 $required_role = "superadmin";
 require_once '../includes/auth_check.php';
 require_once '../includes/db_connect.php';
-require_once '../includes/functions.php';
-
-$defaults = [
-    'default_date_range' => 'today',
-    'show_pending_bills_card' => true,
-    'show_revenue_chart' => true,
-    'pending_bill_reminders' => true,
-    'request_approval_alerts' => true,
-    'require_password_for_approvals' => false,
-    'session_timeout_minutes' => 60,
-    'notifications_default_recipient_type' => 'group_patients',
-    'notifications_default_channel_email' => true,
-    'notifications_default_channel_whatsapp' => true
-];
-
-$allowed_ranges = ['today', 'week', 'month', 'last_month'];
-$allowed_recipient_types = ['group_patients', 'group_doctors', 'individual_doctor', 'individual_employee', 'custom'];
-$feedback = '';
-
-try {
-    app_settings_ensure_schema($conn);
-} catch (Exception $e) {
-    $feedback = "<div class='error-banner'>Could not initialize global settings storage: " . htmlspecialchars($e->getMessage()) . "</div>";
-}
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_global_settings'])) {
-    $default_date_range = in_array($_POST['default_date_range'] ?? '', $allowed_ranges, true)
-        ? $_POST['default_date_range']
-        : $defaults['default_date_range'];
-    $show_pending_bills_card = isset($_POST['show_pending_bills_card']) ? '1' : '0';
-    $show_revenue_chart = isset($_POST['show_revenue_chart']) ? '1' : '0';
-    $pending_bill_reminders = isset($_POST['pending_bill_reminders']) ? '1' : '0';
-    $request_approval_alerts = isset($_POST['request_approval_alerts']) ? '1' : '0';
-    $require_password_for_approvals = isset($_POST['require_password_for_approvals']) ? '1' : '0';
-    $session_timeout_minutes = (int)($_POST['session_timeout_minutes'] ?? $defaults['session_timeout_minutes']);
-    if ($session_timeout_minutes < 5) {
-        $session_timeout_minutes = 5;
-    }
-    if ($session_timeout_minutes > 480) {
-        $session_timeout_minutes = 480;
-    }
-
-    $default_recipient_type = in_array($_POST['notifications_default_recipient_type'] ?? '', $allowed_recipient_types, true)
-        ? $_POST['notifications_default_recipient_type']
-        : $defaults['notifications_default_recipient_type'];
-    $default_channel_email = isset($_POST['notifications_default_channel_email']) ? '1' : '0';
-    $default_channel_whatsapp = isset($_POST['notifications_default_channel_whatsapp']) ? '1' : '0';
-
-    $scope = 'global';
-    $scope_id = 0;
-    $updated_by = (int)$_SESSION['user_id'];
-
-    $conn->begin_transaction();
-    $ok = true;
-    $ok = $ok && app_settings_set($conn, $scope, $scope_id, 'default_date_range', $default_date_range, 'string', 'dashboard', $updated_by);
-    $ok = $ok && app_settings_set($conn, $scope, $scope_id, 'show_pending_bills_card', $show_pending_bills_card, 'bool', 'dashboard', $updated_by);
-    $ok = $ok && app_settings_set($conn, $scope, $scope_id, 'show_revenue_chart', $show_revenue_chart, 'bool', 'dashboard', $updated_by);
-    $ok = $ok && app_settings_set($conn, $scope, $scope_id, 'pending_bill_reminders', $pending_bill_reminders, 'bool', 'notifications', $updated_by);
-    $ok = $ok && app_settings_set($conn, $scope, $scope_id, 'request_approval_alerts', $request_approval_alerts, 'bool', 'notifications', $updated_by);
-    $ok = $ok && app_settings_set($conn, $scope, $scope_id, 'require_password_for_approvals', $require_password_for_approvals, 'bool', 'security', $updated_by);
-    $ok = $ok && app_settings_set($conn, $scope, $scope_id, 'session_timeout_minutes', (string)$session_timeout_minutes, 'int', 'security', $updated_by);
-    $ok = $ok && app_settings_set($conn, $scope, $scope_id, 'notifications_default_recipient_type', $default_recipient_type, 'string', 'notifications', $updated_by);
-    $ok = $ok && app_settings_set($conn, $scope, $scope_id, 'notifications_default_channel_email', $default_channel_email, 'bool', 'notifications', $updated_by);
-    $ok = $ok && app_settings_set($conn, $scope, $scope_id, 'notifications_default_channel_whatsapp', $default_channel_whatsapp, 'bool', 'notifications', $updated_by);
-
-    if ($ok) {
-        $conn->commit();
-        log_system_action($conn, 'GLOBAL_SETTINGS_UPDATED', $updated_by, 'Global settings updated in superadmin/global_settings.php');
-        $_SESSION['feedback'] = "<div class='success-banner'>Global settings saved successfully.</div>";
-    } else {
-        $conn->rollback();
-        $_SESSION['feedback'] = "<div class='error-banner'>Could not save global settings. Please try again.</div>";
-    }
-
-    header('Location: global_settings.php');
-    exit();
-}
-
-if (isset($_SESSION['feedback'])) {
-    $feedback = $_SESSION['feedback'];
-    unset($_SESSION['feedback']);
-}
-
-$current = app_settings_get_many($conn, 'global', 0, $defaults);
 require_once '../includes/header.php';
+
+$sa_active_page = 'global_settings.php';
 ?>
 
-<div class="main-content page-container">
-    <div class="dashboard-header">
-        <div>
-            <h1>Global Settings</h1>
-            <p>Set centralized defaults (scope global, scope_id 0). Role-specific and user-specific settings can override these values.</p>
-        </div>
-        <a href="dashboard.php" class="btn-back"><i class="fas fa-arrow-left"></i> Back to Dashboard</a>
-    </div>
+<link rel="stylesheet" href="<?php echo $base_url; ?>/assets/css/superadmin_shell.css?v=<?php echo time(); ?>">
+<style>
+.sa-settings-page { display: grid; gap: 1rem; }
+.sa-settings-head {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 1rem;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+}
+.sa-settings-head h1 { margin: 0; color: #1e3a8a; font-size: 1.5rem; }
+.sa-settings-head p { margin: 0.2rem 0 0; color: #64748b; }
+.sa-settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 0.9rem;
+}
+.sa-setting-card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 1rem;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+    display: grid;
+    gap: 0.6rem;
+}
+.sa-setting-card h3 { margin: 0; color: #1e3a8a; font-size: 1.05rem; }
+.sa-setting-card p { margin: 0; color: #64748b; font-size: 0.9rem; }
+.sa-setting-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    width: fit-content;
+    border-radius: 999px;
+    border: 1px solid #1e3a8a;
+    background: #1e3a8a;
+    color: #fff;
+    text-decoration: none;
+    padding: 0.44rem 0.9rem;
+    font-weight: 700;
+}
+.sa-setting-btn:hover { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+.sa-setting-btn.is-placeholder {
+    border-color: #cbd5e1;
+    background: #f8fafc;
+    color: #64748b;
+    cursor: default;
+}
+</style>
 
-    <?php if (!empty($feedback)): ?>
-        <?php echo $feedback; ?>
-    <?php endif; ?>
+<?php require_once __DIR__ . '/components/shell_start.php'; ?>
 
-    <form method="POST" class="settings-form" novalidate>
-        <input type="hidden" name="save_global_settings" value="1">
+<section class="sa-settings-page">
+    <article class="sa-settings-head">
+        <h1>Settings</h1>
+        <p>Choose a settings section.</p>
+    </article>
 
-        <div class="settings-grid">
-            <section class="settings-card">
-                <h3><i class="fas fa-chart-line" aria-hidden="true"></i> Dashboard Defaults</h3>
+    <section class="sa-settings-grid">
+        <article class="sa-setting-card">
+            <h3>Employee Management</h3>
+            <p>Employee Access</p>
+            <a class="sa-setting-btn" href="employee_access.php"><i class="fas fa-user-shield"></i> Open</a>
+        </article>
 
-                <div class="settings-field">
-                    <label for="default_date_range">Default Date Range</label>
-                    <select id="default_date_range" name="default_date_range">
-                        <option value="today" <?php echo ($current['default_date_range'] === 'today') ? 'selected' : ''; ?>>Today</option>
-                        <option value="week" <?php echo ($current['default_date_range'] === 'week') ? 'selected' : ''; ?>>This Week</option>
-                        <option value="month" <?php echo ($current['default_date_range'] === 'month') ? 'selected' : ''; ?>>This Month</option>
-                        <option value="last_month" <?php echo ($current['default_date_range'] === 'last_month') ? 'selected' : ''; ?>>Last Month</option>
-                    </select>
-                </div>
+        <article class="sa-setting-card">
+            <h3>Employee Logs</h3>
+            <p>Audit Log</p>
+            <a class="sa-setting-btn" href="audit_log.php"><i class="fas fa-clipboard-list"></i> Open</a>
+        </article>
 
-                <label class="settings-toggle">
-                    <input type="checkbox" name="show_pending_bills_card" <?php echo !empty($current['show_pending_bills_card']) ? 'checked' : ''; ?>>
-                    <span>Show Pending Bills KPI by default</span>
-                </label>
+        <article class="sa-setting-card">
+            <h3>Email</h3>
+            <p>Button only (no action)</p>
+            <span class="sa-setting-btn is-placeholder"><i class="fas fa-envelope"></i> Email</span>
+        </article>
+    </section>
+</section>
 
-                <label class="settings-toggle">
-                    <input type="checkbox" name="show_revenue_chart" <?php echo !empty($current['show_revenue_chart']) ? 'checked' : ''; ?>>
-                    <span>Show Revenue chart by default</span>
-                </label>
-
-                <label class="settings-toggle">
-                    <input type="checkbox" name="pending_bill_reminders" <?php echo !empty($current['pending_bill_reminders']) ? 'checked' : ''; ?>>
-                    <span>Enable Pending Bill reminders by default</span>
-                </label>
-
-                <label class="settings-toggle">
-                    <input type="checkbox" name="request_approval_alerts" <?php echo !empty($current['request_approval_alerts']) ? 'checked' : ''; ?>>
-                    <span>Enable Request Approval alerts by default</span>
-                </label>
-
-                <label class="settings-toggle">
-                    <input type="checkbox" name="require_password_for_approvals" <?php echo !empty($current['require_password_for_approvals']) ? 'checked' : ''; ?>>
-                    <span>Require password for approvals by default</span>
-                </label>
-
-                <div class="settings-field">
-                    <label for="session_timeout_minutes">Default Session Timeout (minutes)</label>
-                    <input type="number" id="session_timeout_minutes" name="session_timeout_minutes" min="5" max="480" value="<?php echo (int)$current['session_timeout_minutes']; ?>">
-                </div>
-            </section>
-
-            <section class="settings-card">
-                <h3><i class="fas fa-bell" aria-hidden="true"></i> Notification Defaults</h3>
-
-                <div class="settings-field">
-                    <label for="notifications_default_recipient_type">Default Recipient Type</label>
-                    <select id="notifications_default_recipient_type" name="notifications_default_recipient_type">
-                        <option value="group_patients" <?php echo ($current['notifications_default_recipient_type'] === 'group_patients') ? 'selected' : ''; ?>>All Patients (Bulk)</option>
-                        <option value="group_doctors" <?php echo ($current['notifications_default_recipient_type'] === 'group_doctors') ? 'selected' : ''; ?>>All Doctors (Bulk)</option>
-                        <option value="individual_doctor" <?php echo ($current['notifications_default_recipient_type'] === 'individual_doctor') ? 'selected' : ''; ?>>Specific Doctor</option>
-                        <option value="individual_employee" <?php echo ($current['notifications_default_recipient_type'] === 'individual_employee') ? 'selected' : ''; ?>>Specific Employee</option>
-                        <option value="custom" <?php echo ($current['notifications_default_recipient_type'] === 'custom') ? 'selected' : ''; ?>>Custom Email / Phone</option>
-                    </select>
-                </div>
-
-                <label class="settings-toggle">
-                    <input type="checkbox" name="notifications_default_channel_email" <?php echo !empty($current['notifications_default_channel_email']) ? 'checked' : ''; ?>>
-                    <span>Enable Email channel by default</span>
-                </label>
-
-                <label class="settings-toggle">
-                    <input type="checkbox" name="notifications_default_channel_whatsapp" <?php echo !empty($current['notifications_default_channel_whatsapp']) ? 'checked' : ''; ?>>
-                    <span>Enable WhatsApp channel by default</span>
-                </label>
-            </section>
-        </div>
-
-        <div class="settings-actions">
-            <button type="submit" class="btn-submit">Save Global Defaults</button>
-        </div>
-    </form>
-</div>
-
+<?php require_once __DIR__ . '/components/shell_end.php'; ?>
 <?php require_once '../includes/footer.php'; ?>
