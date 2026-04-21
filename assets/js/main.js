@@ -431,11 +431,17 @@ document.addEventListener('DOMContentLoaded', function() {
             entry.ui.chargeSummary.textContent = `Applied Amount: ₹${net.toFixed(0)}`;
         }
 
-        function clampDiscountToGross(entry) {
+        function clampDiscountToTestPrice(entry) {
             if (!entry) return;
-            const gross = (parseFloat(entry.price) || 0) + (parseFloat(entry.screeningAmount) || 0);
-            if (entry.discountAmount > gross) {
-                entry.discountAmount = gross;
+            const maxDiscount = parseFloat(entry.price) || 0;
+            if (entry.discountAmount > maxDiscount) {
+                entry.discountAmount = 0;
+            }
+            if (entry.discountAmount < 0) {
+                entry.discountAmount = 0;
+            }
+            if (entry.ui && entry.ui.discountInput) {
+                entry.ui.discountInput.value = entry.discountAmount > 0 ? roundMoney(entry.discountAmount).toFixed(0) : '';
             }
             updateDiscountSummary(entry);
         }
@@ -462,7 +468,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 toggleCustomVisibility(entry, activeButton === entry.ui.customButton);
             }
             updateScreeningSummary(entry);
-            clampDiscountToGross(entry);
+            clampDiscountToTestPrice(entry);
             updateBill();
         }
 
@@ -535,6 +541,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const discountField = document.createElement('input');
             discountField.type = 'number';
             discountField.min = '0';
+            discountField.max = basePrice.toFixed(0);
             discountField.step = '1';
             discountField.placeholder = 'Enter discount';
             discountField.value = '';
@@ -632,8 +639,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (!isFinite(value) || value < 0) {
                     value = 0;
                 }
+                const maxDiscount = parseFloat(entry.price) || 0;
+                if (value > maxDiscount) {
+                    value = 0;
+                    discountField.value = '';
+                    discountField.setCustomValidity(`Discount cannot exceed test cost (₹${maxDiscount.toFixed(0)}).`);
+                    discountField.reportValidity();
+                } else {
+                    discountField.setCustomValidity('');
+                }
                 entry.discountAmount = value;
-                clampDiscountToGross(entry);
+                clampDiscountToTestPrice(entry);
                 updateBill();
             });
 
@@ -833,7 +849,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 const base = parseFloat(test.price) || 0;
                 const screening = parseFloat(test.screeningAmount) || 0;
                 const itemGross = roundMoney(base + screening);
-                test.discountAmount = Math.min(parseFloat(test.discountAmount) || 0, itemGross);
+                const maxDiscount = roundMoney(base);
+                test.discountAmount = Math.min(parseFloat(test.discountAmount) || 0, maxDiscount);
                 grossAmount = roundMoney(grossAmount + itemGross);
                 totalDiscount = roundMoney(totalDiscount + (parseFloat(test.discountAmount) || 0));
                 updateScreeningSummary(test);
@@ -930,7 +947,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     entry.ui.discountInput.value = entry.discountAmount > 0 ? entry.discountAmount.toFixed(0) : '';
                 }
                 updateScreeningSummary(entry);
-                clampDiscountToGross(entry);
+                clampDiscountToTestPrice(entry);
                 updateDiscountSummary(entry);
                 updateChargeSummary(entry);
             });

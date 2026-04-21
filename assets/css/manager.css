@@ -575,7 +575,21 @@ body.role-manager.manager-nav-colliding .main-navbar {
 .role-manager #analytics-table.show-delete-actions .action-cell { display: table-cell; }
 #delete-mode-toggle { cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent; }
 #delete-mode-toggle.delete-active { border-color: var(--error); box-shadow: 0 0 10px var(--error-soft); }
-.quick-date-pills .btn-action.active { background-color: var(--brand-blue); color: var(--bg-primary); border-color: var(--brand-blue); font-weight: bold; }
+.role-manager .quick-date-pills .btn-action:hover,
+.role-manager .quick-date-pills .btn-action:focus-visible {
+    background-color: #e8f0ff;
+    color: #1f4fbf;
+    border-color: #9db7ee;
+}
+
+.role-manager .quick-date-pills .btn-action.active,
+.role-manager .quick-date-pills .btn-action.active:hover,
+.role-manager .quick-date-pills .btn-action.active:focus-visible {
+    background-color: #1f4fbf;
+    color: #ffffff;
+    border-color: #1f4fbf;
+    font-weight: bold;
+}
 
 .role-manager .analytics-table-shell {
     border: 1px solid var(--border-light);
@@ -1323,7 +1337,7 @@ body.role-manager.manager-nav-colliding .main-navbar {
 .role-manager .manage-tests-compact .package-test-row {
     display: grid;
     grid-template-columns: minmax(150px, 1fr) minmax(260px, 2fr) minmax(130px, 1fr) minmax(150px, 1fr) auto;
-    gap: 0.75rem;
+    gap: 1rem;
     align-items: flex-start;
     margin-bottom: 0.65rem;
     padding: 0.65rem;
@@ -1337,6 +1351,7 @@ body.role-manager.manager-nav-colliding .main-navbar {
     flex-direction: column;
     gap: 0.35rem;
     margin-bottom: 0;
+    min-width: 0;
 }
 
 .role-manager .manage-tests-compact .package-test-row .form-group label {
@@ -1350,6 +1365,43 @@ body.role-manager.manager-nav-colliding .main-navbar {
 .role-manager .manage-tests-compact .package-test-row .package-test-price {
     width: 100%;
     min-height: 40px;
+    box-sizing: border-box;
+}
+
+.role-manager .manage-tests-compact .package-test-row .package-test-input-row {
+    position: relative;
+    width: 100%;
+}
+
+.role-manager .manage-tests-compact .package-test-row .package-test-input-row .package-test-input {
+    width: 100%;
+    padding-right: 5.4rem;
+}
+
+.role-manager .manage-tests-compact .package-test-row .package-test-clear {
+    position: absolute;
+    right: 2.1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 22px;
+    min-width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    border: none;
+    background: #e2e8f0;
+    color: #64748b;
+    font-weight: 800;
+    font-size: 0.8rem;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+    z-index: 2;
+}
+
+.role-manager .manage-tests-compact .package-test-row .package-test-clear:hover,
+.role-manager .manage-tests-compact .package-test-row .package-test-clear:focus-visible {
+    background: #f1f5f9;
+    color: #334155;
 }
 
 .role-manager .manage-tests-compact .package-test-row .package-test-base {

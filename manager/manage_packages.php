@@ -150,6 +150,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $meta['base_test_price'] = $base_price;
                 $meta['package_test_price'] = normalize_currency_amount($meta['package_test_price']);
+                if ($meta['row_type'] === 'existing' && $meta['package_test_price'] > $base_price) {
+                    throw new Exception('Package-specific price cannot exceed base price for existing tests.');
+                }
                 $total_base_price += $base_price;
                 $total_package_price += $meta['package_test_price'];
             }
@@ -361,11 +364,14 @@ if ($tests_query) {
             $main = 'General';
         }
         $label = $sub !== '' ? ($main . ' - ' . $sub) : $main;
+        $price = round((float)$row['price'], 2);
+        $display_label = $label . ' (Rs ' . number_format($price, 2, '.', '') . ')';
         $tests[] = [
             'id' => (int)$row['id'],
             'label' => $label,
+            'display_label' => $display_label,
             'category' => $main,
-            'price' => round((float)$row['price'], 2)
+            'price' => $price
         ];
     }
     $tests_query->free();
@@ -697,7 +703,9 @@ require_once '../includes/header.php';
         }
         const list = testsByCategory[category];
         for (let i = 0; i < list.length; i += 1) {
-            if (normalizeText(list[i].label) === normalizedInput) {
+            const plainLabel = normalizeText(list[i].label);
+            const pricedLabel = normalizeText(list[i].display_label || '');
+            if (plainLabel === normalizedInput || pricedLabel === normalizedInput) {
                 return list[i];
             }
         }
@@ -713,7 +721,7 @@ require_once '../includes/header.php';
         const list = category ? (testsByCategory[category] || []) : [];
         list.forEach(function(test) {
             const option = document.createElement('option');
-            option.value = test.label;
+            option.value = test.display_label || test.label;
             datalist.appendChild(option);
         });
     }
@@ -753,7 +761,9 @@ require_once '../includes/header.php';
         const existing = findExistingTestByInput(category, testInput.value);
         if (existing) {
             hiddenIdInput.value = String(existing.id);
+            testInput.value = existing.display_label || existing.label;
             baseInput.value = formatAmount(existing.price);
+            priceInput.max = formatAmount(existing.price);
             if (forcePriceFromBase || testInput.dataset.lastMode !== 'existing' || testInput.value.trim() === '') {
                 priceInput.value = formatAmount(existing.price);
             }
@@ -765,6 +775,7 @@ require_once '../includes/header.php';
         }
 
         hiddenIdInput.value = '';
+    priceInput.removeAttribute('max');
         const customName = testInput.value.trim();
         if (customName !== '') {
             row.dataset.rowType = 'custom';
@@ -791,6 +802,34 @@ require_once '../includes/header.php';
         updateSummary();
     }
 
+    function validatePackageSpecificPrice(row, showWarning) {
+        const baseInput = row.querySelector('.package-test-base');
+        const priceInput = row.querySelector('.package-test-price');
+        if (!baseInput || !priceInput) {
+            return true;
+        }
+
+        if (row.dataset.rowType !== 'existing') {
+            priceInput.setCustomValidity('');
+            return true;
+        }
+
+        const basePrice = roundMoney(baseInput.value);
+        const packagePrice = roundMoney(priceInput.value);
+
+        if (packagePrice > basePrice) {
+            priceInput.value = '';
+            priceInput.setCustomValidity('Package-specific price cannot exceed base price.');
+            if (showWarning) {
+                priceInput.reportValidity();
+            }
+            return false;
+        }
+
+        priceInput.setCustomValidity('');
+        return true;
+    }
+
     function createRow(prefill) {
         rowSerial += 1;
         const row = document.createElement('div');
@@ -805,7 +844,7 @@ require_once '../includes/header.php';
         const prefillCategory = String((prefill && prefill.test_category) || prefillCategoryFromTest || '');
         const prefillLabel = prefillIsCustom
             ? String((prefill && prefill.custom_test_name) || '')
-            : String((prefillTestId > 0 && testsById[String(prefillTestId)]) ? testsById[String(prefillTestId)].label : '');
+            : String((prefillTestId > 0 && testsById[String(prefillTestId)]) ? (testsById[String(prefillTestId)].display_label || testsById[String(prefillTestId)].label) : '');
         const prefillBase = prefill && prefill.base_test_price !== undefined ? Number(prefill.base_test_price) : 0;
         const prefillPrice = prefill && prefill.package_test_price !== undefined ? Number(prefill.package_test_price) : prefillBase;
 
@@ -816,7 +855,10 @@ require_once '../includes/header.php';
             '</div>' +
             '<div class="form-group">' +
                 '<label>Select Test (Search or Type New)</label>' +
-                '<input type="text" class="package-test-input" list="' + datalistId + '" value="' + escapeHtml(prefillLabel) + '" autocomplete="off" placeholder="Select category first" required>' +
+                '<div class="package-test-input-row">' +
+                    '<input type="text" class="package-test-input" list="' + datalistId + '" value="' + escapeHtml(prefillLabel) + '" autocomplete="off" placeholder="Select category first" required>' +
+                    '<button type="button" class="package-test-clear" aria-label="Clear selected test" title="Clear selected test">x</button>' +
+                '</div>' +
                 '<datalist id="' + datalistId + '"></datalist>' +
                 '<small class="uid-hint package-test-mode">Search/select existing test or type a custom test name.</small>' +
                 '<input type="hidden" class="package-test-id" value="' + (prefillTestId > 0 ? String(prefillTestId) : '') + '">' +
@@ -841,6 +883,7 @@ require_once '../includes/header.php';
         const hiddenIdInput = row.querySelector('.package-test-id');
         const baseInput = row.querySelector('.package-test-base');
         const priceInput = row.querySelector('.package-test-price');
+        const clearTestBtn = row.querySelector('.package-test-clear');
         const removeBtn = row.querySelector('.package-test-remove');
 
         if (prefillTestId > 0 && testsById[String(prefillTestId)]) {
@@ -859,6 +902,10 @@ require_once '../includes/header.php';
 
         categorySelect.addEventListener('change', function() {
             hiddenIdInput.value = '';
+            const stillValidForCategory = findExistingTestByInput(categorySelect.value, testInput.value);
+            if (!stillValidForCategory) {
+                testInput.value = '';
+            }
             refreshRowState(row, true);
         });
 
@@ -870,10 +917,20 @@ require_once '../includes/header.php';
             refreshRowState(row, false);
         });
 
+        if (clearTestBtn) {
+            clearTestBtn.addEventListener('click', function() {
+                testInput.value = '';
+                hiddenIdInput.value = '';
+                refreshRowState(row, true);
+                testInput.focus();
+            });
+        }
+
         priceInput.addEventListener('input', function() {
             if (!Number.isFinite(Number(priceInput.value)) || Number(priceInput.value) < 0) {
                 priceInput.value = formatAmount(0);
             }
+            validatePackageSpecificPrice(row, true);
             if (row.dataset.rowType === 'custom') {
                 baseInput.value = formatAmount(priceInput.value);
             }
@@ -881,6 +938,10 @@ require_once '../includes/header.php';
         });
 
         priceInput.addEventListener('blur', function() {
+            if (!validatePackageSpecificPrice(row, false)) {
+                updateSummary();
+                return;
+            }
             priceInput.value = formatAmount(priceInput.value);
             if (row.dataset.rowType === 'custom') {
                 baseInput.value = formatAmount(priceInput.value);
@@ -924,6 +985,10 @@ require_once '../includes/header.php';
                 return;
             }
 
+            if (!validatePackageSpecificPrice(row, false)) {
+                return;
+            }
+
             let basePrice = roundMoney(baseInput.value);
             const packagePrice = roundMoney(priceInput.value);
 
@@ -962,11 +1027,13 @@ require_once '../includes/header.php';
             const categorySelect = row.querySelector('.package-test-category');
             const testInput = row.querySelector('.package-test-input');
             const hiddenIdInput = row.querySelector('.package-test-id');
+            const baseInput = row.querySelector('.package-test-base');
             const priceInput = row.querySelector('.package-test-price');
 
             const category = categorySelect ? categorySelect.value.trim() : '';
             const typedName = testInput ? testInput.value.trim() : '';
             const testId = hiddenIdInput && hiddenIdInput.value ? Number(hiddenIdInput.value) : 0;
+            const basePrice = baseInput ? roundMoney(baseInput.value) : 0;
             const packagePrice = priceInput ? roundMoney(priceInput.value) : 0;
 
             if (!category && typedName === '' && !testId) {
@@ -977,7 +1044,22 @@ require_once '../includes/header.php';
                 throw new Error('Please select a category for each package row.');
             }
 
+            if (!validatePackageSpecificPrice(row, false)) {
+                if (priceInput) {
+                    priceInput.reportValidity();
+                }
+                throw new Error('Package-specific price cannot exceed base price.');
+            }
+
             if (testId > 0) {
+                if (packagePrice > basePrice) {
+                    if (priceInput) {
+                        priceInput.value = '';
+                        priceInput.setCustomValidity('Package-specific price cannot exceed base price.');
+                        priceInput.reportValidity();
+                    }
+                    throw new Error('Package-specific price cannot exceed base price.');
+                }
                 if (seenExisting[testId]) {
                     throw new Error('Duplicate existing tests are not allowed in package rows.');
                 }
