@@ -265,48 +265,48 @@ require_once '../includes/header.php';
     <div class="table-container" style="margin-bottom:1rem;">
         <h2 style="margin-top:0;margin-bottom:.85rem;font-size:1.02rem;">Doctor Master</h2>
 
-        <form method="POST" action="reporting_doctors.php<?php echo $selected_doc !== 'all' ? '?doctor_name=' . urlencode($selected_doc) : ''; ?>" class="filter-form compact-filters rd-filter-form">
+        <form method="POST" action="reporting_doctors.php<?php echo $selected_doc !== 'all' ? '?doctor_name=' . urlencode($selected_doc) : ''; ?>" class="filter-form compact-filters rd-filter-form rd-master-form">
             <input type="hidden" name="doctor_action" value="save">
             <input type="hidden" name="doctor_id" value="<?php echo (int)$doctor_form['id']; ?>">
 
-            <div class="filter-group">
+            <div class="filter-group rd-col-doctor">
                 <label for="doctor_name_master">Doctor Name <span style="color:#b91c1c;">*</span></label>
                 <input type="text" id="doctor_name_master" name="doctor_name" value="<?php echo htmlspecialchars($doctor_form['doctor_name']); ?>" required>
             </div>
 
-            <div class="filter-group">
+            <div class="filter-group rd-col-phone">
                 <label for="phone_number_master">Phone Number <span style="color:#b91c1c;">*</span></label>
                 <input type="text" id="phone_number_master" name="phone_number" value="<?php echo htmlspecialchars($doctor_form['phone_number']); ?>" required>
             </div>
 
-            <div class="filter-group">
+            <div class="filter-group rd-col-email">
                 <label for="email_master">Email</label>
                 <input type="email" id="email_master" name="email" value="<?php echo htmlspecialchars($doctor_form['email']); ?>">
             </div>
 
-            <div class="filter-group">
+            <div class="filter-group rd-col-city">
                 <label for="city_master">City</label>
                 <input type="text" id="city_master" name="city" value="<?php echo htmlspecialchars($doctor_form['city']); ?>">
             </div>
 
-            <div class="filter-group">
+            <div class="filter-group rd-col-hospital">
                 <label for="hospital_master">Hospital Name</label>
                 <input type="text" id="hospital_master" name="hospital_name" value="<?php echo htmlspecialchars($doctor_form['hospital_name']); ?>">
             </div>
 
-            <div class="filter-group" style="min-width:220px;">
+            <div class="filter-group rd-col-address" style="min-width:220px;">
                 <label for="address_master">Address</label>
                 <input type="text" id="address_master" name="address" value="<?php echo htmlspecialchars($doctor_form['address']); ?>">
             </div>
 
-            <div class="filter-group" style="max-width:120px;">
+            <div class="filter-group rd-col-active" style="max-width:120px;">
                 <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer;margin-top:1.5rem;">
                     <input type="checkbox" name="is_active" value="1" <?php echo (int)$doctor_form['is_active'] === 1 ? 'checked' : ''; ?>>
                     Active
                 </label>
             </div>
 
-            <div class="filter-actions">
+            <div class="filter-actions rd-col-actions">
                 <button type="submit" class="btn-submit">
                     <i class="fas fa-save"></i> <?php echo $doctor_form_mode === 'edit' ? 'Update Doctor' : 'Add Doctor'; ?>
                 </button>
@@ -368,7 +368,7 @@ require_once '../includes/header.php';
     </div>
 
     <!-- ── Filter Form ─────────────────────────────────────────── -->
-    <form method="GET" action="reporting_doctors.php" class="filter-form compact-filters rd-filter-form">
+    <form method="GET" action="reporting_doctors.php" class="filter-form compact-filters rd-filter-form rd-search-form">
 
         <div class="filter-group">
             <label for="start_date">Start Date</label>

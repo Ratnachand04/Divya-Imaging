@@ -1,0 +1,131 @@
+/* Superadmin shell: top-nav layout without left sidebar */
+
+.sa-shell {
+    width: 100%;
+}
+
+.sa-sidebar {
+    display: none !important;
+}
+
+.sa-content-wrap {
+    min-height: calc(100vh - 70px);
+}
+
+.sa-content-wrap-full {
+    width: 100%;
+}
+
+.sa-header {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    margin-bottom: 0.7rem;
+}
+
+.sa-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.sa-header-icons {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.sa-header-icons a {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    border: 1px solid #fbcfe8;
+    background: #fff;
+    color: #e13d79;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+}
+
+.sa-header-icons a:hover {
+    background: #fff1f7;
+}
+
+.sa-logout-btn {
+    border: 1px solid #fbcfe8;
+    background: #ec4899;
+    color: #fff;
+    border-radius: 10px;
+    height: 34px;
+    padding: 0 0.75rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    text-decoration: none;
+    font-weight: 700;
+    font-size: 0.84rem;
+}
+
+.sa-logout-btn:hover {
+    background: #db2777;
+}
+
+.sa-topnav {
+    margin: 0.2rem 0 0.9rem;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.7rem 0.85rem;
+}
+
+.sa-topnav-link {
+    color: #243b63;
+    text-decoration: none;
+    font-size: 1.03rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.32rem;
+    line-height: 1;
+}
+
+.sa-topnav-link i {
+    color: #ec407a;
+    font-size: 0.95rem;
+}
+
+.sa-topnav-link span {
+    font-size: 1rem;
+    letter-spacing: 0;
+}
+
+.sa-topnav-link.active {
+    font-weight: 700;
+}
+
+.sa-topnav-link-logout {
+    color: #243b63;
+}
+
+.sa-main-content {
+    width: 100%;
+}
+
+@media (max-width: 900px) {
+    .sa-header {
+        justify-content: center;
+    }
+
+    .sa-topnav {
+        gap: 0.55rem 0.65rem;
+    }
+
+    .sa-topnav-link {
+        font-size: 0.98rem;
+    }
+
+    .sa-topnav-link i {
+        font-size: 0.85rem;
+    }
+}

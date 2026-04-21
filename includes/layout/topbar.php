@@ -11,6 +11,16 @@
         </div>
 
         <div class="user-info-area">
+            <?php if ($raw_role === 'superadmin'): ?>
+                <a
+                    href="<?php echo $base_url; ?>/superadmin/manage_calendar.php"
+                    class="shell-icon-btn"
+                    aria-label="Calendar"
+                    title="Calendar"
+                >
+                    <i class="far fa-calendar-alt"></i>
+                </a>
+            <?php endif; ?>
             <div class="header-notification">
                 <button
                     id="notification-bell-btn"
@@ -26,9 +36,20 @@
                 </button>
                 <div id="partial-paid-dropdown" class="notification-dropdown" hidden></div>
             </div>
-            <button class="shell-icon-btn" aria-label="Settings" title="Settings">
-                <i class="fas fa-cog"></i>
-            </button>
+            <?php if ($raw_role === 'superadmin'): ?>
+                <a
+                    href="<?php echo $base_url; ?>/superadmin/global_settings.php"
+                    class="shell-icon-btn"
+                    aria-label="Settings"
+                    title="Settings"
+                >
+                    <i class="fas fa-cog"></i>
+                </a>
+            <?php else: ?>
+                <button class="shell-icon-btn" aria-label="Settings" title="Settings" type="button">
+                    <i class="fas fa-cog"></i>
+                </button>
+            <?php endif; ?>
             <span class="user-chip" title="<?php echo $username; ?> (<?php echo ucfirst($role); ?>)">
                 <span class="user-avatar"><?php echo $user_initial; ?></span>
                 <span class="user-meta">

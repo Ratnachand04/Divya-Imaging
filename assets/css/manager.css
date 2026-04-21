@@ -1853,6 +1853,104 @@ body.role-manager.manager-nav-colliding .main-navbar {
     .rd-filter-form { grid-template-columns: 1fr 1fr; }
 }
 
+.role-manager .rd-master-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.9rem 1rem;
+    padding: 0.95rem 1rem;
+    border: 1px solid #f1cddd;
+    border-radius: 12px;
+    background: #fffafb;
+}
+
+.role-manager .rd-master-form .filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    margin: 0;
+    min-width: 160px;
+    flex: 1 1 170px;
+}
+
+.role-manager .rd-master-form .filter-group label {
+    margin: 0;
+    color: #1f3b66;
+    font-weight: 700;
+}
+
+.role-manager .rd-master-form .filter-group input[type="text"],
+.role-manager .rd-master-form .filter-group input[type="email"] {
+    height: 44px;
+    border-radius: 12px;
+    border: 1px solid #b9cbe6;
+    background: #ffffff;
+    padding: 0.55rem 0.8rem;
+}
+
+.role-manager .rd-master-form .rd-col-doctor {
+    flex: 2.2 1 340px;
+    min-width: 300px;
+}
+
+.role-manager .rd-master-form .rd-col-doctor input {
+    min-width: 300px;
+}
+
+.role-manager .rd-master-form .rd-col-phone,
+.role-manager .rd-master-form .rd-col-email,
+.role-manager .rd-master-form .rd-col-city {
+    flex: 1 1 180px;
+}
+
+.role-manager .rd-master-form .rd-col-hospital,
+.role-manager .rd-master-form .rd-col-address {
+    flex: 1.4 1 220px;
+}
+
+.role-manager .rd-master-form .rd-col-active {
+    flex: 0 0 120px;
+    max-width: 120px;
+}
+
+.role-manager .rd-master-form .rd-col-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: flex-end;
+    gap: 0.5rem;
+}
+
+.role-manager .rd-search-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 0.9rem;
+    align-items: flex-end;
+}
+
+.role-manager .rd-search-form .filter-group {
+    min-width: 170px;
+    flex: 1 1 180px;
+}
+
+.role-manager .rd-search-form .filter-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: flex-end;
+    gap: 0.5rem;
+}
+
+@media (max-width: 900px) {
+    .role-manager .rd-master-form .rd-col-doctor,
+    .role-manager .rd-master-form .rd-col-doctor input {
+        min-width: 230px;
+    }
+
+    .role-manager .rd-master-form .rd-col-actions {
+        margin-left: 0;
+        width: 100%;
+    }
+}
+
 .rd-notice {
     padding: 0.75rem 1rem;
     border-radius: 10px;
