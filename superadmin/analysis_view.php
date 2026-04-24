@@ -52,18 +52,56 @@ for ($y = $currentYear - 5; $y <= $currentYear + 1; $y++) {
 ?>
 <link rel="stylesheet" href="<?php echo $base_url; ?>/assets/css/superadmin_shell.css?v=<?php echo time(); ?>">
 <style>
-.sa-ca-wrap { display:grid; gap:1rem; font-family:'Sora',sans-serif; }
-.sa-ca-head, .sa-ca-picker, .sa-ca-card, .sa-ca-table { background:#fff; border:1px solid #e2e8f0; border-radius:14px; box-shadow:0 10px 20px rgba(15,23,42,.06); }
-.sa-ca-head { padding:1rem; background:linear-gradient(130deg,#0f2f78,#1744a1); color:#fff; }
+.sa-ca-wrap {
+    display:grid;
+    gap:1rem;
+    font-family:'Sora',sans-serif;
+    position:relative;
+    padding-bottom:.25rem;
+}
+.sa-ca-wrap::before {
+    content:'';
+    position:absolute;
+    inset:0;
+    background:
+        radial-gradient(circle at 100% 0%, rgba(37,99,235,.12), transparent 42%),
+        radial-gradient(circle at 0% 100%, rgba(14,165,233,.12), transparent 38%);
+    pointer-events:none;
+    z-index:0;
+}
+.sa-ca-head, .sa-ca-picker, .sa-ca-card, .sa-ca-table, .sa-ca-kpi-strip {
+    position:relative;
+    z-index:1;
+    background:rgba(255,255,255,.94);
+    border:1px solid #e2e8f0;
+    border-radius:16px;
+    box-shadow:0 14px 28px rgba(15,23,42,.07);
+    backdrop-filter:blur(4px);
+}
+.sa-ca-head { padding:1.05rem; background:linear-gradient(135deg,#0f2f78,#1744a1 45%,#0ea5e9); color:#fff; }
 .sa-ca-head h1 { margin:0; font-size:1.55rem; }
 .sa-ca-head p { margin:.3rem 0 0; color:#dbeafe; }
 .sa-ca-nav { display:flex; gap:.5rem; flex-wrap:wrap; }
-.sa-ca-nav a { border:1px solid #cbd5e1; border-radius:999px; padding:.45rem .85rem; text-decoration:none; color:#1e3a8a; font-weight:700; background:#fff; }
+.sa-ca-nav a { border:1px solid #cbd5e1; border-radius:999px; padding:.46rem .9rem; text-decoration:none; color:#1e3a8a; font-weight:700; background:#fff; box-shadow:0 2px 8px rgba(15,23,42,.05); }
 .sa-ca-nav a.active { background:#1e3a8a; color:#fff; border-color:#1e3a8a; }
 .sa-ca-picker { padding:.75rem; display:grid; gap:.35rem; width:fit-content; min-width:240px; }
 .sa-ca-picker label { color:#64748b; font-size:.76rem; font-weight:700; text-transform:uppercase; }
 .sa-ca-picker input, .sa-ca-picker select { border:1px solid #cbd5e1; border-radius:8px; padding:.4rem .5rem; }
 .sa-ca-meta { color:#475569; font-size:.85rem; }
+.sa-ca-kpi-strip {
+    padding:.55rem .75rem;
+    display:grid;
+    grid-template-columns:repeat(4,minmax(0,1fr));
+    gap:.5rem;
+}
+.sa-ca-kpi-chip {
+    background:#f8fbff;
+    border:1px solid #dbeafe;
+    border-radius:10px;
+    padding:.52rem .55rem;
+}
+.sa-ca-kpi-chip .k { color:#1d4ed8; font-size:.69rem; font-weight:700; text-transform:uppercase; }
+.sa-ca-kpi-chip .v { color:#0f172a; margin-top:.18rem; font-size:.96rem; font-weight:700; }
 .sa-ca-charts { display:grid; grid-template-columns:1fr 1fr; gap:.8rem; }
 .sa-ca-card { padding:.95rem; }
 .sa-ca-card h3 { margin:0 0 .35rem; color:#0f2f78; font-size:1rem; }
@@ -81,6 +119,7 @@ for ($y = $currentYear - 5; $y <= $currentYear + 1; $y++) {
 .sa-ca-table table { width:100%; border-collapse:collapse; }
 .sa-ca-table th, .sa-ca-table td { padding:.62rem .55rem; border-bottom:1px solid #e2e8f0; text-align:left; white-space:nowrap; }
 .sa-ca-table th { font-size:.78rem; color:#334155; text-transform:uppercase; letter-spacing:.02em; }
+.sa-ca-table tbody tr:nth-child(even) { background:#fbfdff; }
 .sa-ca-table tr.clickable { cursor:pointer; }
 .sa-ca-table tr.clickable:hover { background:#f8fbff; }
 
@@ -97,9 +136,11 @@ for ($y = $currentYear - 5; $y <= $currentYear + 1; $y++) {
 
 @media (max-width:1100px){
     .sa-ca-charts{grid-template-columns:1fr;}
+    .sa-ca-kpi-strip{grid-template-columns:repeat(2,minmax(0,1fr));}
     .sa-ca-stats{grid-template-columns:repeat(2,minmax(0,1fr));}
 }
 @media (max-width:700px){
+    .sa-ca-kpi-strip{grid-template-columns:1fr;}
     .sa-ca-stats{grid-template-columns:1fr;}
 }
 </style>
@@ -142,6 +183,8 @@ for ($y = $currentYear - 5; $y <= $currentYear + 1; $y++) {
 
     <div class="sa-ca-meta"><?php echo htmlspecialchars($meta); ?> | Data window: <?php echo htmlspecialchars($payload['from']); ?> to <?php echo htmlspecialchars($payload['to']); ?></div>
 
+    <section class="sa-ca-kpi-strip" id="kpiStrip"></section>
+
     <section class="sa-ca-charts">
         <article class="sa-ca-card">
             <h3>Revenue vs Expenses</h3>
@@ -163,6 +206,7 @@ for ($y = $currentYear - 5; $y <= $currentYear + 1; $y++) {
             <table>
                 <thead>
                     <tr>
+                        <th>#</th>
                         <th>Expense Type</th>
                         <th>Total Amount</th>
                         <th>Entries</th>
@@ -225,6 +269,16 @@ for ($y = $currentYear - 5; $y <= $currentYear + 1; $y++) {
     }
 
     const k = payload.kpis || {};
+    const kpiStripItems = [
+        ['Net Position', inr(k.net || 0)],
+        ['Tests', num(k.tests || 0)],
+        ['Patients', num(k.patients || 0)],
+        ['Bills', num(k.bills || 0)]
+    ];
+    document.getElementById('kpiStrip').innerHTML = kpiStripItems
+        .map(x => '<article class="sa-ca-kpi-chip"><div class="k">' + x[0] + '</div><div class="v">' + x[1] + '</div></article>')
+        .join('');
+
     const statCards = [
         ['Revenue', inr(k.revenue || 0)],
         ['Expenses', inr(k.expenses || 0)],
@@ -235,11 +289,19 @@ for ($y = $currentYear - 5; $y <= $currentYear + 1; $y++) {
         .map(x => '<article class="sa-ca-stat"><div class="k">' + x[0] + '</div><div class="v">' + x[1] + '</div></article>')
         .join('');
 
-    new Chart(document.getElementById('finance').getContext('2d'), {
+    const financeCtx = document.getElementById('finance').getContext('2d');
+    const revGradient = financeCtx.createLinearGradient(0, 0, 0, 320);
+    revGradient.addColorStop(0, 'rgba(37,99,235,0.28)');
+    revGradient.addColorStop(1, 'rgba(37,99,235,0.03)');
+    const expGradient = financeCtx.createLinearGradient(0, 0, 0, 320);
+    expGradient.addColorStop(0, 'rgba(220,38,38,0.23)');
+    expGradient.addColorStop(1, 'rgba(220,38,38,0.03)');
+
+    new Chart(financeCtx, {
         type:'line',
         data:{ labels:payload.labels||[], datasets:[
-            { label:'Revenue', data:payload.revenue||[], borderColor:'#1d4ed8', backgroundColor:'rgba(37,99,235,0.16)', borderWidth:2, fill:true, tension:0.3 },
-            { label:'Expenses', data:payload.expenses||[], borderColor:'#dc2626', backgroundColor:'rgba(220,38,38,0.14)', borderWidth:2, fill:true, tension:0.3 }
+            { label:'Revenue', data:payload.revenue||[], borderColor:'#1d4ed8', backgroundColor:revGradient, borderWidth:2.4, fill:true, tension:0.32, pointRadius:2, pointHoverRadius:4 },
+            { label:'Expenses', data:payload.expenses||[], borderColor:'#dc2626', backgroundColor:expGradient, borderWidth:2.2, fill:true, tension:0.32, pointRadius:2, pointHoverRadius:4 }
         ]},
         options:{
             responsive:true,
@@ -300,6 +362,7 @@ for ($y = $currentYear - 5; $y <= $currentYear + 1; $y++) {
                         borderColor: '#059669',
                         backgroundColor: '#059669',
                         tension: 0.28,
+                        pointRadius: 2,
                         yAxisID: 'yTests'
                     },
                     {
@@ -310,6 +373,7 @@ for ($y = $currentYear - 5; $y <= $currentYear + 1; $y++) {
                         backgroundColor: '#9333ea',
                         borderDash: [6, 4],
                         tension: 0.2,
+                        pointRadius: 2,
                         yAxisID: 'yPercent'
                     }
                 ]
@@ -368,12 +432,13 @@ for ($y = $currentYear - 5; $y <= $currentYear + 1; $y++) {
     const expenseDetailMap = payload.expenseDetailsByType || {};
 
     if (!expenseTypes.length) {
-        expenseRows.innerHTML = '<tr><td colspan="3">No expense records found for this period.</td></tr>';
+        expenseRows.innerHTML = '<tr><td colspan="4">No expense records found for this period.</td></tr>';
     } else {
-        expenseRows.innerHTML = expenseTypes.map(function (row) {
+        expenseRows.innerHTML = expenseTypes.map(function (row, idx) {
             const typeEsc = String(row.type || '');
             const safeType = escHtml(typeEsc);
             return '<tr class="clickable" data-expense-type="' + safeType + '">'
+                + '<td>' + (idx + 1) + '</td>'
                 + '<td>' + safeType + '</td>'
                 + '<td>' + inr(row.total || 0) + '</td>'
                 + '<td>' + num(row.count || 0) + '</td>'
